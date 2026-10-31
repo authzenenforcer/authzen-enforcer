@@ -191,6 +191,8 @@
                         <configuration>
                             <release>${maven.compiler.release}</release>
                             <doclint>all,-missing</doclint>
+                            <!-- Internal packages are not part of the public API -->
+                            <excludePackageNames>*.internal:*.internal.*</excludePackageNames>
                         </configuration>
                         <executions>
                             <execution>
