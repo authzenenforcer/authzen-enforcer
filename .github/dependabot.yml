@@ -1,0 +1,14 @@
+version: 2
+updates:
+  - package-ecosystem: maven
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      # JUnit 6 requires Java 17; the core module is tested on Java 11
+      - dependency-name: "org.junit.jupiter:*"
+        update-types: ["version-update:semver-major"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

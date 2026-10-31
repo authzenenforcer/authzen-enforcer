@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.github.authzenenforcer</groupId>
+        <artifactId>authzen-enforcer-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>authzen-enforcer-core</artifactId>
+    <packaging>jar</packaging>
+
+    <name>AuthZEN Enforcer Core</name>
+    <description>Zero-dependency AuthZEN PDP client for Java 11+, with Bearer and DPoP support.</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Automatic-Module-Name>io.github.authzenenforcer.core</Automatic-Module-Name>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+            <plugin>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>enforce-zero-runtime-dependencies</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <!-- The core must depend on the JDK only; test scope is allowed -->
+                                <bannedDependencies>
+                                    <searchTransitive>true</searchTransitive>
+                                    <excludes>
+                                        <exclude>*:*:*:*:compile</exclude>
+                                        <exclude>*:*:*:*:runtime</exclude>
+                                        <exclude>*:*:*:*:provided</exclude>
+                                        <exclude>*:*:*:*:system</exclude>
+                                    </excludes>
+                                    <message>authzen-enforcer-core must not have non-test dependencies. See https://github.com/authzenenforcer/authzen-enforcer/blob/main/CONTRIBUTING.md#zero-runtime-dependencies</message>
+                                </bannedDependencies>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
