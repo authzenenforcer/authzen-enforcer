@@ -8,7 +8,14 @@ updates:
       # JUnit 6 requires Java 17; the core module is tested on Java 11
       - dependency-name: "org.junit.jupiter:*"
         update-types: ["version-update:semver-major"]
+    groups:
+      # One PR for all Maven updates, so the version properties in pom.xml do not conflict
+      maven:
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
