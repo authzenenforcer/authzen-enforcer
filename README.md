@@ -10,7 +10,7 @@ requests to a Policy Decision Point (PDP) and returns the decision to your appli
 
 ## Goals
 
-- **Zero runtime dependencies** in the core module. It runs on Java 11+ and uses only the JDK.
+- **Zero runtime dependencies** in the core module. It runs on Java 17+ and uses only the JDK.
 - **Minimal configuration.** You provide the PDP URL and a credential. Endpoints are discovered
   from `/.well-known/authzen-configuration`.
 - **Full AuthZEN API surface:** Access Evaluation, Access Evaluations (batch), and the Subject,
@@ -53,7 +53,7 @@ public Document getDocument(@PathVariable String id) { ... }
 
 | Artifact | Java | Description |
 |---|---|---|
-| `authzen-enforcer-core` | 11+ | PDP client, model, Bearer/DPoP. No dependencies. |
+| `authzen-enforcer-core` | 17+ | PDP client, model, Bearer/DPoP. No dependencies. |
 | `authzen-enforcer-spring-boot-starter` | 17+ | Spring Boot 3 auto-configuration and `@CheckPermission` |
 | `authzen-enforcer-quarkus` | 17+ | Quarkus 3 extension |
 | `authzen-enforcer-bom` | – | Version alignment |

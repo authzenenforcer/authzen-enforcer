@@ -14,7 +14,7 @@
     <packaging>jar</packaging>
 
     <name>AuthZEN Enforcer Core</name>
-    <description>Zero-dependency AuthZEN PDP client for Java 11+, with Bearer and DPoP support.</description>
+    <description>Zero-dependency AuthZEN PDP client for Java 17+, with Bearer and DPoP support.</description>
 
     <dependencies>
         <dependency>
