@@ -22,7 +22,7 @@ public final class Action {
     private final Map<String, Object> properties;
 
     private Action(Builder builder) {
-        this.name = Checks.requireText(builder.name, "name");
+        this.name = Checks.requireSet(builder.name, "name");
         this.properties = JsonValues.copyObject(builder.properties);
     }
 
@@ -31,8 +31,7 @@ public final class Action {
      *
      * @param name the action name, such as {@code read}
      * @return the action
-     * @throws IllegalStateException    if the name is {@code null}
-     * @throws IllegalArgumentException if the name is empty
+     * @throws IllegalStateException if the name is {@code null}
      */
     public static Action of(String name) {
         return builder().name(name).build();
@@ -50,7 +49,7 @@ public final class Action {
     /**
      * Returns the action name.
      *
-     * @return the name, never empty
+     * @return the name
      */
     public String getName() {
         return name;
@@ -138,8 +137,7 @@ public final class Action {
          *
          * @return the action
          * @throws IllegalStateException    if the name is not set
-         * @throws IllegalArgumentException if the name is empty, or a property value is not
-         *                                  JSON-compatible
+         * @throws IllegalArgumentException if a property value is not JSON-compatible
          */
         public Action build() {
             return new Action(this);

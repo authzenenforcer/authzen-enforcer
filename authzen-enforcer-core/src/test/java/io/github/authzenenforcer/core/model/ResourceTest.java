@@ -32,11 +32,17 @@ class ResourceTest {
     }
 
     @Test
-    void rejectsMissingOrEmptyRequiredFields() {
+    void rejectsMissingRequiredFields() {
         assertThrows(IllegalStateException.class, () -> Resource.builder().id("123").build());
         assertThrows(IllegalStateException.class, () -> Resource.builder().type("account").build());
-        assertThrows(IllegalArgumentException.class, () -> Resource.of("", "123"));
-        assertThrows(IllegalArgumentException.class, () -> Resource.of("account", ""));
+    }
+
+    @Test
+    void acceptsEmptyStringsAsTheSpecificationDoes() {
+        Resource resource = Resource.of("", "");
+
+        assertEquals("", resource.getType());
+        assertEquals("", resource.getId());
     }
 
     @Test

@@ -23,8 +23,8 @@ public final class Resource {
     private final Map<String, Object> properties;
 
     private Resource(Builder builder) {
-        this.type = Checks.requireText(builder.type, "type");
-        this.id = Checks.requireText(builder.id, "id");
+        this.type = Checks.requireSet(builder.type, "type");
+        this.id = Checks.requireSet(builder.id, "id");
         this.properties = JsonValues.copyObject(builder.properties);
     }
 
@@ -34,8 +34,7 @@ public final class Resource {
      * @param type the resource type, such as {@code document}
      * @param id   the identifier of the resource, unique within its type
      * @return the resource
-     * @throws IllegalStateException    if an argument is {@code null}
-     * @throws IllegalArgumentException if an argument is empty
+     * @throws IllegalStateException if an argument is {@code null}
      */
     public static Resource of(String type, String id) {
         return builder().type(type).id(id).build();
@@ -53,7 +52,7 @@ public final class Resource {
     /**
      * Returns the resource type.
      *
-     * @return the type, never empty
+     * @return the type
      */
     public String getType() {
         return type;
@@ -62,7 +61,7 @@ public final class Resource {
     /**
      * Returns the identifier of the resource, unique within its type.
      *
-     * @return the identifier, never empty
+     * @return the identifier
      */
     public String getId() {
         return id;
@@ -162,8 +161,7 @@ public final class Resource {
          *
          * @return the resource
          * @throws IllegalStateException    if the type or id is not set
-         * @throws IllegalArgumentException if the type or id is empty, or a property value is not
-         *                                  JSON-compatible
+         * @throws IllegalArgumentException if a property value is not JSON-compatible
          */
         public Resource build() {
             return new Resource(this);

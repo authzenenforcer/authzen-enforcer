@@ -2,7 +2,10 @@
  * Immutable AuthZEN information model: subject, action, resource, context, and the Access
  * Evaluation request and response.
  *
- * <p>Required string fields ({@code type}, {@code id}, {@code name}) must not be empty.
+ * <p>Required fields must not be {@code null}. As in the specification, required strings
+ * ({@code type}, {@code id}, {@code name}) may be empty: the model does not judge what a PDP accepts.
+ * Rejecting suspicious values, such as an empty id taken from a request path, is the job of the
+ * enforcement layer.
  *
  * <p>{@code properties} and context values must be JSON-compatible: {@code null},
  * {@link java.lang.CharSequence CharSequence}, {@link java.lang.Boolean Boolean}, finite

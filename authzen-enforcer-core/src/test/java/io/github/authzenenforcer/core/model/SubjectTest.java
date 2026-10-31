@@ -60,11 +60,17 @@ class SubjectTest {
     }
 
     @Test
-    void rejectsMissingOrEmptyRequiredFields() {
+    void rejectsMissingRequiredFields() {
         assertThrows(IllegalStateException.class, () -> Subject.builder().id("alice").build());
         assertThrows(IllegalStateException.class, () -> Subject.builder().type("user").build());
-        assertThrows(IllegalArgumentException.class, () -> Subject.of("", "alice"));
-        assertThrows(IllegalArgumentException.class, () -> Subject.of("user", ""));
+    }
+
+    @Test
+    void acceptsEmptyStringsAsTheSpecificationDoes() {
+        Subject subject = Subject.of("", "");
+
+        assertEquals("", subject.getType());
+        assertEquals("", subject.getId());
     }
 
     @Test

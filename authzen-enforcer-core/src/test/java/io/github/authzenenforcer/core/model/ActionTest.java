@@ -27,9 +27,13 @@ class ActionTest {
     }
 
     @Test
-    void rejectsMissingOrEmptyName() {
+    void rejectsMissingName() {
         assertThrows(IllegalStateException.class, () -> Action.builder().build());
-        assertThrows(IllegalArgumentException.class, () -> Action.of(""));
+    }
+
+    @Test
+    void acceptsEmptyNameAsTheSpecificationDoes() {
+        assertEquals("", Action.of("").getName());
     }
 
     @Test
