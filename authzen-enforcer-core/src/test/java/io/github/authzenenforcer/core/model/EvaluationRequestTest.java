@@ -1,6 +1,7 @@
 package io.github.authzenenforcer.core.model;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -41,6 +42,20 @@ class EvaluationRequestTest {
         assertThrows(IllegalStateException.class, () -> EvaluationRequest.of(null, action, resource));
         assertThrows(IllegalStateException.class, () -> EvaluationRequest.of(subject, null, resource));
         assertThrows(IllegalStateException.class, () -> EvaluationRequest.of(subject, action, null));
+    }
+
+    @Test
+    void doesNotExposePersonalDataInToString() {
+        EvaluationRequest request = EvaluationRequest.builder()
+                .subject(subject).action(action).resource(resource)
+                .context(Context.of(Map.of("ip", "10.0.0.1")))
+                .build();
+
+        String text = request.toString();
+
+        assertFalse(text.contains("alice@example.com"));
+        assertFalse(text.contains("10.0.0.1"));
+        assertTrue(text.contains("can_read"));
     }
 
     @Test

@@ -35,6 +35,13 @@ class EvaluationResponseTest {
     }
 
     @Test
+    void masksContextValuesInToString() {
+        EvaluationResponse response = EvaluationResponse.of(false, Context.of(Map.of("reason_user", "Hi Alice")));
+
+        assertEquals("EvaluationResponse{decision=false, context=Context{reason_user=***}}", response.toString());
+    }
+
+    @Test
     void implementsValueEquality() {
         assertEquals(EvaluationResponse.of(true), EvaluationResponse.of(true));
         assertNotEquals(EvaluationResponse.of(true), EvaluationResponse.of(false));

@@ -51,6 +51,14 @@ class ContextTest {
     }
 
     @Test
+    void masksValuesInToString() {
+        Context context = Context.builder().put("ip", "10.0.0.1").put("geo", Map.of("city", "Istanbul")).build();
+
+        assertEquals("Context{ip=***, geo=***}", context.toString());
+        assertEquals("Context{}", Context.empty().toString());
+    }
+
+    @Test
     void implementsValueEquality() {
         assertEquals(Context.of(Map.of("a", 1)), Context.builder().put("a", 1L).build());
         assertEquals(Context.of(Map.of("a", 1)).hashCode(), Context.builder().put("a", 1L).build().hashCode());

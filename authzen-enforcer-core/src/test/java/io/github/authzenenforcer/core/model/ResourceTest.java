@@ -46,6 +46,13 @@ class ResourceTest {
     }
 
     @Test
+    void masksPropertyValuesInToString() {
+        Resource resource = Resource.builder().type("patient").id("42").property("name", "Alice").build();
+
+        assertEquals("Resource{type=patient, id=42, properties={name=***}}", resource.toString());
+    }
+
+    @Test
     void implementsValueEquality() {
         assertEquals(Resource.of("account", "123"), Resource.of("account", "123"));
         assertEquals(Resource.of("account", "123").hashCode(), Resource.of("account", "123").hashCode());

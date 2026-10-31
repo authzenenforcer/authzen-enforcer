@@ -93,7 +93,12 @@ class SubjectTest {
     }
 
     @Test
-    void includesAllFieldsInToString() {
-        assertEquals("Subject{type=user, id=alice, properties={}}", Subject.of("user", "alice").toString());
+    void masksIdentifierAndPropertyValuesInToString() {
+        Subject subject = Subject.builder().type("user").id("alice@example.com")
+                .property("email", "alice@example.com")
+                .property("ip_address", "172.217.22.14")
+                .build();
+
+        assertEquals("Subject{type=user, id=***, properties={email=***, ip_address=***}}", subject.toString());
     }
 }

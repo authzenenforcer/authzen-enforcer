@@ -37,6 +37,13 @@ class ActionTest {
     }
 
     @Test
+    void masksPropertyValuesInToString() {
+        Action action = Action.builder().name("transfer").property("recipient", "Alice").build();
+
+        assertEquals("Action{name=transfer, properties={recipient=***}}", action.toString());
+    }
+
+    @Test
     void implementsValueEquality() {
         assertEquals(Action.of("read"), Action.of("read"));
         assertEquals(Action.of("read").hashCode(), Action.of("read").hashCode());

@@ -92,9 +92,14 @@ public final class Subject {
         return Objects.hash(type, id, properties);
     }
 
+    /**
+     * Returns a description for logging. The identifier and property values are masked, since they
+     * usually hold personal data; property names are shown.
+     */
     @Override
     public String toString() {
-        return "Subject{type=" + type + ", id=" + id + ", properties=" + properties + "}";
+        return "Subject{type=" + type + ", id=" + Redaction.MASK
+                + ", properties=" + Redaction.maskValues(properties) + "}";
     }
 
     /**

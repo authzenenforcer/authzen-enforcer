@@ -92,9 +92,13 @@ public final class Resource {
         return Objects.hash(type, id, properties);
     }
 
+    /**
+     * Returns a description for logging. Property values are masked, since they may hold personal
+     * data; the type, identifier and property names are shown.
+     */
     @Override
     public String toString() {
-        return "Resource{type=" + type + ", id=" + id + ", properties=" + properties + "}";
+        return "Resource{type=" + type + ", id=" + id + ", properties=" + Redaction.maskValues(properties) + "}";
     }
 
     /**

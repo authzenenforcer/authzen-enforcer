@@ -85,9 +85,13 @@ public final class Context {
         return values.hashCode();
     }
 
+    /**
+     * Returns a description for logging. Values are masked, since they may hold personal data such
+     * as an IP address; member names are shown.
+     */
     @Override
     public String toString() {
-        return "Context" + values;
+        return "Context" + Redaction.maskValues(values);
     }
 
     /**

@@ -80,9 +80,13 @@ public final class Action {
         return Objects.hash(name, properties);
     }
 
+    /**
+     * Returns a description for logging. Property values are masked, since they may hold personal
+     * data; the name and property names are shown.
+     */
     @Override
     public String toString() {
-        return "Action{name=" + name + ", properties=" + properties + "}";
+        return "Action{name=" + name + ", properties=" + Redaction.maskValues(properties) + "}";
     }
 
     /**
