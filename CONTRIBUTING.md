@@ -5,15 +5,15 @@ and the design rules every change must follow.
 
 ## Building
 
-Requirements: JDK 11 or newer and Maven 3.9 or newer. The core module is compiled with
-`--release 11`, so a newer JDK still produces Java 11 compatible bytecode and rejects newer APIs.
+Requirements: JDK 17 or newer and Maven 3.9 or newer. All modules are compiled with
+`--release 17`, so a newer JDK still produces Java 17 compatible bytecode and rejects newer APIs.
 
 ```bash
 mvn verify                          # build and test all modules
 mvn -pl authzen-enforcer-core verify  # core module only
 ```
 
-CI runs the build on JDK 11, 17, 21 and 25.
+CI runs the build on JDK 17, 21 and 25.
 
 ## Design rules
 
@@ -30,11 +30,16 @@ unavoidable, open an issue to discuss it before sending a pull request.
 Framework modules (Spring Boot, Quarkus) may depend on their framework, but never the other way
 around: the core must not know about any framework.
 
-### Java 11 baseline
+### Java 17 baseline
 
-The core must run on Java 11. Do not use APIs or language features introduced after Java 11
-(records, sealed types, pattern matching, text blocks, `Stream#toList`, and so on).
-Framework modules target Java 17.
+All modules, including the core, must run on Java 17. Do not use APIs or language features
+introduced after Java 17 (pattern matching for `switch`, record patterns, sequenced collections,
+and so on).
+
+Records in the public API need care: adding a component changes the canonical constructor and
+breaks binary compatibility. Use builder-based `final` classes for public model types that may
+gain fields as the specification evolves, and keep records for internal or genuinely fixed
+value types.
 
 ### Fail closed
 
