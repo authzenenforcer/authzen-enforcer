@@ -29,6 +29,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 
 /**
@@ -65,8 +66,8 @@ public final class PdpTransport {
      * @param httpClient     the HTTP client; it must not follow redirects
      * @param credentials    the credential provider, or {@code null} to send no credentials
      * @param codec          the JSON codec
-     * @param requestTimeout the timeout of a single HTTP exchange, also the time after the first
-     *                       attempt within which retries may start
+     * @param requestTimeout the timeout of a single HTTP exchange, including reading the response
+     *                       body, also the time after the first attempt within which retries may start
      * @param maxRetries     how often a request that failed transiently may be repeated
      */
     public PdpTransport(HttpClient httpClient, CredentialProvider credentials, JsonCodec codec,
@@ -108,7 +109,18 @@ public final class PdpTransport {
             return CompletableFuture.failedFuture(e);
         }
         long start = System.nanoTime();
-        return httpClient.sendAsync(request, new LimitedBodyHandler(MAX_RESPONSE_BYTES))
+        CompletableFuture<HttpResponse<byte[]>> pending = httpClient.sendAsync(request,
+                new LimitedBodyHandler(MAX_RESPONSE_BYTES));
+        // The JDK stops the request timer once the headers arrive, so bound the body as well and
+        // abort the exchange when the deadline passes
+        CompletableFuture<HttpResponse<byte[]>> bounded = pending.copy()
+                .orTimeout(requestTimeout.toMillis(), TimeUnit.MILLISECONDS);
+        bounded.whenComplete((response, error) -> {
+            if (error instanceof TimeoutException) {
+                pending.cancel(true);
+            }
+        });
+        return bounded
                 .handle((response, error) -> {
                     long elapsedMillis = Duration.ofNanos(System.nanoTime() - start).toMillis();
                     if (error != null) {
@@ -216,7 +228,7 @@ public final class PdpTransport {
         if (error instanceof LimitedBodyHandler.BodyTooLargeException) {
             return new PdpProtocolException("PDP response exceeds " + MAX_RESPONSE_BYTES + " bytes" + exchange.suffix(), error);
         }
-        if (error instanceof HttpTimeoutException) {
+        if (error instanceof HttpTimeoutException || error instanceof TimeoutException) {
             return new PdpCommunicationException("PDP did not respond in time" + exchange.suffix(), error);
         }
         if (error instanceof IOException) {
