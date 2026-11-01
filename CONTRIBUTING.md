@@ -15,6 +15,21 @@ mvn -pl authzen-enforcer-core verify  # core module only
 
 CI runs the build on JDK 17, 21 and 25.
 
+### Interop tests
+
+`authzen-enforcer-interop-tests` runs the SDK against real PDPs, currently Keycloak with its
+AuthZEN feature. The tests need Docker and are skipped by default:
+
+```bash
+mvn -pl authzen-enforcer-interop-tests -am verify -Dinterop.skip=false
+```
+
+Testcontainers starts Keycloak with the realm from `src/test/resources/keycloak`. To use a Keycloak
+that is already running instead, see `authzen-enforcer-interop-tests/compose.yaml`.
+
+Never commit secrets, such as client secrets or passwords. Read them from environment variables;
+realm files use `${ENV_VAR}` placeholders that Keycloak resolves at import time.
+
 ## Design rules
 
 ### Zero runtime dependencies

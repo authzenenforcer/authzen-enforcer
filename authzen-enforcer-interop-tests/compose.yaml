@@ -1,0 +1,22 @@
+# Keycloak with the realm used by the interop tests, for manual testing:
+#
+#   export AUTHZEN_PEP_CLIENT_SECRET=$(openssl rand -hex 24)
+#   docker compose -f authzen-enforcer-interop-tests/compose.yaml up
+#
+# Then run the interop tests against it:
+#
+#   AUTHZEN_KEYCLOAK_URL=http://127.0.0.1:8080 mvn -pl authzen-enforcer-interop-tests -am verify -Dinterop.skip=false
+#
+# The realm file contains no secrets; Keycloak reads the PEP client secret from the environment
+# when it imports the realm.
+services:
+  keycloak:
+    # Keep in sync with KeycloakPdp
+    image: quay.io/keycloak/keycloak:26.8.1
+    command: ["start-dev", "--features=authzen", "--import-realm"]
+    environment:
+      AUTHZEN_PEP_CLIENT_SECRET: ${AUTHZEN_PEP_CLIENT_SECRET:?set AUTHZEN_PEP_CLIENT_SECRET}
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./src/test/resources/keycloak:/opt/keycloak/data/import:ro

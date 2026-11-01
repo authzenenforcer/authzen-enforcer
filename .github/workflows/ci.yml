@@ -25,3 +25,16 @@ jobs:
           cache: maven
       - name: Build and test
         run: mvn -B -ntp verify
+
+  interop:
+    name: Interop (Keycloak)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+      - name: Run interop tests
+        run: mvn -B -ntp -pl authzen-enforcer-interop-tests -am verify -Dinterop.skip=false

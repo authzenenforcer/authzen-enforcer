@@ -1,0 +1,209 @@
+{
+  "realm": "authzen-demo",
+  "enabled": true,
+  "roles": {
+    "realm": [
+      {
+        "name": "admin"
+      },
+      {
+        "name": "editor"
+      },
+      {
+        "name": "viewer"
+      }
+    ]
+  },
+  "users": [
+    {
+      "username": "alice",
+      "email": "alice@example.com",
+      "firstName": "Alice",
+      "lastName": "Admin",
+      "enabled": true,
+      "emailVerified": true,
+      "realmRoles": [
+        "admin"
+      ]
+    },
+    {
+      "username": "bob",
+      "email": "bob@example.com",
+      "firstName": "Bob",
+      "lastName": "Editor",
+      "enabled": true,
+      "emailVerified": true,
+      "realmRoles": [
+        "editor"
+      ]
+    },
+    {
+      "username": "carol",
+      "email": "carol@example.com",
+      "firstName": "Carol",
+      "lastName": "Viewer",
+      "enabled": true,
+      "emailVerified": true,
+      "realmRoles": [
+        "viewer"
+      ]
+    },
+    {
+      "username": "dave",
+      "email": "dave@example.com",
+      "firstName": "Dave",
+      "lastName": "Nobody",
+      "enabled": true,
+      "emailVerified": true
+    },
+    {
+      "username": "service-account-authzen-pep",
+      "enabled": true,
+      "serviceAccountClientId": "authzen-pep"
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "authzen-pep",
+      "name": "AuthZEN PEP",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${AUTHZEN_PEP_CLIENT_SECRET}",
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "authorizationSettings": {
+        "allowRemoteResourceManagement": false,
+        "policyEnforcementMode": "ENFORCING",
+        "decisionStrategy": "UNANIMOUS",
+        "scopes": [
+          {
+            "name": "read"
+          },
+          {
+            "name": "update"
+          },
+          {
+            "name": "delete"
+          }
+        ],
+        "resources": [
+          {
+            "name": "doc-1",
+            "type": "document",
+            "ownerManagedAccess": false,
+            "scopes": [
+              {
+                "name": "read"
+              },
+              {
+                "name": "update"
+              },
+              {
+                "name": "delete"
+              }
+            ]
+          },
+          {
+            "name": "doc-2",
+            "type": "document",
+            "ownerManagedAccess": false,
+            "scopes": [
+              {
+                "name": "read"
+              },
+              {
+                "name": "update"
+              },
+              {
+                "name": "delete"
+              }
+            ]
+          }
+        ],
+        "policies": [
+          {
+            "name": "admin-policy",
+            "type": "role",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "roles": "[{\"id\":\"admin\",\"required\":false}]"
+            }
+          },
+          {
+            "name": "editor-policy",
+            "type": "role",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "roles": "[{\"id\":\"editor\",\"required\":false}]"
+            }
+          },
+          {
+            "name": "viewer-policy",
+            "type": "role",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "roles": "[{\"id\":\"viewer\",\"required\":false}]"
+            }
+          },
+          {
+            "name": "any-role-policy",
+            "type": "aggregate",
+            "logic": "POSITIVE",
+            "decisionStrategy": "AFFIRMATIVE",
+            "config": {
+              "applyPolicies": "[\"admin-policy\",\"editor-policy\",\"viewer-policy\"]"
+            }
+          },
+          {
+            "name": "admin-or-editor-policy",
+            "type": "aggregate",
+            "logic": "POSITIVE",
+            "decisionStrategy": "AFFIRMATIVE",
+            "config": {
+              "applyPolicies": "[\"admin-policy\",\"editor-policy\"]"
+            }
+          },
+          {
+            "name": "read-document-permission",
+            "type": "scope",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "resources": "[\"doc-1\",\"doc-2\"]",
+              "scopes": "[\"read\"]",
+              "applyPolicies": "[\"any-role-policy\"]"
+            }
+          },
+          {
+            "name": "update-document-permission",
+            "type": "scope",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "resources": "[\"doc-1\",\"doc-2\"]",
+              "scopes": "[\"update\"]",
+              "applyPolicies": "[\"admin-or-editor-policy\"]"
+            }
+          },
+          {
+            "name": "delete-document-permission",
+            "type": "scope",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "resources": "[\"doc-1\",\"doc-2\"]",
+              "scopes": "[\"delete\"]",
+              "applyPolicies": "[\"admin-policy\"]"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
