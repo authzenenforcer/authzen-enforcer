@@ -20,19 +20,24 @@ import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 /**
  * Sends AuthZEN requests to the PDP and turns every failure into an {@link AuthZenException}.
  *
- * <p>Per request it adds a fresh {@code X-Request-ID}, presents the credential, repeats the request
- * once after a {@code 401}, checks the echoed request id and limits the response size. Redirects are
- * never followed, so credentials cannot leak to another host.
+ * <p>Per exchange it adds a fresh {@code X-Request-ID} and presents the current credential. After a
+ * {@code 401} it refreshes the credential and repeats the request once; transient failures are
+ * repeated as the {@link RetryPolicy} allows. It checks the echoed request id and limits the
+ * response size. Redirects are never followed, so credentials cannot leak to another host.
  *
  * <p>Instances are immutable and thread-safe.
  */
@@ -52,6 +57,7 @@ public final class PdpTransport {
     private final CredentialProvider credentials;
     private final JsonCodec codec;
     private final Duration requestTimeout;
+    private final RetryPolicy retryPolicy;
 
     /**
      * Creates a transport.
@@ -59,14 +65,17 @@ public final class PdpTransport {
      * @param httpClient     the HTTP client; it must not follow redirects
      * @param credentials    the credential provider, or {@code null} to send no credentials
      * @param codec          the JSON codec
-     * @param requestTimeout the timeout of a single HTTP exchange
+     * @param requestTimeout the timeout of a single HTTP exchange, also the time after the first
+     *                       attempt within which retries may start
+     * @param maxRetries     how often a request that failed transiently may be repeated
      */
     public PdpTransport(HttpClient httpClient, CredentialProvider credentials, JsonCodec codec,
-            Duration requestTimeout) {
+            Duration requestTimeout, int maxRetries) {
         this.httpClient = Objects.requireNonNull(httpClient, "httpClient");
         this.credentials = credentials;
         this.codec = Objects.requireNonNull(codec, "codec");
         this.requestTimeout = Objects.requireNonNull(requestTimeout, "requestTimeout");
+        this.retryPolicy = new RetryPolicy(maxRetries, requestTimeout, Clock.systemUTC());
     }
 
     /**
@@ -84,12 +93,12 @@ public final class PdpTransport {
         } catch (RuntimeException e) {
             return CompletableFuture.failedFuture(new AuthZenException("Request cannot be serialized to JSON", e));
         }
-        return send(endpoint, json, false);
+        return send(new Call(endpoint, json, System.nanoTime()), 0, false);
     }
 
-    private CompletableFuture<Object> send(URI endpoint, String json, boolean retried) {
-        // Every HTTP exchange, including the retry, gets its own request id
-        Exchange exchange = new Exchange(endpoint, json, UUID.randomUUID().toString());
+    private CompletableFuture<Object> send(Call call, int retries, boolean refreshed) {
+        // Every HTTP exchange, including a repeated one, gets its own request id
+        Exchange exchange = new Exchange(call.endpoint, call.json, UUID.randomUUID().toString());
         AccessCredential credential;
         HttpRequest request;
         try {
@@ -103,26 +112,51 @@ public final class PdpTransport {
                 .handle((response, error) -> {
                     long elapsedMillis = Duration.ofNanos(System.nanoTime() - start).toMillis();
                     if (error != null) {
-                        throw new CompletionException(transportFailure(exchange, unwrap(error)));
+                        Throwable cause = unwrap(error);
+                        LOGGER.log(Level.DEBUG, () -> "PDP request " + exchange.requestId + " to " + exchange.endpoint
+                                + " failed after " + elapsedMillis + " ms: " + cause);
+                        return retryPolicy.afterError(retries, call.elapsed(), cause)
+                                .map(delay -> retry(call, retries, refreshed, delay, exchange, cause.toString()))
+                                .orElseGet(() -> CompletableFuture.failedFuture(transportFailure(exchange, cause)));
                     }
                     LOGGER.log(Level.DEBUG, () -> "PDP request " + exchange.requestId + " to " + exchange.endpoint
                             + " returned HTTP " + response.statusCode() + " in " + elapsedMillis + " ms");
-                    return response;
+                    return onResponse(call, retries, refreshed, exchange, credential, response);
                 })
-                .thenCompose(response -> {
-                    if (response.statusCode() == 401 && credential != null && !retried) {
-                        LOGGER.log(Level.DEBUG, () -> "PDP request " + exchange.requestId
-                                + " was rejected with HTTP 401; refreshing the credential and retrying once");
-                        try {
-                            credentials.invalidate(credential);
-                        } catch (RuntimeException e) {
-                            return CompletableFuture.failedFuture(
-                                    new AuthZenException("Credential provider failed to invalidate the credential", e));
-                        }
-                        return send(endpoint, json, true);
-                    }
-                    return CompletableFuture.completedFuture(handle(exchange, response));
-                });
+                .thenCompose(Function.identity());
+    }
+
+    private CompletableFuture<Object> onResponse(Call call, int retries, boolean refreshed, Exchange exchange,
+            AccessCredential credential, HttpResponse<byte[]> response) {
+        if (response.statusCode() == 401 && credential != null && !refreshed) {
+            LOGGER.log(Level.DEBUG, () -> "PDP request " + exchange.requestId
+                    + " was rejected with HTTP 401; refreshing the credential and retrying once");
+            try {
+                credentials.invalidate(credential);
+            } catch (RuntimeException e) {
+                return CompletableFuture.failedFuture(
+                        new AuthZenException("Credential provider failed to invalidate the credential", e));
+            }
+            return send(call, retries, true);
+        }
+        Optional<Duration> delay = retryPolicy.afterResponse(retries, call.elapsed(), response);
+        if (delay.isPresent()) {
+            return retry(call, retries, refreshed, delay.get(), exchange, "HTTP " + response.statusCode());
+        }
+        try {
+            return CompletableFuture.completedFuture(handle(exchange, response));
+        } catch (AuthZenException e) {
+            return CompletableFuture.failedFuture(e);
+        }
+    }
+
+    private CompletableFuture<Object> retry(Call call, int retries, boolean refreshed, Duration delay,
+            Exchange exchange, String reason) {
+        LOGGER.log(Level.DEBUG, () -> "Repeating PDP request " + exchange.requestId + " after " + reason
+                + " in " + delay.toMillis() + " ms (retry " + (retries + 1) + ")");
+        Executor delayed = CompletableFuture.delayedExecutor(delay.toMillis(), TimeUnit.MILLISECONDS);
+        return CompletableFuture.supplyAsync(() -> null, delayed)
+                .thenCompose(ignored -> send(call, retries + 1, refreshed));
     }
 
     private AccessCredential currentCredential() {
@@ -202,6 +236,14 @@ public final class PdpTransport {
     private static String userAgent() {
         String version = PdpTransport.class.getPackage().getImplementationVersion();
         return version == null ? "authzen-enforcer" : "authzen-enforcer/" + version;
+    }
+
+    /** One logical request, which may take several HTTP exchanges. */
+    private record Call(URI endpoint, String json, long startNanos) {
+
+        Duration elapsed() {
+            return Duration.ofNanos(System.nanoTime() - startNanos);
+        }
     }
 
     /** A single HTTP exchange with the PDP. */

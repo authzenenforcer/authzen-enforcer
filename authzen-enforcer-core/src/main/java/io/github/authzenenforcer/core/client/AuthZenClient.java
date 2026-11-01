@@ -72,6 +72,12 @@ public interface AuthZenClient {
         /** Default timeout for a single request, from sending it until the response is received. */
         public static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(5);
 
+        /** Default number of retries after a transient failure. */
+        public static final int DEFAULT_MAX_RETRIES = 3;
+
+        /** Highest accepted number of retries. */
+        public static final int MAX_RETRIES_LIMIT = 10;
+
         private URI pdpUrl;
         private URI evaluationEndpoint;
         private CredentialProvider credentials;
@@ -79,6 +85,7 @@ public interface AuthZenClient {
         private HttpClient httpClient;
         private Duration connectTimeout;
         private Duration requestTimeout = DEFAULT_REQUEST_TIMEOUT;
+        private int maxRetries = DEFAULT_MAX_RETRIES;
 
         private Builder() {
         }
@@ -182,6 +189,32 @@ public interface AuthZenClient {
         }
 
         /**
+         * Sets how often a request is repeated after a transient failure. Defaults to
+         * {@link #DEFAULT_MAX_RETRIES}; {@code 0} disables retries.
+         *
+         * <p>AuthZEN requests have no side effects, so repeating them is safe. Only failures that
+         * are likely to be transient are retried: connection failures, such as a refused connection,
+         * a connect timeout or a connection closed by the server, and HTTP {@code 429},
+         * {@code 502}, {@code 503} and {@code 504}. Request timeouts, TLS errors, other statuses and
+         * invalid responses fail immediately.
+         *
+         * <p>Retries wait an exponentially growing, randomized delay of at most two seconds, or as
+         * long as a {@code Retry-After} header asks if that is not longer. No retry starts once the
+         * request timeout has passed since the first attempt, which bounds the total latency. The
+         * single repetition after a {@code 401} does not count as a retry.
+         *
+         * @param maxRetries between {@code 0} and {@link #MAX_RETRIES_LIMIT}
+         * @return this builder
+         */
+        public Builder maxRetries(int maxRetries) {
+            if (maxRetries < 0 || maxRetries > MAX_RETRIES_LIMIT) {
+                throw new IllegalArgumentException("maxRetries must be between 0 and " + MAX_RETRIES_LIMIT);
+            }
+            this.maxRetries = maxRetries;
+            return this;
+        }
+
+        /**
          * Builds the client.
          *
          * @return the client
@@ -206,7 +239,8 @@ public interface AuthZenClient {
             } else if (client.followRedirects() != HttpClient.Redirect.NEVER) {
                 throw new IllegalStateException("httpClient must not follow redirects");
             }
-            return new DefaultAuthZenClient(pdpUrl, evaluationEndpoint, credentials, jsonCodec, client, requestTimeout);
+            return new DefaultAuthZenClient(pdpUrl, evaluationEndpoint, credentials, jsonCodec, client, requestTimeout,
+                    maxRetries);
         }
 
         private static Duration requirePositive(Duration duration, String name) {

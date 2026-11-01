@@ -63,6 +63,12 @@ class AuthZenClientBuilderTest {
     }
 
     @Test
+    void rejectsRetryCountsOutOfRange() {
+        assertThrows(IllegalArgumentException.class, () -> AuthZenClient.builder().maxRetries(-1));
+        assertThrows(IllegalArgumentException.class, () -> AuthZenClient.builder().maxRetries(11));
+    }
+
+    @Test
     void rejectsNonPositiveTimeouts() {
         assertThrows(IllegalArgumentException.class, () -> AuthZenClient.builder().requestTimeout(Duration.ZERO));
         assertThrows(IllegalArgumentException.class, () -> AuthZenClient.builder().connectTimeout(Duration.ofSeconds(-1)));

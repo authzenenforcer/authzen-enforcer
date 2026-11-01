@@ -42,14 +42,15 @@ public final class DefaultAuthZenClient implements AuthZenClient {
      * @param codec              the JSON codec
      * @param httpClient         an HTTP client that does not follow redirects
      * @param requestTimeout     the timeout of a single request
+     * @param maxRetries         how often a request that failed transiently may be repeated
      */
     public DefaultAuthZenClient(URI pdpUrl, URI evaluationEndpoint, CredentialProvider credentials, JsonCodec codec,
-            HttpClient httpClient, Duration requestTimeout) {
+            HttpClient httpClient, Duration requestTimeout, int maxRetries) {
         URI base = checkUrl(pdpUrl, "pdpUrl");
         this.evaluationEndpoint = evaluationEndpoint != null
                 ? checkUrl(evaluationEndpoint, "evaluationEndpoint")
                 : append(base, EVALUATION_PATH);
-        this.transport = new PdpTransport(httpClient, credentials, codec, requestTimeout);
+        this.transport = new PdpTransport(httpClient, credentials, codec, requestTimeout, maxRetries);
         if (credentials != null && isPlainHttpToRemoteHost(this.evaluationEndpoint)) {
             LOGGER.log(Level.WARNING, "PDP endpoint " + this.evaluationEndpoint
                     + " uses plain HTTP; credentials are sent unencrypted");

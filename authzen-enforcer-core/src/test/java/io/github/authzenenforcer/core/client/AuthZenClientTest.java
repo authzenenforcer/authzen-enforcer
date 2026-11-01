@@ -334,7 +334,7 @@ class AuthZenClientTest {
     class Unauthorized {
 
         /** Hands out token-1, token-2, ... and moves on when its current token is invalidated. */
-        private final class RotatingProvider implements CredentialProvider {
+        final class RotatingProvider implements CredentialProvider {
 
             private final AtomicInteger generation = new AtomicInteger(1);
             private final List<AccessCredential> invalidated = new CopyOnWriteArrayList<>();
@@ -424,6 +424,158 @@ class AuthZenClientTest {
             AuthZenException e = assertThrows(AuthZenException.class, () -> client.evaluate(REQUEST));
             assertInstanceOf(IllegalStateException.class, e.getCause());
             assertEquals(1, pdp.requests().size());
+        }
+    }
+
+    @Nested
+    class Retries {
+
+        private final FakePdp.Responder permit = json(200, "{\"decision\": true}");
+
+        /** Closes the connection without answering, like a server dropping a pooled connection. */
+        private final FakePdp.Responder drop = (request, exchange) -> {
+        };
+
+        private FakePdp.Responder status(int status, String retryAfter) {
+            return (request, exchange) -> {
+                exchange.getResponseHeaders().set("Retry-After", retryAfter);
+                FakePdp.send(exchange, status, new byte[0], request.header("X-Request-ID"));
+            };
+        }
+
+        @Test
+        void retriesTransientStatusesUntilTheyPass() {
+            pdp.respond(sequence(json(503, ""), json(502, ""), json(504, ""), permit));
+
+            assertTrue(client().evaluate(REQUEST).getDecision());
+            assertEquals(4, pdp.requests().size());
+        }
+
+        @Test
+        void givesUpAfterThreeRetriesByDefault() {
+            pdp.respond(json(503, ""));
+
+            assertThrows(PdpCommunicationException.class, () -> client().evaluate(REQUEST));
+            assertEquals(4, pdp.requests().size());
+        }
+
+        @Test
+        void honoursTheConfiguredNumberOfRetries() {
+            pdp.respond(json(503, ""));
+            AuthZenClient once = AuthZenClient.builder().pdpUrl(pdp.url()).maxRetries(1).build();
+            AuthZenClient never = AuthZenClient.builder().pdpUrl(pdp.url()).maxRetries(0).build();
+
+            assertThrows(PdpCommunicationException.class, () -> once.evaluate(REQUEST));
+            assertEquals(2, pdp.requests().size());
+            assertThrows(PdpCommunicationException.class, () -> never.evaluate(REQUEST));
+            assertEquals(3, pdp.requests().size());
+        }
+
+        @Test
+        void retriesDroppedConnections() {
+            pdp.respond(sequence(drop, drop, permit));
+
+            assertTrue(client().evaluate(REQUEST).getDecision());
+            assertEquals(3, pdp.requests().size());
+        }
+
+        @Test
+        void retriesTooManyRequests() {
+            pdp.respond(sequence(json(429, ""), permit));
+
+            assertTrue(client().evaluate(REQUEST).getDecision());
+            assertEquals(2, pdp.requests().size());
+        }
+
+        @ParameterizedTest
+        @ValueSource(ints = {400, 403, 404, 500, 501})
+        void doesNotRetryPermanentFailures(int status) {
+            pdp.respond(json(status, ""));
+
+            assertThrows(AuthZenException.class, () -> client().evaluate(REQUEST));
+            assertEquals(1, pdp.requests().size());
+        }
+
+        @Test
+        void doesNotRetryInvalidResponses() {
+            pdp.respond(json(200, "not json"));
+
+            assertThrows(PdpProtocolException.class, () -> client().evaluate(REQUEST));
+            assertEquals(1, pdp.requests().size());
+        }
+
+        @Test
+        void doesNotRetryRequestTimeouts() {
+            pdp.respond((request, exchange) -> {
+                try {
+                    Thread.sleep(1_000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            AuthZenClient client = AuthZenClient.builder().pdpUrl(pdp.url()).requestTimeout(Duration.ofMillis(200)).build();
+
+            assertThrows(PdpCommunicationException.class, () -> client.evaluate(REQUEST));
+            assertEquals(1, pdp.requests().size());
+        }
+
+        @Test
+        void sendsAFreshRequestIdPerAttempt() {
+            pdp.respond(sequence(json(503, ""), permit));
+
+            client().evaluate(REQUEST);
+
+            List<RecordedRequest> requests = pdp.requests();
+            assertNotEquals(requests.get(0).header("X-Request-ID"), requests.get(1).header("X-Request-ID"));
+        }
+
+        @Test
+        void waitsAsLongAsRetryAfterAsks() {
+            pdp.respond(sequence(status(503, "1"), permit));
+            long start = System.nanoTime();
+
+            assertTrue(client().evaluate(REQUEST).getDecision());
+
+            assertTrue(Duration.ofNanos(System.nanoTime() - start).compareTo(Duration.ofSeconds(1)) >= 0);
+            assertEquals(2, pdp.requests().size());
+        }
+
+        @Test
+        void doesNotRetryWhenRetryAfterAsksForTooLong() {
+            pdp.respond(status(503, "30"));
+
+            assertThrows(PdpCommunicationException.class, () -> client().evaluate(REQUEST));
+            assertEquals(1, pdp.requests().size());
+        }
+
+        @Test
+        void startsNoRetryOnceTheRequestTimeoutHasPassed() {
+            pdp.respond((request, exchange) -> {
+                try {
+                    Thread.sleep(250);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                FakePdp.send(exchange, 503, new byte[0], request.header("X-Request-ID"));
+            });
+            AuthZenClient client = AuthZenClient.builder().pdpUrl(pdp.url()).requestTimeout(Duration.ofMillis(400)).build();
+
+            assertThrows(PdpCommunicationException.class, () -> client.evaluate(REQUEST));
+            assertTrue(pdp.requests().size() <= 2);
+        }
+
+        @Test
+        void refreshesTheCredentialAndRetriesTransientFailuresInTheSameCall() {
+            Unauthorized unauthorized = new Unauthorized();
+            CredentialProvider credentials = unauthorized.new RotatingProvider();
+            pdp.respond(sequence(json(401, ""), json(503, ""), permit));
+            AuthZenClient client = AuthZenClient.builder().pdpUrl(pdp.url()).credentials(credentials).build();
+
+            assertTrue(client.evaluateAsync(REQUEST).join().getDecision());
+
+            List<RecordedRequest> requests = pdp.requests();
+            assertEquals(3, requests.size());
+            assertEquals("Bearer token-2", requests.get(2).header("Authorization"));
         }
     }
 
