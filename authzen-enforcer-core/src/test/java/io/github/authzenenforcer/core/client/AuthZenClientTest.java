@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.authzenenforcer.core.AuthZenException;
@@ -28,6 +29,7 @@ import io.github.authzenenforcer.core.model.Subject;
 import io.github.authzenenforcer.core.spi.JsonCodec;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -75,6 +77,14 @@ class AuthZenClientTest {
         List<RecordedRequest> requests = pdp.requests();
         assertEquals(1, requests.size());
         return requests.get(0);
+    }
+
+    private static void sleep(Duration duration) {
+        try {
+            Thread.sleep(duration.toMillis());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     @Nested
@@ -266,6 +276,48 @@ class AuthZenClientTest {
             AuthZenClient client = AuthZenClient.builder().pdpUrl(pdp.url()).requestTimeout(Duration.ofMillis(200)).build();
 
             assertThrows(PdpCommunicationException.class, () -> client.evaluate(REQUEST));
+        }
+
+        @Test
+        void failsWhenThePdpStallsAfterTheHeaders() {
+            pdp.respond((request, exchange) -> {
+                exchange.sendResponseHeaders(200, 100);
+                OutputStream out = exchange.getResponseBody();
+                out.write("{\"decision\":".getBytes(StandardCharsets.UTF_8));
+                out.flush();
+                sleep(Duration.ofSeconds(5));
+            });
+            AuthZenClient client = AuthZenClient.builder()
+                    .pdpUrl(pdp.url())
+                    .requestTimeout(Duration.ofMillis(200))
+                    .maxRetries(0)
+                    .build();
+
+            // The JDK stops its request timer once the headers arrive, so the body needs its own deadline
+            assertTimeoutPreemptively(Duration.ofSeconds(2),
+                    () -> assertThrows(PdpCommunicationException.class, () -> client.evaluate(REQUEST)));
+        }
+
+        @Test
+        void failsAsynchronouslyWhenThePdpTricklesTheBody() {
+            pdp.respond((request, exchange) -> {
+                exchange.sendResponseHeaders(200, 0);
+                OutputStream out = exchange.getResponseBody();
+                for (int i = 0; i < 50; i++) {
+                    out.write(' ');
+                    out.flush();
+                    sleep(Duration.ofMillis(100));
+                }
+            });
+            AuthZenClient client = AuthZenClient.builder()
+                    .pdpUrl(pdp.url())
+                    .requestTimeout(Duration.ofMillis(300))
+                    .maxRetries(0)
+                    .build();
+
+            CompletionException error = assertTimeoutPreemptively(Duration.ofSeconds(2),
+                    () -> assertThrows(CompletionException.class, () -> client.evaluateAsync(REQUEST).join()));
+            assertInstanceOf(PdpCommunicationException.class, error.getCause());
         }
 
         @Test
