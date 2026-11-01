@@ -22,26 +22,72 @@ requests to a Policy Decision Point (PDP) and returns the decision to your appli
   `@CheckPermission` annotation that can infer the action and resource from the HTTP method
   and the route.
 
-## Planned usage
+## Usage
+
+The core module currently supports the Access Evaluation API with Bearer authentication.
 
 ```java
 AuthZenClient client = AuthZenClient.builder()
         .pdpUrl("https://pdp.example.com")
-        .credentials(() -> AccessCredential.bearer(tokenSource.get()))
+        .credentials(CredentialProvider.bearer(tokenSource::currentToken))
         .build();
 
-EvaluationResponse response = client.evaluate(EvaluationRequest.builder()
-        .subject(Subject.of("user", "alice"))
-        .resource(Resource.of("document", "123"))
-        .action(Action.of("read"))
-        .build());
+EvaluationResponse response = client.evaluate(EvaluationRequest.of(
+        Subject.of("user", "alice"),
+        Action.of("read"),
+        Resource.of("document", "123")));
 
-if (response.decision()) {
+if (response.getDecision()) {
     // allowed
 }
 ```
 
-With Spring Boot:
+A deny is a regular response with `getDecision()` returning `false`. If no decision can be
+obtained, for example because the PDP is unreachable, times out or rejects the PEP's credentials,
+`evaluate` throws an `AuthZenException`. Treat it as a deny. `evaluateAsync` returns a
+`CompletableFuture` that completes the same way.
+
+The client is thread-safe. Create one per PDP and share it.
+
+### Credentials
+
+The SDK never talks to an authorization server. Your `CredentialProvider` supplies the token before
+every request, and should cache it until shortly before it expires. If the PDP answers `401`, the
+client calls `invalidate()` on the provider and repeats the request once with a fresh credential.
+With the client credentials grant, a provider requests a token from your authorization server,
+caches it, and drops it in `invalidate()`.
+
+### Endpoints
+
+Until metadata discovery is available, endpoints default to the paths of the specification below the
+PDP URL, such as `/access/v1/evaluation`. If your PDP serves them elsewhere, set the endpoint
+explicitly. Keycloak, for example, serves AuthZEN below `/authzen` in each realm:
+
+```java
+AuthZenClient client = AuthZenClient.builder()
+        .pdpUrl("https://keycloak.example.com/realms/my-realm")
+        .evaluationEndpoint(URI.create(
+                "https://keycloak.example.com/realms/my-realm/authzen/access/v1/evaluation"))
+        .credentials(clientCredentialsProvider)
+        .build();
+```
+
+### Trying it locally
+
+There is no release yet. To use the SDK in another project, install it into your local Maven
+repository with `mvn install` and depend on the snapshot:
+
+```xml
+<dependency>
+    <groupId>io.github.authzenenforcer</groupId>
+    <artifactId>authzen-enforcer-core</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+</dependency>
+```
+
+### Planned
+
+Framework integrations will add a `@CheckPermission` annotation, for example with Spring Boot:
 
 ```java
 @CheckPermission                     // action = "read", resource = {type: "document", id: <id>}
@@ -51,12 +97,12 @@ public Document getDocument(@PathVariable String id) { ... }
 
 ## Modules
 
-| Artifact | Java | Description |
-|---|---|---|
-| `authzen-enforcer-core` | 17+ | PDP client, model, Bearer/DPoP. No dependencies. |
-| `authzen-enforcer-spring-boot-starter` | 17+ | Spring Boot 3 auto-configuration and `@CheckPermission` |
-| `authzen-enforcer-quarkus` | 17+ | Quarkus 3 extension |
-| `authzen-enforcer-bom` | – | Version alignment |
+| Artifact | Java | Status | Description |
+|---|---|---|---|
+| `authzen-enforcer-core` | 17+ | In development | PDP client, model, Bearer. No dependencies. DPoP is planned. |
+| `authzen-enforcer-spring-boot-starter` | 17+ | Planned | Spring Boot 3 auto-configuration and `@CheckPermission` |
+| `authzen-enforcer-quarkus` | 17+ | Planned | Quarkus 3 extension |
+| `authzen-enforcer-bom` | – | In development | Version alignment |
 
 Group ID: `io.github.authzenenforcer`
 
