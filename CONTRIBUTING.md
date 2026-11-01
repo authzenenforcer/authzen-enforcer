@@ -13,7 +13,19 @@ mvn verify                          # build and test all modules
 mvn -pl authzen-enforcer-core verify  # core module only
 ```
 
-CI runs the build on JDK 17, 21 and 25.
+CI runs the build on JDK 17, 21 and 25. To do the same locally without switching `JAVA_HOME`, use the
+`jdk17`, `jdk21` and `jdk25` profiles. They compile and run the tests with that JDK, whatever JDK
+runs Maven. The bytecode still targets Java 17.
+
+```bash
+mvn -P jdk21 verify
+```
+
+The profiles use `maven-toolchains-plugin`, which discovers installed JDKs automatically: from
+`~/.m2/toolchains.xml`, `JAVA_HOME`, `JAVAxx_HOME` variables and the usual installation directories.
+If several JDKs match, it picks the newest. To use a specific one, point `JAVAxx_HOME` at it, for
+example `JAVA17_HOME=/path/to/jdk-17 mvn -P jdk17 verify`. The build fails if no matching JDK is
+installed.
 
 ### Interop tests
 

@@ -77,6 +77,7 @@
         <central-publishing-maven-plugin.version>0.12.0</central-publishing-maven-plugin.version>
         <versions-maven-plugin.version>2.23.0</versions-maven-plugin.version>
         <maven-site-plugin.version>3.22.0</maven-site-plugin.version>
+        <maven-toolchains-plugin.version>3.3.0</maven-toolchains-plugin.version>
     </properties>
 
     <build>
@@ -140,6 +141,22 @@
                     <artifactId>versions-maven-plugin</artifactId>
                     <version>${versions-maven-plugin.version}</version>
                 </plugin>
+                <!-- Activated by the jdkNN profiles; they set toolchain.jdk.version -->
+                <plugin>
+                    <artifactId>maven-toolchains-plugin</artifactId>
+                    <version>${maven-toolchains-plugin.version}</version>
+                    <executions>
+                        <execution>
+                            <id>select-jdk</id>
+                            <goals>
+                                <goal>select-jdk-toolchain</goal>
+                            </goals>
+                            <configuration>
+                                <version>${toolchain.jdk.version}</version>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
             </plugins>
         </pluginManagement>
 
@@ -172,6 +189,51 @@
     </build>
 
     <profiles>
+        <!--
+          Compile and test with a specific JDK, whatever JDK runs Maven: mvn -P jdk21 verify
+          The bytecode still targets Java 17 (maven.compiler.release). Installed JDKs are discovered
+          automatically; see CONTRIBUTING.md.
+        -->
+        <profile>
+            <id>jdk17</id>
+            <properties>
+                <toolchain.jdk.version>[17,18)</toolchain.jdk.version>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <artifactId>maven-toolchains-plugin</artifactId>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>jdk21</id>
+            <properties>
+                <toolchain.jdk.version>[21,22)</toolchain.jdk.version>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <artifactId>maven-toolchains-plugin</artifactId>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>jdk25</id>
+            <properties>
+                <toolchain.jdk.version>[25,26)</toolchain.jdk.version>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <artifactId>maven-toolchains-plugin</artifactId>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
         <!-- Maven Central publishing: mvn -P release deploy -->
         <profile>
             <id>release</id>
