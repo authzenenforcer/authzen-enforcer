@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.authzenenforcer.core.PdpCommunicationException;
+import io.github.authzenenforcer.core.client.DiscoveryOptions;
 import io.github.authzenenforcer.core.internal.http.PdpTransport;
 import io.github.authzenenforcer.core.model.PdpMetadata;
 import io.github.authzenenforcer.core.spi.JsonCodec;
@@ -25,23 +26,28 @@ import java.util.Optional;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Refresh behaviour of {@link MetadataResolver} with a refresh interval much longer than the retry
- * interval, which the public builder cannot set.
+ * Refresh behaviour of {@link MetadataResolver}, driven by a fake clock.
  */
 class MetadataResolverRefreshTest {
 
-    private static final Duration REFRESH = Duration.ofMillis(100);
-    private static final Duration RETRY = Duration.ofMillis(20);
+    private static final Duration TTL = Duration.ofMinutes(10);
+    private static final Duration MIN_TTL = Duration.ofMinutes(1);
+    private static final Duration MAX_STALE = Duration.ofMinutes(5);
+    private static final DiscoveryOptions OPTIONS = DiscoveryOptions.builder()
+            .defaultTtl(TTL).minTtl(MIN_TTL).maxStale(MAX_STALE).build();
 
     private HttpServer server;
     private final List<Integer> statuses = new CopyOnWriteArrayList<>();
     private final AtomicInteger requests = new AtomicInteger();
+    // Starts near the overflow point, so that the cache arithmetic must be wrap-safe
+    private final AtomicLong nanos = new AtomicLong(Long.MAX_VALUE - Duration.ofMinutes(3).toNanos());
     private URI identifier;
 
     @BeforeEach
@@ -78,51 +84,155 @@ class MetadataResolverRefreshTest {
                 + "\"access_evaluation_endpoint\": \"" + identifier + "/authzen/access/v1/evaluation\"}";
     }
 
-    private MetadataResolver resolver() {
+    private MetadataResolver resolver(DiscoveryOptions options) {
         PdpTransport transport = new PdpTransport(HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build(),
                 null, JsonCodec.defaultCodec(), Duration.ofSeconds(2), 0);
-        return new MetadataResolver(transport, identifier, REFRESH, RETRY, false);
+        return new MetadataResolver(transport, identifier, options, false, nanos::get);
     }
 
-    private static void sleep(Duration duration) throws InterruptedException {
-        Thread.sleep(duration.toMillis());
+    private MetadataResolver resolver() {
+        return resolver(OPTIONS);
+    }
+
+    private void advance(Duration duration) {
+        nanos.addAndGet(duration.toNanos());
     }
 
     @Test
-    void checksA404ThatReplacesPublishedMetadataAgainAfterTheRetryInterval() throws InterruptedException {
+    void keepsAResultForTheDefaultTtl() {
+        statuses.addAll(List.of(200, 200));
+        MetadataResolver resolver = resolver();
+
+        resolver.metadata().join();
+        advance(TTL.minusNanos(1));
+        resolver.metadata().join();
+        assertEquals(1, requests.get());
+
+        advance(Duration.ofNanos(1));
+        resolver.metadata().join();
+        assertEquals(2, requests.get());
+    }
+
+    @Test
+    void checksA404ThatReplacesPublishedMetadataAgainAfterMinTtl() {
         statuses.addAll(List.of(200, 404, 200));
         MetadataResolver resolver = resolver();
 
         assertTrue(resolver.metadata().join().isPresent());
-        sleep(REFRESH.plusMillis(50));
+        advance(TTL);
         assertEquals(Optional.empty(), resolver.metadata().join());
-        sleep(RETRY.plusMillis(30));
+        advance(MIN_TTL);
 
-        assertTrue(resolver.metadata().join().isPresent(), "the 404 must not be kept for the refresh interval");
+        assertTrue(resolver.metadata().join().isPresent(), "the 404 must not be kept for the default TTL");
         assertEquals(3, requests.get());
     }
 
     @Test
-    void keepsA404WithoutPreviousMetadataForTheRefreshInterval() throws InterruptedException {
+    void keepsA404WithoutPreviousMetadataForTheDefaultTtl() {
         statuses.addAll(List.of(404, 200));
         MetadataResolver resolver = resolver();
 
         assertEquals(Optional.empty(), resolver.metadata().join());
-        sleep(RETRY.plusMillis(30));
+        advance(MIN_TTL);
 
         assertEquals(Optional.empty(), resolver.metadata().join());
         assertEquals(1, requests.get());
     }
 
     @Test
-    void keepsThePreviousMetadataWhileThePdpRateLimits() throws InterruptedException {
+    void keepsThePreviousMetadataWhileThePdpRateLimits() {
         statuses.addAll(List.of(200, 429));
         MetadataResolver resolver = resolver();
         PdpMetadata first = resolver.metadata().join().orElseThrow();
-        sleep(REFRESH.plusMillis(50));
+        advance(TTL);
 
         assertEquals(Optional.of(first), resolver.metadata().join());
         assertEquals(2, requests.get());
+    }
+
+    @Test
+    void retriesAFailedRefreshAfterMinTtlWhileUsingThePreviousMetadata() {
+        statuses.addAll(List.of(200, 503, 503, 200));
+        MetadataResolver resolver = resolver();
+        resolver.metadata().join();
+        advance(TTL);
+
+        resolver.metadata().join();
+        advance(MIN_TTL.minusNanos(1));
+        resolver.metadata().join();
+        assertEquals(2, requests.get(), "no new attempt before minTtl");
+
+        advance(Duration.ofNanos(1));
+        resolver.metadata().join();
+        assertEquals(3, requests.get());
+    }
+
+    @Test
+    void usesThePreviousMetadataUntilMaxStaleAfterItsExpiry() {
+        statuses.addAll(List.of(200, 503));
+        MetadataResolver resolver = resolver();
+        PdpMetadata first = resolver.metadata().join().orElseThrow();
+
+        advance(TTL.plus(MAX_STALE).minusNanos(1));
+
+        assertEquals(Optional.of(first), resolver.metadata().join());
+    }
+
+    @Test
+    void failsOnceThePreviousMetadataIsOlderThanMaxStale() {
+        statuses.addAll(List.of(200, 503));
+        MetadataResolver resolver = resolver();
+        resolver.metadata().join();
+
+        advance(TTL.plus(MAX_STALE));
+
+        CompletionException e = assertThrows(CompletionException.class, () -> resolver.metadata().join());
+        assertTrue(e.getCause() instanceof PdpCommunicationException, String.valueOf(e.getCause()));
+    }
+
+    @Test
+    void neverServesThePreviousMetadataPastMaxStaleEvenBetweenRetries() {
+        // Retries every minute, but maxStale ends 30 seconds after the second retry
+        DiscoveryOptions options = DiscoveryOptions.builder()
+                .defaultTtl(TTL).minTtl(MIN_TTL).maxStale(Duration.ofSeconds(90)).build();
+        statuses.addAll(List.of(200, 503));
+        MetadataResolver resolver = resolver(options);
+        resolver.metadata().join();
+        advance(TTL);
+        resolver.metadata().join();
+        advance(MIN_TTL);
+        resolver.metadata().join();
+        assertEquals(3, requests.get());
+
+        advance(Duration.ofSeconds(30));
+
+        assertThrows(CompletionException.class, () -> resolver.metadata().join(),
+                "the previous result must not be served past maxStale while waiting for the next retry");
+        assertEquals(4, requests.get());
+    }
+
+    @Test
+    void neverUsesAnExpiredResultWhenMaxStaleIsZero() {
+        DiscoveryOptions options = DiscoveryOptions.builder().defaultTtl(TTL).minTtl(MIN_TTL).maxStale(Duration.ZERO).build();
+        statuses.addAll(List.of(200, 503));
+        MetadataResolver resolver = resolver(options);
+        resolver.metadata().join();
+        advance(TTL);
+
+        assertThrows(CompletionException.class, () -> resolver.metadata().join());
+    }
+
+    @Test
+    void startsAfreshAfterDroppingTheStaleResult() {
+        statuses.addAll(List.of(200, 503, 503));
+        MetadataResolver resolver = resolver();
+        resolver.metadata().join();
+        advance(TTL.plus(MAX_STALE));
+        assertThrows(CompletionException.class, () -> resolver.metadata().join());
+
+        // Without a previous result, each use tries again and fails
+        assertThrows(CompletionException.class, () -> resolver.metadata().join());
+        assertEquals(3, requests.get());
     }
 
     @Test

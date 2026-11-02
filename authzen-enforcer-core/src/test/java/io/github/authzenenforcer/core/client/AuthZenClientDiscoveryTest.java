@@ -42,6 +42,7 @@ class AuthZenClientDiscoveryTest {
             Subject.of("user", "alice@example.com"), Action.of("can_read"), Resource.of("account", "123"));
 
     private FakePdp pdp;
+    private final FakeClock clock = new FakeClock();
 
     @BeforeEach
     void startPdp() throws IOException {
@@ -298,26 +299,45 @@ class AuthZenClientDiscoveryTest {
     }
 
     @Test
-    void refreshesTheMetadataAfterTheInterval() throws InterruptedException {
+    void refreshesTheMetadataAfterTheDefaultTtl() {
         pdp.respondToMetadata(sequence(
                 json(200, metadata(pdp.url().toString(), "/first")),
                 json(200, metadata(pdp.url().toString(), "/second"))));
-        AuthZenClient client = builder("").metadataRefreshInterval(Duration.ofMillis(50)).build();
+        AuthZenClient client = builder("").clock(clock).build();
 
         client.evaluate(REQUEST);
-        Thread.sleep(100);
+        clock.advance(DiscoveryOptions.DEFAULT_TTL.minusNanos(1));
+        client.evaluate(REQUEST);
+        clock.advance(Duration.ofNanos(1));
+        client.evaluate(REQUEST);
+
+        assertEquals(List.of("/first", "/first", "/second"), paths());
+    }
+
+    @Test
+    void usesTheConfiguredDiscoveryOptions() {
+        pdp.respondToMetadata(sequence(
+                json(200, metadata(pdp.url().toString(), "/first")),
+                json(200, metadata(pdp.url().toString(), "/second"))));
+        AuthZenClient client = builder("")
+                .discovery(DiscoveryOptions.builder().defaultTtl(Duration.ofMinutes(5)).build())
+                .clock(clock)
+                .build();
+
+        client.evaluate(REQUEST);
+        clock.advance(Duration.ofMinutes(5));
         client.evaluate(REQUEST);
 
         assertEquals(List.of("/first", "/second"), paths());
     }
 
     @Test
-    void keepsThePreviousMetadataWhenTheRefreshCannotReachThePdp() throws InterruptedException {
+    void keepsThePreviousMetadataWhenTheRefreshCannotReachThePdp() {
         pdp.respondToMetadata(sequence(json(200, metadata(pdp.url().toString(), "/first")), json(503, "")));
-        AuthZenClient client = builder("").metadataRefreshInterval(Duration.ofMillis(50)).build();
+        AuthZenClient client = builder("").clock(clock).build();
 
         client.evaluate(REQUEST);
-        Thread.sleep(100);
+        clock.advance(DiscoveryOptions.DEFAULT_TTL);
 
         assertTrue(client.evaluate(REQUEST).getDecision());
         assertEquals(List.of("/first", "/first"), paths());
@@ -325,14 +345,28 @@ class AuthZenClientDiscoveryTest {
     }
 
     @Test
-    void failsClosedWhenTheRefreshReturnsMetadataForAnotherPdp() throws InterruptedException {
+    void failsClosedOnceThePreviousMetadataIsOlderThanMaxStale() {
+        pdp.respondToMetadata(sequence(json(200, metadata(pdp.url().toString(), "/first")), json(503, "")));
+        AuthZenClient client = builder("").clock(clock).build();
+
+        client.evaluate(REQUEST);
+        clock.advance(DiscoveryOptions.DEFAULT_TTL.plus(DiscoveryOptions.DEFAULT_MAX_STALE).minusNanos(1));
+        assertTrue(client.evaluate(REQUEST).getDecision());
+        clock.advance(DiscoveryOptions.DEFAULT_MIN_TTL);
+
+        assertThrows(PdpCommunicationException.class, () -> client.evaluate(REQUEST));
+        assertEquals(List.of("/first", "/first"), paths());
+    }
+
+    @Test
+    void failsClosedWhenTheRefreshReturnsMetadataForAnotherPdp() {
         pdp.respondToMetadata(sequence(
                 json(200, metadata(pdp.url().toString(), "/first")),
                 json(200, metadata("https://attacker.example.com", "/first"))));
-        AuthZenClient client = builder("").metadataRefreshInterval(Duration.ofMillis(50)).build();
+        AuthZenClient client = builder("").clock(clock).build();
 
         client.evaluate(REQUEST);
-        Thread.sleep(100);
+        clock.advance(DiscoveryOptions.DEFAULT_TTL);
 
         assertThrows(PdpProtocolException.class, () -> client.evaluate(REQUEST));
         assertEquals(List.of("/first"), paths());

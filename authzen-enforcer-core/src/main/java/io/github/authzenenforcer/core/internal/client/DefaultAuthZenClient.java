@@ -4,6 +4,7 @@ import io.github.authzenenforcer.core.AuthZenException;
 import io.github.authzenenforcer.core.PdpCommunicationException;
 import io.github.authzenenforcer.core.auth.CredentialProvider;
 import io.github.authzenenforcer.core.client.AuthZenClient;
+import io.github.authzenenforcer.core.client.DiscoveryOptions;
 import io.github.authzenenforcer.core.internal.http.PdpTransport;
 import io.github.authzenenforcer.core.internal.wire.WireFormat;
 import io.github.authzenenforcer.core.model.EvaluationRequest;
@@ -21,6 +22,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
+import java.util.function.LongSupplier;
 
 /**
  * Default {@link AuthZenClient} on top of {@link java.net.http.HttpClient}.
@@ -48,18 +50,20 @@ public final class DefaultAuthZenClient implements AuthZenClient {
      * @param httpClient              an HTTP client that does not follow redirects
      * @param requestTimeout          the timeout of a single request
      * @param maxRetries              how often a request that failed transiently may be repeated
-     * @param discovery               whether endpoints are discovered from the PDP metadata
-     * @param metadataRefreshInterval how long discovered metadata is used before it is fetched again
+     * @param discovery               how discovered metadata is cached, or {@code null} to use no
+     *                                discovery
+     * @param clock                   a monotonic clock in nanoseconds for the metadata cache, such as
+     *                                {@link System#nanoTime()}
      */
     public DefaultAuthZenClient(URI pdpUrl, URI evaluationEndpoint, CredentialProvider credentials, JsonCodec codec,
-            HttpClient httpClient, Duration requestTimeout, int maxRetries, boolean discovery,
-            Duration metadataRefreshInterval) {
+            HttpClient httpClient, Duration requestTimeout, int maxRetries, DiscoveryOptions discovery,
+            LongSupplier clock) {
         URI identifier = Urls.withoutTrailingSlashes(Urls.check(pdpUrl, "pdpUrl"));
         this.defaultEvaluationEndpoint = Urls.append(identifier, EVALUATION_PATH);
         this.evaluationEndpoint = evaluationEndpoint != null ? Urls.check(evaluationEndpoint, "evaluationEndpoint") : null;
         this.transport = new PdpTransport(httpClient, credentials, codec, requestTimeout, maxRetries);
-        this.metadata = discovery
-                ? new MetadataResolver(transport, identifier, metadataRefreshInterval, credentials != null)
+        this.metadata = discovery != null
+                ? new MetadataResolver(transport, identifier, discovery, credentials != null, clock)
                 : null;
         URI configured = this.evaluationEndpoint != null ? this.evaluationEndpoint : identifier;
         if (credentials != null && Urls.isPlainHttpToRemoteHost(configured)) {
