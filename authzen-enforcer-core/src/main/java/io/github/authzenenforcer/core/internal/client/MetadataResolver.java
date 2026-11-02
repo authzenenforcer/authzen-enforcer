@@ -31,6 +31,10 @@ import java.util.function.LongSupplier;
  * maxStale} after its expiry, and the refresh is tried again every {@code minTtl}. After that, and
  * for any other failure, the previous result is dropped and the caller fails, so that it denies.
  *
+ * <p>Every fetch goes through a {@link CircuitBreaker} that counts every kind of failure. While it
+ * is open, no fetch starts: a previous result within {@code maxStale} is returned, otherwise the
+ * caller fails at once.
+ *
  * <p>Metadata whose {@code policy_decision_point} differs from the identifier is rejected, as the
  * specification requires, and so are endpoints that are not usable URLs or that use plain HTTP
  * for a PDP identified by an {@code https} URL.
@@ -52,12 +56,14 @@ final class MetadataResolver {
     private final long maxStaleNanos;
     private final boolean sendsCredentials;
     private final LongSupplier clock;
+    private final CircuitBreaker breaker;
     // Not synchronized: on Java 21 to 23 a virtual thread waiting for a monitor pins its carrier
     private final ReentrantLock lock = new ReentrantLock();
 
     // Guarded by lock
     private Cached cached;
     private CompletableFuture<Optional<PdpMetadata>> pending;
+    private CircuitBreaker.Permit pendingPermit;
     // Whether the last result the PDP gave was published metadata; survives dropping the cache
     private boolean lastPublished;
 
@@ -69,9 +75,10 @@ final class MetadataResolver {
      * @param options          how results are cached
      * @param sendsCredentials whether requests to the endpoints carry credentials
      * @param clock            a monotonic clock in nanoseconds, such as {@link System#nanoTime()}
+     * @param breaker          the breaker that suspends fetches after repeated failures, on the same clock
      */
     MetadataResolver(PdpTransport transport, URI identifier, DiscoveryOptions options, boolean sendsCredentials,
-            LongSupplier clock) {
+            LongSupplier clock, CircuitBreaker breaker) {
         this.transport = Objects.requireNonNull(transport, "transport");
         this.identifier = Objects.requireNonNull(identifier, "identifier");
         this.location = Urls.wellKnown(identifier, WELL_KNOWN_PATH);
@@ -83,6 +90,7 @@ final class MetadataResolver {
         this.maxStaleNanos = options.getMaxStale().toNanos();
         this.sendsCredentials = sendsCredentials;
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.breaker = Objects.requireNonNull(breaker, "breaker");
     }
 
     /**
@@ -108,8 +116,19 @@ final class MetadataResolver {
                 // A copy, so that a caller cancelling its future does not fail the others
                 return pending.copy();
             }
+            CircuitBreaker.Permit permit;
+            try {
+                permit = breaker.acquire(now);
+            } catch (PdpCommunicationException suspended) {
+                // While fetches are suspended, a previous result is still good within maxStale
+                if (cached != null && now - cached.staleUntilNanos < 0) {
+                    return CompletableFuture.completedFuture(cached.metadata);
+                }
+                return CompletableFuture.failedFuture(suspended);
+            }
             result = new CompletableFuture<>();
             pending = result;
+            pendingPermit = permit;
         } finally {
             lock.unlock();
         }
@@ -176,12 +195,15 @@ final class MetadataResolver {
             now = now();
         } catch (AuthZenException e) {
             // Nothing changed yet; clear the fetch so that the next call tries again
+            CircuitBreaker.Permit permit;
             lock.lock();
             try {
                 pending = null;
+                permit = pendingPermit;
             } finally {
                 lock.unlock();
             }
+            breaker.released(permit);
             result.completeExceptionally(e);
             return;
         }
@@ -191,9 +213,13 @@ final class MetadataResolver {
         boolean keptPrevious = false;
         boolean droppedStale = false;
         boolean droppedUnusable = false;
+        Runnable breakerLog;
         lock.lock();
         try {
             pending = null;
+            CircuitBreaker.Permit permit = pendingPermit;
+            // Every failure counts: asking again does not fix invalid metadata or a rejected request
+            breakerLog = error == null ? breaker.succeeded(permit) : breaker.failed(permit, now, unwrap(error));
             previous = cached == null ? null : cached.metadata;
             if (error == null) {
                 // A 404 right after published metadata may come from a proxy during a rollout, so
@@ -229,6 +255,7 @@ final class MetadataResolver {
         // Complete before logging, so that a failing logger cannot leave the waiting callers blocked
         if (failure != null) {
             result.completeExceptionally(failure);
+            breakerLog.run();
             if (droppedStale) {
                 LOGGER.log(Level.WARNING, "PDP metadata from " + location + " expired more than maxStale ago and "
                         + "could not be refreshed; requests fail until a refresh succeeds: " + failure.getMessage());
@@ -241,6 +268,7 @@ final class MetadataResolver {
             return;
         }
         result.complete(value);
+        breakerLog.run();
         if (keptPrevious) {
             LOGGER.log(Level.WARNING, "Refreshing the PDP metadata from " + location
                     + " failed; keeping the previous result: " + unwrap(error).getMessage());

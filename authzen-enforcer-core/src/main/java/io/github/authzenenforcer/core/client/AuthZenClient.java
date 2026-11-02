@@ -113,6 +113,7 @@ public interface AuthZenClient {
         private int maxRetries = DEFAULT_MAX_RETRIES;
         private boolean discovery = true;
         private DiscoveryOptions discoveryOptions = DiscoveryOptions.defaults();
+        private CircuitBreakerOptions circuitBreaker = CircuitBreakerOptions.defaults();
         private LongSupplier clock = System::nanoTime;
 
         private Builder() {
@@ -211,7 +212,21 @@ public interface AuthZenClient {
             return this;
         }
 
-        // Lets tests in this package drive the metadata cache without waiting
+        /**
+         * Sets how the client stops calling a PDP that keeps failing. Defaults to
+         * {@link CircuitBreakerOptions#defaults()}; {@link CircuitBreakerOptions#disabled()} turns
+         * the breakers off.
+         *
+         * @param options the breaker options
+         * @return this builder
+         * @see CircuitBreakerOptions
+         */
+        public Builder circuitBreaker(CircuitBreakerOptions options) {
+            this.circuitBreaker = Objects.requireNonNull(options, "options");
+            return this;
+        }
+
+        // Lets tests in this package drive the metadata cache and the breakers without waiting
         Builder clock(LongSupplier clock) {
             this.clock = Objects.requireNonNull(clock, "clock");
             return this;
@@ -330,7 +345,7 @@ public interface AuthZenClient {
                 throw new IllegalStateException("httpClient must not follow redirects");
             }
             return new DefaultAuthZenClient(pdpUrl, evaluationEndpoint, credentials, jsonCodec, client, requestTimeout,
-                    maxRetries, discovery ? discoveryOptions : null, clock);
+                    maxRetries, discovery ? discoveryOptions : null, circuitBreaker, clock);
         }
 
         private static Duration requirePositive(Duration duration, String name) {
