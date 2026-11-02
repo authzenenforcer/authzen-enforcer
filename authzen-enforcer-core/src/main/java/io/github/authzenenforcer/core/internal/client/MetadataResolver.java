@@ -209,11 +209,11 @@ final class MetadataResolver {
         }
         Optional<PdpMetadata> value = null;
         AuthZenException failure = null;
-        Optional<PdpMetadata> previous;
+        Optional<PdpMetadata> previous = null;
         boolean keptPrevious = false;
         boolean droppedStale = false;
         boolean droppedUnusable = false;
-        Runnable breakerLog;
+        Runnable breakerLog = () -> { };
         lock.lock();
         try {
             pending = null;
@@ -249,6 +249,12 @@ final class MetadataResolver {
                             : new AuthZenException("PDP metadata discovery failed unexpectedly", cause);
                 }
             }
+        } catch (RuntimeException e) {
+            // pending is already cleared, so the waiting callers must be completed in any case
+            failure = new AuthZenException("PDP metadata discovery failed unexpectedly", e);
+            keptPrevious = false;
+            droppedStale = false;
+            droppedUnusable = false;
         } finally {
             lock.unlock();
         }

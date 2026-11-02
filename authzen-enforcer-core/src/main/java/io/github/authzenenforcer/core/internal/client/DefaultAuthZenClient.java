@@ -92,12 +92,17 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     public CompletableFuture<EvaluationResponse> evaluateAsync(EvaluationRequest request) {
         Objects.requireNonNull(request, "request");
         Map<String, Object> body = WireFormat.evaluationRequest(request);
-        return evaluationEndpoint()
-                .thenCompose(endpoint -> post(endpoint, body))
+        BreakerLog log = new BreakerLog();
+        CompletableFuture<EvaluationResponse> result = evaluationEndpoint()
+                .thenCompose(endpoint -> post(endpoint, body, log))
                 .thenApply(WireFormat::evaluationResponse);
+        // A separate stage after the caller's future: a slow or failing logger can neither delay
+        // nor change the decision
+        result.whenComplete((ignored, error) -> log.run());
+        return result;
     }
 
-    private CompletableFuture<Object> post(URI endpoint, Map<String, Object> body) {
+    private CompletableFuture<Object> post(URI endpoint, Map<String, Object> body, BreakerLog log) {
         CircuitBreaker.Permit permit;
         try {
             permit = evaluations.acquire(now());
@@ -110,35 +115,46 @@ public final class DefaultAuthZenClient implements AuthZenClient {
         } catch (RuntimeException e) {
             evaluations.released(permit);
             return CompletableFuture.failedFuture(e);
+        } catch (Error e) {
+            // A lost probe permit would keep the breaker rejecting every call
+            evaluations.released(permit);
+            throw e;
         }
-        return response.whenComplete((ignored, error) -> record(permit, error));
+        return response.whenComplete((ignored, error) -> log.action = record(permit, error));
     }
 
     // Only an unreachable or overloaded PDP counts; any answer shows that it is up
-    private void record(CircuitBreaker.Permit permit, Throwable error) {
+    private Runnable record(CircuitBreaker.Permit permit, Throwable error) {
         Throwable cause = unwrap(error);
-        Runnable log;
         if (cause == null || cause instanceof PdpProtocolException || cause instanceof PdpAuthenticationException) {
-            log = evaluations.succeeded(permit);
-        } else if (cause instanceof PdpCommunicationException) {
+            return evaluations.succeeded(permit);
+        }
+        if (cause instanceof PdpCommunicationException) {
             long now;
             try {
                 now = now();
             } catch (AuthZenException e) {
                 evaluations.released(permit);
-                return;
+                return BreakerLog.NONE;
             }
-            log = evaluations.failed(permit, now, cause);
-        } else {
-            // A failing credential provider, a cancelled call or a serialization error says nothing about the PDP
-            evaluations.released(permit);
-            return;
+            return evaluations.failed(permit, now, cause);
         }
-        // This runs inside whenComplete, where a throwing logger would turn the PDP's answer into a failure
-        try {
-            log.run();
-        } catch (RuntimeException e) {
-            // Logging is best effort
+        // A failing credential provider, a cancelled call or a serialization error says nothing about the PDP
+        evaluations.released(permit);
+        return BreakerLog.NONE;
+    }
+
+    /** The log action of the evaluation breaker, run once the caller's future has completed. */
+    private static final class BreakerLog implements Runnable {
+
+        static final Runnable NONE = () -> { };
+
+        // Written by the transport's completion before the result completes, read after it
+        volatile Runnable action = NONE;
+
+        @Override
+        public void run() {
+            action.run();
         }
     }
 

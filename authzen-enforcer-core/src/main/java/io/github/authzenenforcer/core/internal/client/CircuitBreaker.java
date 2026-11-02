@@ -20,8 +20,9 @@ import java.util.function.DoubleSupplier;
  * ignored, so that a late answer cannot close or extend the current open period.
  *
  * <p>Callers pass the time, so that a failing clock is handled where the caller can fail its own
- * request, and they run the returned log action after completing their futures, so that a failing
- * logger cannot leave anyone waiting.
+ * request, and they run the returned log action after completing their futures, so that a slow or
+ * failing logger can neither leave anyone waiting nor change a result. Messages are built when
+ * the log action runs, never under the lock.
  *
  * <p>Instances are thread-safe.
  */
@@ -193,10 +194,13 @@ final class CircuitBreaker {
         probing = false;
         failures = 0;
         generation++;
-        String message = name + " failed " + (opens == 1 ? threshold + " times in a row" : "again after recovery probe")
+        // The message is built when the log action runs, outside the lock
+        boolean first = opens == 1;
+        Throwable failure = lastFailure;
+        return () -> LOGGER.log(Level.WARNING, () -> name + " failed "
+                + (first ? threshold + " times in a row" : "again after recovery probe")
                 + "; the circuit breaker is open for " + Duration.ofNanos(duration).toMillis() + " ms: "
-                + describe(lastFailure);
-        return () -> LOGGER.log(Level.WARNING, message);
+                + describe(failure));
     }
 
     private PdpCommunicationException rejection(String detail) {
@@ -204,7 +208,15 @@ final class CircuitBreaker {
                 + "): " + describe(lastFailure), lastFailure);
     }
 
+    // Exception types from integrator code may misbehave; a message must never fail a caller
     private static String describe(Throwable failure) {
-        return failure == null ? "no failure recorded" : failure.getMessage();
+        if (failure == null) {
+            return "no failure recorded";
+        }
+        try {
+            return String.valueOf(failure.getMessage());
+        } catch (RuntimeException e) {
+            return failure.getClass().getName();
+        }
     }
 }

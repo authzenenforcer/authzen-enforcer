@@ -21,6 +21,10 @@ import java.util.Objects;
  * {@code 401}/{@code 403}, since asking again does not help. While the discovery breaker is open,
  * previously discovered metadata is still used within {@link DiscoveryOptions#getMaxStale()}.
  *
+ * <p>A probe that hangs, for example in a {@link io.github.authzenenforcer.core.auth.CredentialProvider}
+ * that blocks, keeps the breaker from letting other requests through until it returns. The
+ * request timeout bounds a probe only once its request has been sent.
+ *
  * <pre>{@code
  * AuthZenClient client = AuthZenClient.builder()
  *         .pdpUrl("https://pdp.example.com")

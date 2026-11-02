@@ -694,6 +694,48 @@ class AuthZenClientTest {
             }
         }
 
+        @Test
+        void keepsThePdpAnswerWhenTheLoggerThrowsAnError() throws ClassNotFoundException {
+            pdp.respond(sequence(json(503, ""), json(503, ""), json(503, ""), json(200, "{\"decision\": true}")));
+            AuthZenClient client = client(CircuitBreakerOptions.defaults());
+            for (int i = 0; i < 3; i++) {
+                assertThrows(PdpCommunicationException.class, () -> client.evaluate(REQUEST));
+            }
+            clock.advance(CircuitBreakerOptions.DEFAULT_OPEN_DURATION);
+            TestLoggerFinder.failWithError(Class.forName("io.github.authzenenforcer.core.internal.client.CircuitBreaker"));
+            try {
+                assertTrue(client.evaluateAsync(REQUEST).join().getDecision());
+            } finally {
+                TestLoggerFinder.reset();
+            }
+        }
+
+        @Test
+        void releasesTheProbeWhenTheCredentialProviderThrowsAnError() {
+            AtomicInteger calls = new AtomicInteger();
+            pdp.respond(sequence(json(503, ""), json(503, ""), json(503, ""), json(200, "{\"decision\": true}")));
+            AuthZenClient client = AuthZenClient.builder()
+                    .pdpUrl(pdp.url())
+                    .credentials(() -> {
+                        if (calls.incrementAndGet() == 4) {
+                            throw new AssertionError("provider bug during the probe");
+                        }
+                        return AccessCredential.bearer(TOKEN);
+                    })
+                    .maxRetries(0)
+                    .clock(clock)
+                    .build();
+            for (int i = 0; i < 3; i++) {
+                assertThrows(PdpCommunicationException.class, () -> client.evaluate(REQUEST));
+            }
+            clock.advance(CircuitBreakerOptions.DEFAULT_OPEN_DURATION);
+
+            assertThrows(AuthZenException.class, () -> client.evaluate(REQUEST));
+
+            assertTrue(client.evaluate(REQUEST).getDecision(), "the next call must be able to probe");
+            assertEquals(4, pdp.requests().size());
+        }
+
         @ParameterizedTest
         @ValueSource(ints = {400, 401, 403, 404, 422})
         void doesNotOpenOnAnswersThatShowThePdpIsUp(int status) {

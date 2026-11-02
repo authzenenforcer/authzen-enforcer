@@ -157,6 +157,25 @@ class CircuitBreakerTest {
     }
 
     @Test
+    void survivesAFailureWhoseMessageThrows() {
+        CircuitBreaker breaker = breaker();
+        RuntimeException hostile = new RuntimeException() {
+            @Override
+            public String getMessage() {
+                throw new IllegalStateException("broken exception type");
+            }
+        };
+
+        for (int i = 0; i < 3; i++) {
+            Runnable log = assertDoesNotThrow(() -> breaker.failed(breaker.acquire(now), now, hostile));
+            assertDoesNotThrow(log::run);
+        }
+
+        PdpCommunicationException e = assertThrows(PdpCommunicationException.class, () -> breaker.acquire(now));
+        assertSame(hostile, e.getCause());
+    }
+
+    @Test
     void neverRejectsWhenDisabled() {
         CircuitBreaker breaker = new CircuitBreaker("PDP evaluation", CircuitBreakerOptions.disabled(), () -> jitter);
 
