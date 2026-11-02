@@ -36,10 +36,15 @@ final class FakePdp implements AutoCloseable {
         }
     }
 
+    static final String WELL_KNOWN_PATH = "/.well-known/authzen-configuration";
+
     private final HttpServer server;
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final List<RecordedRequest> requests = new CopyOnWriteArrayList<>();
+    private final List<RecordedRequest> metadataRequests = new CopyOnWriteArrayList<>();
     private volatile Responder responder = json(200, "{\"decision\": true}");
+    // By default the PDP publishes no metadata, so the client uses the default paths
+    private volatile Responder metadataResponder = json(404, "");
     private boolean closed;
 
     private FakePdp() throws IOException {
@@ -49,8 +54,13 @@ final class FakePdp implements AutoCloseable {
             // HttpExchange is only AutoCloseable from Java 18 on
             try {
                 RecordedRequest request = record(exchange);
-                requests.add(request);
-                responder.respond(request, exchange);
+                if (request.path().startsWith(WELL_KNOWN_PATH)) {
+                    metadataRequests.add(request);
+                    metadataResponder.respond(request, exchange);
+                } else {
+                    requests.add(request);
+                    responder.respond(request, exchange);
+                }
             } finally {
                 exchange.close();
             }
@@ -98,16 +108,27 @@ final class FakePdp implements AutoCloseable {
         }
     }
 
+    /** Sets how API requests are answered. */
     void respond(Responder responder) {
         this.responder = responder;
+    }
+
+    /** Sets how metadata requests, those below the well-known path, are answered. */
+    void respondToMetadata(Responder responder) {
+        this.metadataResponder = responder;
     }
 
     URI url() {
         return URI.create("http://127.0.0.1:" + server.getAddress().getPort());
     }
 
+    /** Returns the API requests received, without the metadata requests. */
     List<RecordedRequest> requests() {
         return List.copyOf(requests);
+    }
+
+    List<RecordedRequest> metadataRequests() {
+        return List.copyOf(metadataRequests);
     }
 
     @Override

@@ -72,5 +72,7 @@ class AuthZenClientBuilderTest {
     void rejectsNonPositiveTimeouts() {
         assertThrows(IllegalArgumentException.class, () -> AuthZenClient.builder().requestTimeout(Duration.ZERO));
         assertThrows(IllegalArgumentException.class, () -> AuthZenClient.builder().connectTimeout(Duration.ofSeconds(-1)));
+        assertThrows(IllegalArgumentException.class,
+                () -> AuthZenClient.builder().metadataRefreshInterval(Duration.ZERO));
     }
 }

@@ -53,6 +53,8 @@ public final class PdpTransport {
     private static final System.Logger LOGGER = System.getLogger(PdpTransport.class.getName());
     private static final String JSON = "application/json";
     private static final String USER_AGENT = userAgent();
+    // Stands for a 404 answer to a GET, which callers turn into an empty result
+    private static final Object NOT_FOUND = new Object();
 
     private final HttpClient httpClient;
     private final CredentialProvider credentials;
@@ -97,13 +99,25 @@ public final class PdpTransport {
         return send(new Call(endpoint, json, System.nanoTime()), 0, false);
     }
 
+    /**
+     * Gets a JSON document without presenting credentials, as for the PDP metadata.
+     *
+     * @param endpoint the document URL
+     * @return a future completed with the parsed document, empty if the PDP answers {@code 404}, or
+     *         exceptionally with an {@link AuthZenException}
+     */
+    public CompletableFuture<Optional<Object>> get(URI endpoint) {
+        return send(new Call(endpoint, null, System.nanoTime()), 0, false)
+                .thenApply(body -> body == NOT_FOUND ? Optional.empty() : Optional.of(body));
+    }
+
     private CompletableFuture<Object> send(Call call, int retries, boolean refreshed) {
         // Every HTTP exchange, including a repeated one, gets its own request id
         Exchange exchange = new Exchange(call.endpoint, call.json, UUID.randomUUID().toString());
         AccessCredential credential;
         HttpRequest request;
         try {
-            credential = currentCredential();
+            credential = exchange.isGet() ? null : currentCredential();
             request = exchange.request(credential);
         } catch (AuthZenException e) {
             return CompletableFuture.failedFuture(e);
@@ -190,8 +204,12 @@ public final class PdpTransport {
     private Object handle(Exchange exchange, HttpResponse<byte[]> response) {
         int status = response.statusCode();
         if (status == 401 || status == 403) {
-            throw new PdpAuthenticationException("PDP rejected the credentials of the PEP with HTTP " + status
-                    + exchange.suffix(), status);
+            String reason = exchange.isGet() ? "PDP requires authentication for " + exchange.endpoint + " with HTTP "
+                    : "PDP rejected the credentials of the PEP with HTTP ";
+            throw new PdpAuthenticationException(reason + status + exchange.suffix(), status);
+        }
+        if (status == 404 && exchange.isGet()) {
+            return NOT_FOUND;
         }
         if (status >= 500) {
             throw new PdpCommunicationException("PDP returned HTTP " + status + exchange.suffix());
@@ -250,7 +268,7 @@ public final class PdpTransport {
         return version == null ? "authzen-enforcer" : "authzen-enforcer/" + version;
     }
 
-    /** One logical request, which may take several HTTP exchanges. */
+    /** One logical request, which may take several HTTP exchanges; without a body it is a GET. */
     private record Call(URI endpoint, String json, long startNanos) {
 
         Duration elapsed() {
@@ -271,14 +289,22 @@ public final class PdpTransport {
             this.requestId = requestId;
         }
 
+        boolean isGet() {
+            return json == null;
+        }
+
         HttpRequest request(AccessCredential credential) {
             HttpRequest.Builder builder = HttpRequest.newBuilder(endpoint)
                     .timeout(requestTimeout)
-                    .header("Content-Type", JSON)
                     .header("Accept", JSON)
                     .header("User-Agent", USER_AGENT)
-                    .header(REQUEST_ID_HEADER, requestId)
-                    .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8));
+                    .header(REQUEST_ID_HEADER, requestId);
+            if (isGet()) {
+                builder.GET();
+            } else {
+                builder.header("Content-Type", JSON)
+                        .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8));
+            }
             if (credential instanceof AccessCredential.Bearer bearer) {
                 builder.header("Authorization", "Bearer " + bearer.getToken());
             }

@@ -10,10 +10,12 @@ import io.github.authzenenforcer.core.model.Action;
 import io.github.authzenenforcer.core.model.Context;
 import io.github.authzenenforcer.core.model.EvaluationRequest;
 import io.github.authzenenforcer.core.model.EvaluationResponse;
+import io.github.authzenenforcer.core.model.PdpMetadata;
 import io.github.authzenenforcer.core.model.Resource;
 import io.github.authzenenforcer.core.model.Subject;
 import io.github.authzenenforcer.core.spi.JsonCodec;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -253,6 +255,98 @@ class WireFormatTest {
 
         private EvaluationResponse read(String json) {
             return WireFormat.evaluationResponse(codec.read(json));
+        }
+    }
+
+    @Nested
+    class Metadata {
+
+        @Test
+        void readsAllParameters() {
+            PdpMetadata metadata = read("""
+                    {
+                      "policy_decision_point": "https://pdp.example.com",
+                      "access_evaluation_endpoint": "https://pdp.example.com/access/v1/evaluation",
+                      "access_evaluations_endpoint": "https://pdp.example.com/access/v1/evaluations",
+                      "search_subject_endpoint": "https://pdp.example.com/access/v1/search/subject",
+                      "search_resource_endpoint": "https://pdp.example.com/access/v1/search/resource",
+                      "search_action_endpoint": "https://pdp.example.com/access/v1/search/action",
+                      "capabilities": ["urn:ietf:params:authzen:capability:example"]
+                    }
+                    """);
+
+            assertEquals(PdpMetadata.builder()
+                    .policyDecisionPoint("https://pdp.example.com")
+                    .accessEvaluationEndpoint(URI.create("https://pdp.example.com/access/v1/evaluation"))
+                    .accessEvaluationsEndpoint(URI.create("https://pdp.example.com/access/v1/evaluations"))
+                    .searchSubjectEndpoint(URI.create("https://pdp.example.com/access/v1/search/subject"))
+                    .searchResourceEndpoint(URI.create("https://pdp.example.com/access/v1/search/resource"))
+                    .searchActionEndpoint(URI.create("https://pdp.example.com/access/v1/search/action"))
+                    .capability("urn:ietf:params:authzen:capability:example")
+                    .build(), metadata);
+        }
+
+        @Test
+        void readsKeycloakMetadata() {
+            PdpMetadata metadata = read("""
+                    {"policy_decision_point":"http://127.0.0.1:8080/realms/authzen-demo",\
+                    "access_evaluation_endpoint":"http://127.0.0.1:8080/realms/authzen-demo/authzen/access/v1/evaluation",\
+                    "access_evaluations_endpoint":"http://127.0.0.1:8080/realms/authzen-demo/authzen/access/v1/evaluations"}
+                    """);
+
+            assertEquals("http://127.0.0.1:8080/realms/authzen-demo", metadata.getPolicyDecisionPoint());
+            assertTrue(metadata.getSearchSubjectEndpoint().isEmpty());
+        }
+
+        @Test
+        void ignoresUnknownParametersAndSignedMetadata() {
+            PdpMetadata metadata = read("""
+                    {
+                      "policy_decision_point": "https://pdp.example.com",
+                      "access_evaluation_endpoint": "https://pdp.example.com/access/v1/evaluation",
+                      "signed_metadata": "eyJhbGciOiJFUzI1NiJ9.e30.c2ln",
+                      "x_extension": {"a": 1}
+                    }
+                    """);
+
+            assertEquals("https://pdp.example.com", metadata.getPolicyDecisionPoint());
+        }
+
+        @Test
+        void treatsNullOptionalParametersAsAbsent() {
+            PdpMetadata metadata = read("""
+                    {
+                      "policy_decision_point": "https://pdp.example.com",
+                      "access_evaluation_endpoint": "https://pdp.example.com/access/v1/evaluation",
+                      "access_evaluations_endpoint": null,
+                      "capabilities": null
+                    }
+                    """);
+
+            assertTrue(metadata.getAccessEvaluationsEndpoint().isEmpty());
+            assertTrue(metadata.getCapabilities().isEmpty());
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "[]",
+                "\"https://pdp.example.com\"",
+                "{}",
+                "{\"policy_decision_point\": \"https://pdp.example.com\"}",
+                "{\"access_evaluation_endpoint\": \"https://pdp.example.com/access/v1/evaluation\"}",
+                "{\"policy_decision_point\": 1, \"access_evaluation_endpoint\": \"https://pdp.example.com/e\"}",
+                "{\"policy_decision_point\": \"https://pdp.example.com\", \"access_evaluation_endpoint\": [\"https://pdp.example.com/e\"]}",
+                "{\"policy_decision_point\": \"https://pdp.example.com\", \"access_evaluation_endpoint\": \"https://pdp.example.com/a b\"}",
+                "{\"policy_decision_point\": \"https://pdp.example.com\", \"access_evaluation_endpoint\": \"https://pdp.example.com/e\", \"search_action_endpoint\": true}",
+                "{\"policy_decision_point\": \"https://pdp.example.com\", \"access_evaluation_endpoint\": \"https://pdp.example.com/e\", \"capabilities\": \"urn:x\"}",
+                "{\"policy_decision_point\": \"https://pdp.example.com\", \"access_evaluation_endpoint\": \"https://pdp.example.com/e\", \"capabilities\": [1]}"
+        })
+        void rejectsInvalidMetadata(String json) {
+            assertThrows(PdpProtocolException.class, () -> read(json));
+        }
+
+        private PdpMetadata read(String json) {
+            return WireFormat.pdpMetadata(codec.read(json));
         }
     }
 }
