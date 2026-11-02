@@ -1,5 +1,7 @@
 package io.github.authzenenforcer.core.model;
 
+import io.github.authzenenforcer.core.internal.text.LogText;
+
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
@@ -136,17 +138,19 @@ public final class PdpMetadata {
     }
 
     /**
-     * Returns a description for logging. Metadata holds no personal data, so nothing is masked.
+     * Returns a description for logging. Metadata holds no personal data, so nothing is masked, but
+     * control characters in the strings the PDP chose are escaped so that they cannot forge log
+     * lines. URLs cannot contain them.
      */
     @Override
     public String toString() {
-        return "PdpMetadata{policyDecisionPoint=" + policyDecisionPoint
+        return "PdpMetadata{policyDecisionPoint=" + LogText.of(policyDecisionPoint)
                 + ", accessEvaluationEndpoint=" + accessEvaluationEndpoint
                 + ", accessEvaluationsEndpoint=" + accessEvaluationsEndpoint
                 + ", searchSubjectEndpoint=" + searchSubjectEndpoint
                 + ", searchResourceEndpoint=" + searchResourceEndpoint
                 + ", searchActionEndpoint=" + searchActionEndpoint
-                + ", capabilities=" + capabilities + "}";
+                + ", capabilities=" + capabilities.stream().map(LogText::of).toList() + "}";
     }
 
     /**

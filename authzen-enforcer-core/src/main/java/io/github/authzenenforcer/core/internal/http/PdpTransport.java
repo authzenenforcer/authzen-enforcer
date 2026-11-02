@@ -214,6 +214,10 @@ public final class PdpTransport {
         if (status >= 500) {
             throw new PdpCommunicationException("PDP returned HTTP " + status + exchange.suffix());
         }
+        if (status == 429) {
+            // An overloaded PDP, like a 503, not a protocol violation
+            throw new PdpCommunicationException("PDP kept rate-limiting with HTTP 429" + exchange.suffix());
+        }
         if (status != 200) {
             throw new PdpProtocolException("PDP returned unexpected HTTP " + status + exchange.suffix());
         }

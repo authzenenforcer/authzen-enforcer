@@ -1,10 +1,16 @@
 package io.github.authzenenforcer.core.internal.client;
 
+import java.net.InetAddress;
 import java.net.URI;
+import java.net.UnknownHostException;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 /** URL checks and derivations shared by the client and the metadata discovery. */
 final class Urls {
+
+    private static final Pattern IPV4 = Pattern.compile("\\d{1,3}(\\.\\d{1,3}){3}");
+    private static final Pattern IPV6 = Pattern.compile("\\[[0-9a-f:.]+]");
 
     private Urls() {
     }
@@ -50,11 +56,37 @@ final class Urls {
     }
 
     static boolean isPlainHttpToRemoteHost(URI url) {
-        if (!"http".equalsIgnoreCase(url.getScheme())) {
-            return false;
+        return "http".equalsIgnoreCase(url.getScheme()) && !isLoopback(url.getHost());
+    }
+
+    /**
+     * Tells whether a host is the loopback interface by its literal form, without a DNS lookup:
+     * {@code localhost}, an IPv4 address in {@code 127.0.0.0/8} or the IPv6 loopback address.
+     * A name such as {@code 127.example.com} is not loopback.
+     */
+    static boolean isLoopback(String host) {
+        String name = host.toLowerCase(Locale.ROOT);
+        if (name.equals("localhost")) {
+            return true;
         }
-        String host = url.getHost().toLowerCase(Locale.ROOT);
-        return !(host.equals("localhost") || host.startsWith("127.") || host.equals("[::1]") || host.equals("::1"));
+        if (IPV4.matcher(name).matches()) {
+            String[] octets = name.split("\\.");
+            for (String octet : octets) {
+                if (Integer.parseInt(octet) > 255) {
+                    return false;
+                }
+            }
+            return Integer.parseInt(octets[0]) == 127;
+        }
+        if (name.startsWith("[") && name.endsWith("]") && IPV6.matcher(name).matches()) {
+            try {
+                // A bracketed literal is parsed, never resolved
+                return InetAddress.getByName(name).isLoopbackAddress();
+            } catch (UnknownHostException e) {
+                return false;
+            }
+        }
+        return false;
     }
 
     private static String origin(URI url) {

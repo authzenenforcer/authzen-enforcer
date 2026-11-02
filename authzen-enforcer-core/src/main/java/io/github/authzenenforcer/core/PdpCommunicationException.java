@@ -1,8 +1,8 @@
 package io.github.authzenenforcer.core;
 
 /**
- * Thrown when the PDP cannot be reached or does not answer in time, or when it reports a server
- * error ({@code 5xx}).
+ * Thrown when the PDP cannot be reached or does not answer in time, when it reports a server
+ * error ({@code 5xx}), or when it still rate-limits ({@code 429}) after the retries.
  *
  * <p>Callers must treat this as a deny.
  */

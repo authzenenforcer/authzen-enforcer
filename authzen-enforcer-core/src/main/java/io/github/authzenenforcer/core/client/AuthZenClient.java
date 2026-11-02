@@ -180,8 +180,10 @@ public interface AuthZenClient {
          *       request tries again.</li>
          * </ul>
          * Results, including a {@code 404}, are kept for {@link #metadataRefreshInterval(Duration)}.
-         * If a refresh fails because the PDP cannot be reached, the previous result stays in use and
-         * the refresh is retried after at most a minute. HTTP caching headers of the metadata
+         * A {@code 404} that replaces published metadata is checked again after at most a minute,
+         * since it may come from a proxy during a rollout. If a refresh fails because the PDP
+         * cannot be reached, reports a server error or keeps rate-limiting, the previous result
+         * stays in use and the refresh is retried after at most a minute. HTTP caching headers of the metadata
          * response are ignored. Signed metadata ({@code signed_metadata}) is not supported.
          *
          * <p>When disabled, endpoints that are not overridden use the default paths.

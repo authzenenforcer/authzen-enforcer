@@ -4,6 +4,7 @@ import io.github.authzenenforcer.core.AuthZenException;
 import io.github.authzenenforcer.core.PdpCommunicationException;
 import io.github.authzenenforcer.core.PdpProtocolException;
 import io.github.authzenenforcer.core.internal.http.PdpTransport;
+import io.github.authzenenforcer.core.internal.text.LogText;
 import io.github.authzenenforcer.core.internal.wire.WireFormat;
 import io.github.authzenenforcer.core.model.PdpMetadata;
 
@@ -21,9 +22,11 @@ import java.util.concurrent.CompletionException;
  *
  * <p>The metadata is fetched on first use; concurrent callers share one request. It is kept for the
  * refresh interval and fetched again on the next use after that. A PDP that answers {@code 404}
- * publishes no metadata, which is cached the same way. If a refresh fails with a communication
- * error, the previous result stays in use and the next attempt follows after at most
- * {@link #RETRY_AFTER_FAILURE}. Any other failure fails the caller, so that it denies.
+ * publishes no metadata, which is cached the same way, except that a {@code 404} replacing
+ * published metadata is checked again after at most {@link #RETRY_AFTER_FAILURE}. If a refresh
+ * fails with a communication error, which includes a PDP that keeps rate-limiting, the previous
+ * result stays in use and the next attempt follows after at most {@link #RETRY_AFTER_FAILURE}. Any
+ * other failure fails the caller, so that it denies.
  *
  * <p>Metadata whose {@code policy_decision_point} differs from the identifier is rejected, as the
  * specification requires, and so are endpoints that are not usable URLs or that use plain HTTP
@@ -62,11 +65,20 @@ final class MetadataResolver {
      * @param sendsCredentials whether requests to the endpoints carry credentials
      */
     MetadataResolver(PdpTransport transport, URI identifier, Duration refreshInterval, boolean sendsCredentials) {
+        this(transport, identifier, refreshInterval, RETRY_AFTER_FAILURE, sendsCredentials);
+    }
+
+    /**
+     * Creates a resolver with another wait before a failed or unpublished result is fetched again,
+     * for tests.
+     */
+    MetadataResolver(PdpTransport transport, URI identifier, Duration refreshInterval, Duration retryInterval,
+            boolean sendsCredentials) {
         this.transport = Objects.requireNonNull(transport, "transport");
         this.identifier = Objects.requireNonNull(identifier, "identifier");
         this.location = Urls.wellKnown(identifier, WELL_KNOWN_PATH);
         this.refreshNanos = refreshInterval.toNanos();
-        this.retryNanos = Math.min(refreshNanos, RETRY_AFTER_FAILURE.toNanos());
+        this.retryNanos = Math.min(refreshNanos, retryInterval.toNanos());
         this.sendsCredentials = sendsCredentials;
     }
 
@@ -119,7 +131,7 @@ final class MetadataResolver {
     static PdpMetadata verify(PdpMetadata metadata, URI identifier, URI location) {
         if (!metadata.getPolicyDecisionPoint().equals(identifier.toString())) {
             throw new PdpProtocolException("PDP metadata at " + location + " is for policy_decision_point "
-                    + metadata.getPolicyDecisionPoint() + ", not " + identifier);
+                    + LogText.of(metadata.getPolicyDecisionPoint()) + ", not " + identifier);
         }
         check("access_evaluation_endpoint", Optional.of(metadata.getAccessEvaluationEndpoint()), identifier, location);
         check("access_evaluations_endpoint", metadata.getAccessEvaluationsEndpoint(), identifier, location);
@@ -150,35 +162,42 @@ final class MetadataResolver {
         Optional<PdpMetadata> value = null;
         AuthZenException failure = null;
         Optional<PdpMetadata> previous;
+        boolean keptPrevious = false;
         synchronized (lock) {
             pending = null;
             previous = cached == null ? null : cached.metadata;
             long now = System.nanoTime();
             if (error == null) {
-                cached = new Cached(metadata, now + refreshNanos);
+                // A 404 right after published metadata may come from a proxy during a rollout, so
+                // it is checked again soon instead of pinning the default paths for a full interval
+                boolean unpublished = metadata.isEmpty() && previous != null && previous.isPresent();
+                cached = new Cached(metadata, now + (unpublished ? retryNanos : refreshNanos));
                 value = metadata;
             } else {
                 Throwable cause = unwrap(error);
                 if (cause instanceof PdpCommunicationException && cached != null) {
                     cached = new Cached(cached.metadata, now + retryNanos);
                     value = cached.metadata;
-                    LOGGER.log(Level.WARNING, "Refreshing the PDP metadata from " + location
-                            + " failed; keeping the previous result: " + cause.getMessage());
+                    keptPrevious = true;
                 } else {
                     failure = cause instanceof AuthZenException authZenException ? authZenException
                             : new AuthZenException("PDP metadata discovery failed unexpectedly", cause);
                 }
             }
         }
+        // Complete before logging, so that a failing logger cannot leave the waiting callers blocked
         if (failure != null) {
-            LOGGER.log(Level.DEBUG, () -> "PDP metadata discovery at " + location + " failed: " + error);
             result.completeExceptionally(failure);
+            LOGGER.log(Level.DEBUG, () -> "PDP metadata discovery at " + location + " failed: " + error);
             return;
         }
-        if (!value.equals(previous)) {
+        result.complete(value);
+        if (keptPrevious) {
+            LOGGER.log(Level.WARNING, "Refreshing the PDP metadata from " + location
+                    + " failed; keeping the previous result: " + unwrap(error).getMessage());
+        } else if (!value.equals(previous)) {
             logChange(value);
         }
-        result.complete(value);
     }
 
     private void logChange(Optional<PdpMetadata> metadata) {

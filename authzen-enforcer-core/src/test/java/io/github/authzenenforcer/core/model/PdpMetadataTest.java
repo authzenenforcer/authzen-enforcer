@@ -1,6 +1,7 @@
 package io.github.authzenenforcer.core.model;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -60,6 +61,20 @@ class PdpMetadataTest {
                 () -> PdpMetadata.builder().accessEvaluationEndpoint(EVALUATION).build());
         assertThrows(IllegalStateException.class,
                 () -> PdpMetadata.builder().policyDecisionPoint("https://pdp.example.com").build());
+    }
+
+    @Test
+    void escapesControlCharactersInToString() {
+        PdpMetadata metadata = PdpMetadata.builder()
+                .policyDecisionPoint("https://pdp.example.com\nforged line")
+                .accessEvaluationEndpoint(EVALUATION)
+                .capability("urn:x\r\nforged")
+                .build();
+
+        String rendered = metadata.toString();
+        assertFalse(rendered.contains("\n") || rendered.contains("\r"), rendered);
+        assertTrue(rendered.contains("policyDecisionPoint=https://pdp.example.com\\u000aforged line"));
+        assertTrue(rendered.contains("capabilities=[urn:x\\u000d\\u000aforged]"));
     }
 
     @Test

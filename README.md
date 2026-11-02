@@ -75,10 +75,12 @@ AuthZenClient client = AuthZenClient.builder()
 
 Discovery happens on the first request, not when the client is built. The metadata request carries
 no credentials. The result is kept for an hour (`metadataRefreshInterval`). If a refresh cannot reach
-the PDP, the previous result stays in use. Discovery follows these rules:
+the PDP, gets a server error or keeps being rate-limited (`429`), the previous result stays in use.
+Discovery follows these rules:
 
 - If the PDP answers `404`, it publishes no metadata, and the client uses the default paths of the
-  specification below the PDP URL, such as `/access/v1/evaluation`.
+  specification below the PDP URL, such as `/access/v1/evaluation`. A `404` that replaces published
+  metadata is checked again within a minute, since it may come from a proxy during a rollout.
 - If the metadata is invalid, it is for another `policy_decision_point`, or it lists an `http`
   endpoint for an `https` PDP, the request fails (fail-closed). Other errors fail it too, and the
   next request tries again.

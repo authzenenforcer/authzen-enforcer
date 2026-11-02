@@ -1,7 +1,9 @@
 package io.github.authzenenforcer.core.internal.client;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.authzenenforcer.core.PdpProtocolException;
 import io.github.authzenenforcer.core.model.PdpMetadata;
@@ -63,6 +65,16 @@ class MetadataResolverTest {
 
         assertThrows(PdpProtocolException.class, () -> MetadataResolver.verify(evaluation, IDENTIFIER, LOCATION));
         assertThrows(PdpProtocolException.class, () -> MetadataResolver.verify(search, IDENTIFIER, LOCATION));
+    }
+
+    @Test
+    void escapesTheForeignIdentifierInTheErrorMessage() {
+        PdpMetadata metadata = metadata().policyDecisionPoint("https://evil.example\r\n2026-11-02 INFO forged").build();
+
+        PdpProtocolException e = assertThrows(PdpProtocolException.class,
+                () -> MetadataResolver.verify(metadata, IDENTIFIER, LOCATION));
+        assertFalse(e.getMessage().contains("\r") || e.getMessage().contains("\n"), e.getMessage());
+        assertTrue(e.getMessage().contains("https://evil.example\\u000d\\u000a2026-11-02 INFO forged"));
     }
 
     @Test
