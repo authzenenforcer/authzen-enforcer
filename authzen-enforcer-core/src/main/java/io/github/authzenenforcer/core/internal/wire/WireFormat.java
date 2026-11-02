@@ -5,10 +5,14 @@ import io.github.authzenenforcer.core.model.Action;
 import io.github.authzenenforcer.core.model.Context;
 import io.github.authzenenforcer.core.model.EvaluationRequest;
 import io.github.authzenenforcer.core.model.EvaluationResponse;
+import io.github.authzenenforcer.core.model.PdpMetadata;
 import io.github.authzenenforcer.core.model.Resource;
 import io.github.authzenenforcer.core.model.Subject;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -60,6 +64,70 @@ public final class WireFormat {
             return EvaluationResponse.of(permitted);
         }
         return EvaluationResponse.of(permitted, context(context, "Evaluation response"));
+    }
+
+    /**
+     * Converts the JSON tree of a PDP metadata document to the model.
+     *
+     * <p>Only the syntax is checked here. Whether the identifier matches the PDP and whether the
+     * endpoints are acceptable is up to the caller.
+     *
+     * @param json the parsed metadata document
+     * @return the metadata
+     * @throws PdpProtocolException if the tree is not a valid metadata document
+     */
+    public static PdpMetadata pdpMetadata(Object json) {
+        if (!(json instanceof Map<?, ?> object)) {
+            throw new PdpProtocolException("PDP metadata is not a JSON object");
+        }
+        String identifier = string(object, "policy_decision_point");
+        URI evaluation = endpoint(object, "access_evaluation_endpoint");
+        if (identifier == null) {
+            throw new PdpProtocolException("PDP metadata has no policy_decision_point");
+        }
+        if (evaluation == null) {
+            throw new PdpProtocolException("PDP metadata has no access_evaluation_endpoint");
+        }
+        PdpMetadata.Builder metadata = PdpMetadata.builder()
+                .policyDecisionPoint(identifier)
+                .accessEvaluationEndpoint(evaluation)
+                .accessEvaluationsEndpoint(endpoint(object, "access_evaluations_endpoint"))
+                .searchSubjectEndpoint(endpoint(object, "search_subject_endpoint"))
+                .searchResourceEndpoint(endpoint(object, "search_resource_endpoint"))
+                .searchActionEndpoint(endpoint(object, "search_action_endpoint"));
+        Object capabilities = object.get("capabilities");
+        if (capabilities != null) {
+            if (!(capabilities instanceof List<?> list)) {
+                throw new PdpProtocolException("PDP metadata capabilities is not a JSON array");
+            }
+            for (Object capability : list) {
+                if (!(capability instanceof String urn)) {
+                    throw new PdpProtocolException("PDP metadata capabilities contains a value that is not a string");
+                }
+                metadata.capability(urn);
+            }
+        }
+        return metadata.build();
+    }
+
+    private static String string(Map<?, ?> object, String name) {
+        Object value = object.get(name);
+        if (value != null && !(value instanceof String)) {
+            throw new PdpProtocolException("PDP metadata " + name + " is not a string");
+        }
+        return (String) value;
+    }
+
+    private static URI endpoint(Map<?, ?> object, String name) {
+        String value = string(object, name);
+        if (value == null) {
+            return null;
+        }
+        try {
+            return new URI(value);
+        } catch (URISyntaxException e) {
+            throw new PdpProtocolException("PDP metadata " + name + " is not a valid URL", e);
+        }
     }
 
     private static Map<String, Object> subject(Subject subject) {

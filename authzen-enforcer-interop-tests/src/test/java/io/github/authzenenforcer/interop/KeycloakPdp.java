@@ -94,11 +94,6 @@ final class KeycloakPdp {
         return URI.create(realmUrl() + "/protocol/openid-connect/token");
     }
 
-    /** Keycloak serves AuthZEN below {@code /authzen}, not at the default path below the realm. */
-    URI evaluationEndpoint() {
-        return URI.create(realmUrl() + "/authzen/access/v1/evaluation");
-    }
-
     String clientSecret() {
         return clientSecret;
     }

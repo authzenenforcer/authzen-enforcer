@@ -12,9 +12,12 @@ import io.github.authzenenforcer.core.auth.CredentialProvider;
 import io.github.authzenenforcer.core.client.AuthZenClient;
 import io.github.authzenenforcer.core.model.Action;
 import io.github.authzenenforcer.core.model.EvaluationRequest;
+import io.github.authzenenforcer.core.model.PdpMetadata;
 import io.github.authzenenforcer.core.model.Resource;
 import io.github.authzenenforcer.core.model.Subject;
 
+import java.net.URI;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.BeforeAll;
@@ -41,9 +44,9 @@ class KeycloakEvaluationTest {
     }
 
     private static AuthZenClient clientWith(CredentialProvider credentials) {
+        // Keycloak serves AuthZEN below /authzen; the client finds the endpoint in the metadata
         return AuthZenClient.builder()
                 .pdpUrl(pdp.realmUrl())
-                .evaluationEndpoint(pdp.evaluationEndpoint())
                 .credentials(credentials)
                 .build();
     }
@@ -132,10 +135,22 @@ class KeycloakEvaluationTest {
     }
 
     @Test
+    void discoversTheEndpointsFromTheMetadata() {
+        PdpMetadata metadata = client.metadata().orElseThrow();
+
+        assertEquals(pdp.realmUrl().toString(), metadata.getPolicyDecisionPoint());
+        assertEquals(URI.create(pdp.realmUrl() + "/authzen/access/v1/evaluation"), metadata.getAccessEvaluationEndpoint());
+        assertEquals(Optional.of(URI.create(pdp.realmUrl() + "/authzen/access/v1/evaluations")),
+                metadata.getAccessEvaluationsEndpoint());
+        assertTrue(metadata.getSearchSubjectEndpoint().isEmpty());
+    }
+
+    @Test
     void failsClosedOnTheDefaultPathBecauseKeycloakServesAuthZenElsewhere() {
         AuthZenClient defaultPath = AuthZenClient.builder()
                 .pdpUrl(pdp.realmUrl())
                 .credentials(ClientCredentialsProvider.forPep(pdp))
+                .discovery(false)
                 .build();
 
         assertThrows(PdpProtocolException.class, () -> defaultPath.evaluate(request("alice", "read", "doc-1")));

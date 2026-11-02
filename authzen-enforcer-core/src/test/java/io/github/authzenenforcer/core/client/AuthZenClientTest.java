@@ -208,7 +208,7 @@ class AuthZenClientTest {
     class FailClosed {
 
         @ParameterizedTest
-        @ValueSource(ints = {204, 302, 400, 404, 405, 409, 415, 422, 429})
+        @ValueSource(ints = {204, 302, 400, 404, 405, 409, 415, 422})
         void treatsUnexpectedStatusesAsProtocolErrors(int status) {
             pdp.respond(json(status, status == 204 ? "" : "{\"decision\": true}"));
 
@@ -216,8 +216,8 @@ class AuthZenClientTest {
         }
 
         @ParameterizedTest
-        @ValueSource(ints = {500, 502, 503, 504})
-        void treatsServerErrorsAsCommunicationErrors(int status) {
+        @ValueSource(ints = {429, 500, 502, 503, 504})
+        void treatsServerErrorsAndRateLimitingAsCommunicationErrors(int status) {
             pdp.respond(json(status, "{\"decision\": true}"));
 
             assertThrows(PdpCommunicationException.class, () -> client().evaluate(REQUEST));

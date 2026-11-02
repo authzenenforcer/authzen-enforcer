@@ -24,7 +24,8 @@ requests to a Policy Decision Point (PDP) and returns the decision to your appli
 
 ## Usage
 
-The core module currently supports the Access Evaluation API with Bearer authentication.
+The core module currently supports the Access Evaluation API with Bearer authentication and
+metadata discovery.
 
 ```java
 AuthZenClient client = AuthZenClient.builder()
@@ -59,18 +60,35 @@ caches it, and drops it in `invalidate()`.
 
 ### Endpoints
 
-Until metadata discovery is available, endpoints default to the paths of the specification below the
-PDP URL, such as `/access/v1/evaluation`. If your PDP serves them elsewhere, set the endpoint
-explicitly. Keycloak, for example, serves AuthZEN below `/authzen` in each realm:
+The client discovers the endpoints from the metadata the PDP publishes. The PDP URL is also the
+PDP's identifier: for `https://pdp.example.com/tenant1`, the metadata is fetched from
+`https://pdp.example.com/.well-known/authzen-configuration/tenant1`, and its
+`policy_decision_point` must be exactly that URL. Keycloak, for example, serves AuthZEN below
+`/authzen` in each realm, and the realm URL is all you need to configure:
 
 ```java
 AuthZenClient client = AuthZenClient.builder()
         .pdpUrl("https://keycloak.example.com/realms/my-realm")
-        .evaluationEndpoint(URI.create(
-                "https://keycloak.example.com/realms/my-realm/authzen/access/v1/evaluation"))
         .credentials(clientCredentialsProvider)
         .build();
 ```
+
+Discovery happens on the first request, not when the client is built. The metadata request carries
+no credentials. The result is kept for an hour (`metadataRefreshInterval`). If a refresh cannot reach
+the PDP, gets a server error or keeps being rate-limited (`429`), the previous result stays in use.
+Discovery follows these rules:
+
+- If the PDP answers `404`, it publishes no metadata, and the client uses the default paths of the
+  specification below the PDP URL, such as `/access/v1/evaluation`. A `404` that replaces published
+  metadata is checked again within a minute, since it may come from a proxy during a rollout.
+- If the metadata is invalid, it is for another `policy_decision_point`, or it lists an `http`
+  endpoint for an `https` PDP, the request fails (fail-closed). Other errors fail it too, and the
+  next request tries again.
+- `client.metadata()` returns the discovered metadata, for example to check whether the PDP supports
+  the Access Evaluations API.
+
+If a PDP publishes no metadata and serves the API at another path, set the endpoint with
+`evaluationEndpoint(URI)`. `discovery(false)` turns discovery off.
 
 ### Trying it locally
 

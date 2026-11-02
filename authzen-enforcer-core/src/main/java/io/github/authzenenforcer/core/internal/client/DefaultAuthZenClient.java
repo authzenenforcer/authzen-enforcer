@@ -8,14 +8,16 @@ import io.github.authzenenforcer.core.internal.http.PdpTransport;
 import io.github.authzenenforcer.core.internal.wire.WireFormat;
 import io.github.authzenenforcer.core.model.EvaluationRequest;
 import io.github.authzenenforcer.core.model.EvaluationResponse;
+import io.github.authzenenforcer.core.model.PdpMetadata;
 import io.github.authzenenforcer.core.spi.JsonCodec;
 
 import java.lang.System.Logger.Level;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Duration;
-import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
@@ -30,36 +32,75 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     /** Default path of the Access Evaluation endpoint below the PDP URL. */
     static final String EVALUATION_PATH = "/access/v1/evaluation";
 
+    private final URI defaultEvaluationEndpoint;
     private final URI evaluationEndpoint;
+    private final MetadataResolver metadata;
     private final PdpTransport transport;
 
     /**
      * Creates a client. Use {@link AuthZenClient#builder()} instead.
      *
-     * @param pdpUrl             the base URL of the PDP
-     * @param evaluationEndpoint the evaluation endpoint, or {@code null} for the default path
-     * @param credentials        the credential provider, or {@code null}
-     * @param codec              the JSON codec
-     * @param httpClient         an HTTP client that does not follow redirects
-     * @param requestTimeout     the timeout of a single request
-     * @param maxRetries         how often a request that failed transiently may be repeated
+     * @param pdpUrl                  the base URL of the PDP, also its identifier in the metadata
+     * @param evaluationEndpoint      the evaluation endpoint, or {@code null} to discover it or use
+     *                                the default path
+     * @param credentials             the credential provider, or {@code null}
+     * @param codec                   the JSON codec
+     * @param httpClient              an HTTP client that does not follow redirects
+     * @param requestTimeout          the timeout of a single request
+     * @param maxRetries              how often a request that failed transiently may be repeated
+     * @param discovery               whether endpoints are discovered from the PDP metadata
+     * @param metadataRefreshInterval how long discovered metadata is used before it is fetched again
      */
     public DefaultAuthZenClient(URI pdpUrl, URI evaluationEndpoint, CredentialProvider credentials, JsonCodec codec,
-            HttpClient httpClient, Duration requestTimeout, int maxRetries) {
-        URI base = checkUrl(pdpUrl, "pdpUrl");
-        this.evaluationEndpoint = evaluationEndpoint != null
-                ? checkUrl(evaluationEndpoint, "evaluationEndpoint")
-                : append(base, EVALUATION_PATH);
+            HttpClient httpClient, Duration requestTimeout, int maxRetries, boolean discovery,
+            Duration metadataRefreshInterval) {
+        URI identifier = Urls.withoutTrailingSlashes(Urls.check(pdpUrl, "pdpUrl"));
+        this.defaultEvaluationEndpoint = Urls.append(identifier, EVALUATION_PATH);
+        this.evaluationEndpoint = evaluationEndpoint != null ? Urls.check(evaluationEndpoint, "evaluationEndpoint") : null;
         this.transport = new PdpTransport(httpClient, credentials, codec, requestTimeout, maxRetries);
-        if (credentials != null && isPlainHttpToRemoteHost(this.evaluationEndpoint)) {
-            LOGGER.log(Level.WARNING, "PDP endpoint " + this.evaluationEndpoint
-                    + " uses plain HTTP; credentials are sent unencrypted");
+        this.metadata = discovery
+                ? new MetadataResolver(transport, identifier, metadataRefreshInterval, credentials != null)
+                : null;
+        URI configured = this.evaluationEndpoint != null ? this.evaluationEndpoint : identifier;
+        if (credentials != null && Urls.isPlainHttpToRemoteHost(configured)) {
+            LOGGER.log(Level.WARNING, "PDP endpoint " + configured + " uses plain HTTP; credentials are sent unencrypted");
         }
     }
 
     @Override
     public EvaluationResponse evaluate(EvaluationRequest request) {
-        CompletableFuture<EvaluationResponse> future = evaluateAsync(request);
+        return await(evaluateAsync(request), "Evaluation");
+    }
+
+    @Override
+    public CompletableFuture<EvaluationResponse> evaluateAsync(EvaluationRequest request) {
+        Objects.requireNonNull(request, "request");
+        Map<String, Object> body = WireFormat.evaluationRequest(request);
+        return evaluationEndpoint()
+                .thenCompose(endpoint -> transport.post(endpoint, body))
+                .thenApply(WireFormat::evaluationResponse);
+    }
+
+    @Override
+    public Optional<PdpMetadata> metadata() {
+        return await(metadataAsync(), "Metadata discovery");
+    }
+
+    @Override
+    public CompletableFuture<Optional<PdpMetadata>> metadataAsync() {
+        return metadata != null ? metadata.metadata() : CompletableFuture.completedFuture(Optional.empty());
+    }
+
+    private CompletableFuture<URI> evaluationEndpoint() {
+        if (evaluationEndpoint != null) {
+            return CompletableFuture.completedFuture(evaluationEndpoint);
+        }
+        return metadataAsync().thenApply(current -> current
+                .map(PdpMetadata::getAccessEvaluationEndpoint)
+                .orElse(defaultEvaluationEndpoint));
+    }
+
+    private static <T> T await(CompletableFuture<T> future, String operation) {
         try {
             return future.get();
         } catch (InterruptedException e) {
@@ -67,52 +108,15 @@ public final class DefaultAuthZenClient implements AuthZenClient {
             Thread.currentThread().interrupt();
             throw new PdpCommunicationException("Interrupted while waiting for the PDP", e);
         } catch (ExecutionException e) {
-            throw asAuthZenException(e.getCause());
+            throw asAuthZenException(e.getCause(), operation);
         }
     }
 
-    @Override
-    public CompletableFuture<EvaluationResponse> evaluateAsync(EvaluationRequest request) {
-        Objects.requireNonNull(request, "request");
-        return transport.post(evaluationEndpoint, WireFormat.evaluationRequest(request))
-                .thenApply(WireFormat::evaluationResponse);
-    }
-
-    private static AuthZenException asAuthZenException(Throwable error) {
+    private static AuthZenException asAuthZenException(Throwable error, String operation) {
         Throwable cause = error instanceof CompletionException && error.getCause() != null ? error.getCause() : error;
         if (cause instanceof AuthZenException authZenException) {
             return authZenException;
         }
-        return new AuthZenException("Evaluation failed unexpectedly", cause);
-    }
-
-    private static URI checkUrl(URI url, String name) {
-        String scheme = url.getScheme() == null ? null : url.getScheme().toLowerCase(Locale.ROOT);
-        if (!url.isAbsolute() || !("https".equals(scheme) || "http".equals(scheme)) || url.getHost() == null) {
-            throw new IllegalArgumentException(name + " must be an absolute http or https URL");
-        }
-        if (url.getRawUserInfo() != null) {
-            throw new IllegalArgumentException(name + " must not contain user info");
-        }
-        if (url.getRawQuery() != null || url.getRawFragment() != null) {
-            throw new IllegalArgumentException(name + " must not contain a query or fragment");
-        }
-        return url;
-    }
-
-    private static URI append(URI base, String path) {
-        String basePath = base.getRawPath() == null ? "" : base.getRawPath();
-        while (basePath.endsWith("/")) {
-            basePath = basePath.substring(0, basePath.length() - 1);
-        }
-        return base.resolve(basePath + path);
-    }
-
-    private static boolean isPlainHttpToRemoteHost(URI url) {
-        if (!"http".equalsIgnoreCase(url.getScheme())) {
-            return false;
-        }
-        String host = url.getHost().toLowerCase(Locale.ROOT);
-        return !(host.equals("localhost") || host.startsWith("127.") || host.equals("[::1]") || host.equals("::1"));
+        return new AuthZenException(operation + " failed unexpectedly", cause);
     }
 }
