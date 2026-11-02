@@ -21,6 +21,11 @@ public interface CredentialProvider {
     /**
      * Returns the credential for the next request.
      *
+     * <p>The client calls this synchronously, and no request timeout covers it, so it should return
+     * quickly, for example from a cache. A call that blocks also blocks the request. While a circuit
+     * breaker tests whether a failing PDP has recovered, it lets a single request through; if that
+     * request blocks here, every other request is rejected until it returns.
+     *
      * @return the credential, never {@code null}
      * @throws RuntimeException if no credential can be obtained; the request then fails without
      *                          being sent

@@ -1,9 +1,12 @@
 package io.github.authzenenforcer.core.internal.client;
 
 import io.github.authzenenforcer.core.AuthZenException;
+import io.github.authzenenforcer.core.PdpAuthenticationException;
 import io.github.authzenenforcer.core.PdpCommunicationException;
+import io.github.authzenenforcer.core.PdpProtocolException;
 import io.github.authzenenforcer.core.auth.CredentialProvider;
 import io.github.authzenenforcer.core.client.AuthZenClient;
+import io.github.authzenenforcer.core.client.CircuitBreakerOptions;
 import io.github.authzenenforcer.core.client.DiscoveryOptions;
 import io.github.authzenenforcer.core.internal.http.PdpTransport;
 import io.github.authzenenforcer.core.internal.wire.WireFormat;
@@ -22,6 +25,8 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.DoubleSupplier;
 import java.util.function.LongSupplier;
 
 /**
@@ -38,6 +43,8 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     private final URI evaluationEndpoint;
     private final MetadataResolver metadata;
     private final PdpTransport transport;
+    private final CircuitBreaker evaluations;
+    private final LongSupplier clock;
 
     /**
      * Creates a client. Use {@link AuthZenClient#builder()} instead.
@@ -52,18 +59,23 @@ public final class DefaultAuthZenClient implements AuthZenClient {
      * @param maxRetries              how often a request that failed transiently may be repeated
      * @param discovery               how discovered metadata is cached, or {@code null} to use no
      *                                discovery
-     * @param clock                   a monotonic clock in nanoseconds for the metadata cache, such as
-     *                                {@link System#nanoTime()}
+     * @param circuitBreaker          how the breakers for discovery and evaluations behave
+     * @param clock                   a monotonic clock in nanoseconds for the metadata cache and the
+     *                                breakers, such as {@link System#nanoTime()}
      */
     public DefaultAuthZenClient(URI pdpUrl, URI evaluationEndpoint, CredentialProvider credentials, JsonCodec codec,
             HttpClient httpClient, Duration requestTimeout, int maxRetries, DiscoveryOptions discovery,
-            LongSupplier clock) {
+            CircuitBreakerOptions circuitBreaker, LongSupplier clock) {
         URI identifier = Urls.withoutTrailingSlashes(Urls.check(pdpUrl, "pdpUrl"));
         this.defaultEvaluationEndpoint = Urls.append(identifier, EVALUATION_PATH);
         this.evaluationEndpoint = evaluationEndpoint != null ? Urls.check(evaluationEndpoint, "evaluationEndpoint") : null;
         this.transport = new PdpTransport(httpClient, credentials, codec, requestTimeout, maxRetries);
+        this.clock = Objects.requireNonNull(clock, "clock");
+        DoubleSupplier random = () -> ThreadLocalRandom.current().nextDouble();
+        this.evaluations = new CircuitBreaker("PDP evaluation", circuitBreaker, random);
         this.metadata = discovery != null
-                ? new MetadataResolver(transport, identifier, discovery, credentials != null, clock)
+                ? new MetadataResolver(transport, identifier, discovery, credentials != null, clock,
+                        new CircuitBreaker("PDP metadata discovery", circuitBreaker, random))
                 : null;
         URI configured = this.evaluationEndpoint != null ? this.evaluationEndpoint : identifier;
         if (credentials != null && Urls.isPlainHttpToRemoteHost(configured)) {
@@ -80,9 +92,86 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     public CompletableFuture<EvaluationResponse> evaluateAsync(EvaluationRequest request) {
         Objects.requireNonNull(request, "request");
         Map<String, Object> body = WireFormat.evaluationRequest(request);
-        return evaluationEndpoint()
-                .thenCompose(endpoint -> transport.post(endpoint, body))
+        BreakerLog log = new BreakerLog();
+        CompletableFuture<EvaluationResponse> result = evaluationEndpoint()
+                .thenCompose(endpoint -> post(endpoint, body, log))
                 .thenApply(WireFormat::evaluationResponse);
+        // A separate stage after the caller's future: a slow or failing logger can neither delay
+        // nor change the decision
+        result.whenComplete((ignored, error) -> log.run());
+        return result;
+    }
+
+    private CompletableFuture<Object> post(URI endpoint, Map<String, Object> body, BreakerLog log) {
+        CircuitBreaker.Permit permit;
+        try {
+            permit = evaluations.acquire(now());
+        } catch (AuthZenException e) {
+            return CompletableFuture.failedFuture(e);
+        }
+        CompletableFuture<Object> response;
+        try {
+            response = transport.post(endpoint, body);
+        } catch (RuntimeException e) {
+            evaluations.released(permit);
+            return CompletableFuture.failedFuture(e);
+        } catch (Error e) {
+            // A lost probe permit would keep the breaker rejecting every call
+            evaluations.released(permit);
+            throw e;
+        }
+        return response.whenComplete((ignored, error) -> log.action = record(permit, error));
+    }
+
+    // Only an unreachable or overloaded PDP counts; any answer shows that it is up
+    private Runnable record(CircuitBreaker.Permit permit, Throwable error) {
+        Throwable cause = unwrap(error);
+        if (cause == null || cause instanceof PdpProtocolException || cause instanceof PdpAuthenticationException) {
+            return evaluations.succeeded(permit);
+        }
+        if (cause instanceof PdpCommunicationException) {
+            long now;
+            try {
+                now = now();
+            } catch (AuthZenException e) {
+                evaluations.released(permit);
+                return BreakerLog.NONE;
+            }
+            return evaluations.failed(permit, now, cause);
+        }
+        // A failing credential provider, a cancelled call or a serialization error says nothing about the PDP
+        evaluations.released(permit);
+        return BreakerLog.NONE;
+    }
+
+    /** The log action of the evaluation breaker, run once the caller's future has completed. */
+    private static final class BreakerLog implements Runnable {
+
+        static final Runnable NONE = () -> { };
+
+        // Written by the transport's completion before the result completes, read after it
+        volatile Runnable action = NONE;
+
+        @Override
+        public void run() {
+            action.run();
+        }
+    }
+
+    private long now() {
+        try {
+            return clock.getAsLong();
+        } catch (RuntimeException e) {
+            throw new AuthZenException("Clock of the circuit breaker failed", e);
+        }
+    }
+
+    private static Throwable unwrap(Throwable error) {
+        Throwable current = error;
+        while (current instanceof CompletionException && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
     }
 
     @Override

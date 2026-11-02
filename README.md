@@ -105,6 +105,32 @@ AuthZenClient client = AuthZenClient.builder()
 If a PDP publishes no metadata and serves the API at another path, set the endpoint with
 `evaluationEndpoint(URI)`. `discovery(false)` turns discovery off.
 
+### When the PDP keeps failing
+
+The client keeps one circuit breaker for discovery and one for evaluations. After three failures in
+a row, a breaker opens. Requests then fail at once with a `PdpCommunicationException` (deny),
+without contacting the PDP, and the exception's cause is the last real failure. After about five
+seconds, one request goes through as a probe. If it succeeds, the breaker closes. If it fails, the
+breaker opens again for twice as long, up to five minutes. Each open period is randomized between
+half and all of its length, so that many clients do not probe a recovering PDP at once.
+
+- For evaluations, only an unreachable PDP, a timeout, a `5xx` or a lasting `429` counts. Any other
+  answer, such as `400` or `403`, shows that the PDP is up.
+- For discovery, every failure counts, including invalid metadata. Previously discovered metadata is
+  still used within `maxStale` while the breaker is open.
+
+```java
+AuthZenClient client = AuthZenClient.builder()
+        .pdpUrl("https://pdp.example.com")
+        .circuitBreaker(CircuitBreakerOptions.builder()
+                .failureThreshold(5)
+                .maxOpenDuration(Duration.ofMinutes(1))
+                .build())
+        .build();
+```
+
+`CircuitBreakerOptions.disabled()` turns the breakers off.
+
 ### Trying it locally
 
 There is no release yet. To use the SDK in another project, install it into your local Maven

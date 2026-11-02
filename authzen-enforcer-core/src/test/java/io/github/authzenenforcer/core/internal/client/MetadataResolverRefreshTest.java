@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.authzenenforcer.core.AuthZenException;
 import io.github.authzenenforcer.core.PdpCommunicationException;
+import io.github.authzenenforcer.core.PdpProtocolException;
+import io.github.authzenenforcer.core.client.CircuitBreakerOptions;
 import io.github.authzenenforcer.core.client.DiscoveryOptions;
 import io.github.authzenenforcer.core.internal.http.PdpTransport;
 import io.github.authzenenforcer.core.model.PdpMetadata;
@@ -44,6 +46,9 @@ class MetadataResolverRefreshTest {
     private static final Duration MAX_STALE = Duration.ofMinutes(5);
     private static final DiscoveryOptions OPTIONS = DiscoveryOptions.builder()
             .defaultTtl(TTL).minTtl(MIN_TTL).maxStale(MAX_STALE).build();
+
+    // The breaker has its own tests; here it would interfere with repeated failures
+    private static final CircuitBreaker NO_BREAKER = new CircuitBreaker("test", CircuitBreakerOptions.disabled(), () -> 0.5);
 
     // Stands for a 200 answer whose metadata belongs to another PDP
     private static final int FOREIGN = 0;
@@ -83,7 +88,7 @@ class MetadataResolverRefreshTest {
 
     @AfterEach
     void stop() {
-        TestLoggerFinder.failing = false;
+        TestLoggerFinder.reset();
         server.stop(0);
     }
 
@@ -98,7 +103,7 @@ class MetadataResolverRefreshTest {
     }
 
     private MetadataResolver resolver(DiscoveryOptions options) {
-        return new MetadataResolver(transport(), identifier, options, false, nanos::get);
+        return new MetadataResolver(transport(), identifier, options, false, nanos::get, NO_BREAKER);
     }
 
     private MetadataResolver resolver() {
@@ -283,7 +288,7 @@ class MetadataResolverRefreshTest {
                 throw new IllegalStateException("clock failed");
             }
             return nanos.get();
-        });
+        }, NO_BREAKER);
 
         CompletionException e = assertTimeoutPreemptively(Duration.ofSeconds(5),
                 () -> assertThrows(CompletionException.class, () -> resolver.metadata().join()));
@@ -298,7 +303,7 @@ class MetadataResolverRefreshTest {
     void returnsAFailedFutureWhenTheClockFailsOnRead() {
         MetadataResolver resolver = new MetadataResolver(transport(), identifier, OPTIONS, false, () -> {
             throw new IllegalStateException("clock failed");
-        });
+        }, NO_BREAKER);
 
         CompletableFuture<Optional<PdpMetadata>> future = resolver.metadata();
 
@@ -307,10 +312,58 @@ class MetadataResolverRefreshTest {
         assertEquals(0, requests.get());
     }
 
+    private MetadataResolver resolverWithBreaker(Duration openDuration) {
+        CircuitBreakerOptions options = CircuitBreakerOptions.builder()
+                .failureThreshold(3).openDuration(openDuration).maxOpenDuration(openDuration).build();
+        // Jitter of 1 keeps the nominal open duration
+        CircuitBreaker breaker = new CircuitBreaker("PDP metadata discovery", options, () -> 0.999_999_999_999);
+        return new MetadataResolver(transport(), identifier, OPTIONS, false, nanos::get, breaker);
+    }
+
+    @Test
+    void suspendsFetchesAfterRepeatedInvalidMetadata() {
+        statuses.addAll(List.of(FOREIGN, FOREIGN, FOREIGN, 200));
+        MetadataResolver resolver = resolverWithBreaker(Duration.ofSeconds(10));
+        for (int i = 0; i < 3; i++) {
+            assertThrows(CompletionException.class, () -> resolver.metadata().join());
+        }
+
+        CompletionException e = assertThrows(CompletionException.class, () -> resolver.metadata().join());
+
+        assertTrue(e.getCause() instanceof PdpCommunicationException, String.valueOf(e.getCause()));
+        assertTrue(e.getCause().getCause() instanceof PdpProtocolException, "the last real failure is the cause");
+        assertEquals(3, requests.get(), "no request while the breaker is open");
+
+        advance(Duration.ofSeconds(10));
+        assertTrue(resolver.metadata().join().isPresent(), "the probe succeeds and closes the breaker");
+        assertEquals(4, requests.get());
+    }
+
+    @Test
+    void servesThePreviousMetadataWithinMaxStaleWhileTheBreakerIsOpen() {
+        statuses.addAll(List.of(200, 503));
+        MetadataResolver resolver = resolverWithBreaker(Duration.ofMinutes(10));
+        PdpMetadata first = resolver.metadata().join().orElseThrow();
+        advance(TTL);
+        for (int i = 0; i < 3; i++) {
+            // Each failed refresh keeps the previous result and is retried after minTtl
+            assertEquals(Optional.of(first), resolver.metadata().join());
+            advance(MIN_TTL);
+        }
+        assertEquals(4, requests.get());
+
+        assertEquals(Optional.of(first), resolver.metadata().join(), "the breaker is open; the result is still within maxStale");
+        assertEquals(4, requests.get());
+
+        advance(MAX_STALE.minus(MIN_TTL.multipliedBy(3)));
+        assertThrows(CompletionException.class, () -> resolver.metadata().join(), "past maxStale nothing is served");
+        assertEquals(4, requests.get());
+    }
+
     @Test
     void completesWaitingCallersWhenLoggingFails() {
         statuses.addAll(List.of(404));
-        TestLoggerFinder.failing = true;
+        TestLoggerFinder.fail(MetadataResolver.class);
 
         // The 404 is logged as a change; a failing logger must not leave the future pending
         Optional<PdpMetadata> metadata = assertTimeoutPreemptively(Duration.ofSeconds(5),
@@ -322,7 +375,7 @@ class MetadataResolverRefreshTest {
     @Test
     void failsWaitingCallersWhenLoggingFails() {
         statuses.addAll(List.of(503));
-        TestLoggerFinder.failing = true;
+        TestLoggerFinder.fail(MetadataResolver.class);
 
         CompletionException e = assertTimeoutPreemptively(Duration.ofSeconds(5),
                 () -> assertThrows(CompletionException.class, () -> resolver().metadata().join()));

@@ -20,6 +20,7 @@ import io.github.authzenenforcer.core.PdpProtocolException;
 import io.github.authzenenforcer.core.auth.AccessCredential;
 import io.github.authzenenforcer.core.auth.CredentialProvider;
 import io.github.authzenenforcer.core.client.FakePdp.RecordedRequest;
+import io.github.authzenenforcer.core.internal.client.TestLoggerFinder;
 import io.github.authzenenforcer.core.model.Action;
 import io.github.authzenenforcer.core.model.Context;
 import io.github.authzenenforcer.core.model.EvaluationRequest;
@@ -628,6 +629,160 @@ class AuthZenClientTest {
             List<RecordedRequest> requests = pdp.requests();
             assertEquals(3, requests.size());
             assertEquals("Bearer token-2", requests.get(2).header("Authorization"));
+        }
+    }
+
+    @Nested
+    class CircuitBreaking {
+
+        private final FakeClock clock = new FakeClock();
+
+        private AuthZenClient client(CircuitBreakerOptions options) {
+            return AuthZenClient.builder()
+                    .pdpUrl(pdp.url())
+                    .credentials(CredentialProvider.staticBearer(TOKEN))
+                    .requestTimeout(Duration.ofSeconds(2))
+                    .maxRetries(0)
+                    .circuitBreaker(options)
+                    .clock(clock)
+                    .build();
+        }
+
+        @Test
+        void failsFastWithoutContactingThePdpOnceItKeptFailing() {
+            pdp.respond(json(503, ""));
+            AuthZenClient client = client(CircuitBreakerOptions.defaults());
+            for (int i = 0; i < 3; i++) {
+                assertThrows(PdpCommunicationException.class, () -> client.evaluate(REQUEST));
+            }
+
+            PdpCommunicationException e = assertThrows(PdpCommunicationException.class, () -> client.evaluate(REQUEST));
+
+            assertTrue(e.getMessage().startsWith("PDP evaluation is suspended"), e.getMessage());
+            assertTrue(e.getCause() instanceof PdpCommunicationException, "the last real failure is the cause");
+            assertEquals(3, pdp.requests().size());
+        }
+
+        @Test
+        void probesAfterTheOpenDurationAndClosesWhenThePdpAnswers() {
+            pdp.respond(sequence(json(503, ""), json(503, ""), json(503, ""), json(200, "{\"decision\": true}")));
+            AuthZenClient client = client(CircuitBreakerOptions.defaults());
+            for (int i = 0; i < 3; i++) {
+                assertThrows(PdpCommunicationException.class, () -> client.evaluate(REQUEST));
+            }
+
+            clock.advance(CircuitBreakerOptions.DEFAULT_OPEN_DURATION);
+
+            assertTrue(client.evaluate(REQUEST).getDecision());
+            assertTrue(client.evaluate(REQUEST).getDecision());
+            assertEquals(5, pdp.requests().size());
+        }
+
+        @Test
+        void keepsThePdpAnswerWhenLoggingTheRecoveryFails() throws ClassNotFoundException {
+            pdp.respond(sequence(json(503, ""), json(503, ""), json(503, ""), json(200, "{\"decision\": true}")));
+            AuthZenClient client = client(CircuitBreakerOptions.defaults());
+            for (int i = 0; i < 3; i++) {
+                assertThrows(PdpCommunicationException.class, () -> client.evaluate(REQUEST));
+            }
+            clock.advance(CircuitBreakerOptions.DEFAULT_OPEN_DURATION);
+            TestLoggerFinder.fail(Class.forName("io.github.authzenenforcer.core.internal.client.CircuitBreaker"));
+            try {
+                assertTrue(client.evaluate(REQUEST).getDecision(), "the recovery log must not turn the permit into a failure");
+            } finally {
+                TestLoggerFinder.reset();
+            }
+        }
+
+        @Test
+        void keepsThePdpAnswerWhenTheLoggerThrowsAnError() throws ClassNotFoundException {
+            pdp.respond(sequence(json(503, ""), json(503, ""), json(503, ""), json(200, "{\"decision\": true}")));
+            AuthZenClient client = client(CircuitBreakerOptions.defaults());
+            for (int i = 0; i < 3; i++) {
+                assertThrows(PdpCommunicationException.class, () -> client.evaluate(REQUEST));
+            }
+            clock.advance(CircuitBreakerOptions.DEFAULT_OPEN_DURATION);
+            TestLoggerFinder.failWithError(Class.forName("io.github.authzenenforcer.core.internal.client.CircuitBreaker"));
+            try {
+                assertTrue(client.evaluateAsync(REQUEST).join().getDecision());
+            } finally {
+                TestLoggerFinder.reset();
+            }
+        }
+
+        @Test
+        void releasesTheProbeWhenTheCredentialProviderThrowsAnError() {
+            AtomicInteger calls = new AtomicInteger();
+            pdp.respond(sequence(json(503, ""), json(503, ""), json(503, ""), json(200, "{\"decision\": true}")));
+            AuthZenClient client = AuthZenClient.builder()
+                    .pdpUrl(pdp.url())
+                    .credentials(() -> {
+                        if (calls.incrementAndGet() == 4) {
+                            throw new AssertionError("provider bug during the probe");
+                        }
+                        return AccessCredential.bearer(TOKEN);
+                    })
+                    .maxRetries(0)
+                    .clock(clock)
+                    .build();
+            for (int i = 0; i < 3; i++) {
+                assertThrows(PdpCommunicationException.class, () -> client.evaluate(REQUEST));
+            }
+            clock.advance(CircuitBreakerOptions.DEFAULT_OPEN_DURATION);
+
+            assertThrows(AuthZenException.class, () -> client.evaluate(REQUEST));
+
+            assertTrue(client.evaluate(REQUEST).getDecision(), "the next call must be able to probe");
+            assertEquals(4, pdp.requests().size());
+        }
+
+        @ParameterizedTest
+        @ValueSource(ints = {400, 401, 403, 404, 422})
+        void doesNotOpenOnAnswersThatShowThePdpIsUp(int status) {
+            pdp.respond(json(status, ""));
+            AuthZenClient client = client(CircuitBreakerOptions.defaults());
+
+            for (int i = 0; i < 5; i++) {
+                assertThrows(AuthZenException.class, () -> client.evaluate(REQUEST));
+            }
+
+            // A 401 refreshes the credential and repeats the request once
+            assertEquals(status == 401 ? 10 : 5, pdp.requests().size());
+        }
+
+        @Test
+        void doesNotOpenOnFailuresOfTheCredentialProvider() {
+            AtomicInteger calls = new AtomicInteger();
+            AuthZenClient client = AuthZenClient.builder()
+                    .pdpUrl(pdp.url())
+                    .credentials(() -> {
+                        if (calls.incrementAndGet() <= 5) {
+                            throw new IllegalStateException("token source down");
+                        }
+                        return AccessCredential.bearer(TOKEN);
+                    })
+                    .maxRetries(0)
+                    .clock(clock)
+                    .build();
+            for (int i = 0; i < 5; i++) {
+                assertThrows(AuthZenException.class, () -> client.evaluate(REQUEST));
+            }
+            pdp.respond(json(200, "{\"decision\": true}"));
+
+            assertTrue(client.evaluate(REQUEST).getDecision(), "a failing token source says nothing about the PDP");
+            assertEquals(1, pdp.requests().size());
+        }
+
+        @Test
+        void keepsCallingThePdpWhenDisabled() {
+            pdp.respond(json(503, ""));
+            AuthZenClient client = client(CircuitBreakerOptions.disabled());
+
+            for (int i = 0; i < 5; i++) {
+                assertThrows(PdpCommunicationException.class, () -> client.evaluate(REQUEST));
+            }
+
+            assertEquals(5, pdp.requests().size());
         }
     }
 
