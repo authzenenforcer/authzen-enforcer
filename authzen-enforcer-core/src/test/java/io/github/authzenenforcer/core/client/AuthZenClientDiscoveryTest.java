@@ -239,7 +239,7 @@ class AuthZenClientDiscoveryTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"", "not json", "[]", "{}", "{\"policy_decision_point\": \"https://pdp.example.com\"}"})
+    @ValueSource(strings = {"", "not json", "null", "[]", "{}", "{\"policy_decision_point\": \"https://pdp.example.com\"}"})
     void rejectsInvalidMetadata(String body) {
         pdp.respondToMetadata(json(200, body));
 

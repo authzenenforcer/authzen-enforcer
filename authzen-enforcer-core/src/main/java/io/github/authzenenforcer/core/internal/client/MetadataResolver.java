@@ -11,6 +11,8 @@ import io.github.authzenenforcer.core.model.PdpMetadata;
 
 import java.lang.System.Logger.Level;
 import java.net.URI;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -23,7 +25,11 @@ import java.util.function.LongSupplier;
  * Discovers and caches the metadata of a PDP.
  *
  * <p>The metadata is fetched on first use; concurrent callers share one request. It is kept for
- * {@link DiscoveryOptions#getDefaultTtl() defaultTtl} and fetched again on the next use after that.
+ * the lifetime its caching headers give, within {@link DiscoveryOptions#getMinTtl() minTtl} and
+ * {@link DiscoveryOptions#getMaxTtl() maxTtl}, or for {@link DiscoveryOptions#getDefaultTtl()
+ * defaultTtl} without such headers (see {@link CacheDirectives}), and fetched again on the next use
+ * after that. {@code must-revalidate} allows no use after the expiry, and {@code stale-if-error}
+ * shortens {@code maxStale}.
  * A PDP that answers {@code 404} publishes no metadata, which is cached the same way, except that a
  * {@code 404} replacing published metadata is kept only for {@link DiscoveryOptions#getMinTtl()
  * minTtl}. If a refresh fails with a communication error, which includes a PDP that keeps
@@ -54,6 +60,10 @@ final class MetadataResolver {
     private final long ttlNanos;
     private final long minTtlNanos;
     private final long maxStaleNanos;
+    private final Duration minTtl;
+    private final Duration maxTtl;
+    private final Duration maxStale;
+    private final boolean honorCacheHeaders;
     private final boolean sendsCredentials;
     private final LongSupplier clock;
     private final CircuitBreaker breaker;
@@ -88,6 +98,10 @@ final class MetadataResolver {
         this.ttlNanos = options.getDefaultTtl().toNanos();
         this.minTtlNanos = options.getMinTtl().toNanos();
         this.maxStaleNanos = options.getMaxStale().toNanos();
+        this.minTtl = options.getMinTtl();
+        this.maxTtl = options.getMaxTtl();
+        this.maxStale = options.getMaxStale();
+        this.honorCacheHeaders = options.isHonorCacheHeaders();
         this.sendsCredentials = sendsCredentials;
         this.clock = Objects.requireNonNull(clock, "clock");
         this.breaker = Objects.requireNonNull(breaker, "breaker");
@@ -133,21 +147,54 @@ final class MetadataResolver {
             lock.unlock();
         }
         // Started outside the lock, since the transport may complete synchronously
-        CompletableFuture<Optional<PdpMetadata>> fetched;
+        CompletableFuture<Fetched> fetched;
         try {
             fetched = transport.get(location).thenApply(this::accept);
         } catch (RuntimeException e) {
             fetched = CompletableFuture.failedFuture(e);
         }
-        fetched.whenComplete((metadata, error) -> settle(result, metadata, error));
+        fetched.whenComplete((document, error) -> settle(result, document, error));
         return result.copy();
     }
 
-    private Optional<PdpMetadata> accept(Optional<Object> document) {
-        if (document.isEmpty()) {
-            return Optional.empty();
+    /** A verified fetch result and what its response says about caching it. */
+    private record Fetched(Optional<PdpMetadata> metadata, CacheDirectives.Freshness freshness) {
+    }
+
+    private Fetched accept(PdpTransport.Document document) {
+        if (document.body().isEmpty()) {
+            return new Fetched(Optional.empty(), CacheDirectives.Freshness.NONE);
         }
-        return Optional.of(verify(WireFormat.pdpMetadata(document.get()), identifier, location));
+        PdpMetadata metadata = verify(WireFormat.pdpMetadata(document.body().get()), identifier, location);
+        CacheDirectives.Freshness freshness = honorCacheHeaders
+                ? CacheDirectives.parse(document.headers(), Instant.now())
+                : CacheDirectives.Freshness.NONE;
+        return new Fetched(Optional.of(metadata), freshness);
+    }
+
+    /** How long a fresh result is kept: its own lifetime within [minTtl, maxTtl], or defaultTtl. */
+    private long ttlNanos(Fetched fetched, boolean unpublished) {
+        if (unpublished) {
+            return minTtlNanos;
+        }
+        Optional<Duration> lifetime = fetched.freshness().lifetime();
+        if (lifetime.isEmpty()) {
+            return ttlNanos;
+        }
+        Duration bounded = lifetime.get().compareTo(minTtl) < 0 ? minTtl
+                : lifetime.get().compareTo(maxTtl) > 0 ? maxTtl : lifetime.get();
+        return bounded.toNanos();
+    }
+
+    /** How long a result may be used after its expiry while refreshes cannot reach the PDP. */
+    private long staleNanos(Fetched fetched) {
+        CacheDirectives.Freshness freshness = fetched.freshness();
+        if (freshness.mustRevalidate()) {
+            return 0;
+        }
+        return freshness.staleIfError()
+                .map(allowed -> allowed.compareTo(maxStale) < 0 ? allowed.toNanos() : maxStaleNanos)
+                .orElse(maxStaleNanos);
     }
 
     /**
@@ -188,8 +235,7 @@ final class MetadataResolver {
         }
     }
 
-    private void settle(CompletableFuture<Optional<PdpMetadata>> result, Optional<PdpMetadata> metadata,
-            Throwable error) {
+    private void settle(CompletableFuture<Optional<PdpMetadata>> result, Fetched fetched, Throwable error) {
         long now;
         try {
             now = now();
@@ -224,9 +270,10 @@ final class MetadataResolver {
             if (error == null) {
                 // A 404 right after published metadata may come from a proxy during a rollout, so
                 // it is checked again soon instead of pinning the default paths for a full interval
+                Optional<PdpMetadata> metadata = fetched.metadata();
                 boolean unpublished = metadata.isEmpty() && lastPublished;
-                long expiresAt = now + (unpublished ? minTtlNanos : ttlNanos);
-                cached = new Cached(metadata, expiresAt, expiresAt + maxStaleNanos);
+                long expiresAt = now + ttlNanos(fetched, unpublished);
+                cached = new Cached(metadata, expiresAt, expiresAt + staleNanos(fetched));
                 lastPublished = metadata.isPresent();
                 value = metadata;
             } else {

@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.lang.System.Logger.Level;
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
@@ -53,8 +54,6 @@ public final class PdpTransport {
     private static final System.Logger LOGGER = System.getLogger(PdpTransport.class.getName());
     private static final String JSON = "application/json";
     private static final String USER_AGENT = userAgent();
-    // Stands for a 404 answer to a GET, which callers turn into an empty result
-    private static final Object NOT_FOUND = new Object();
 
     private final HttpClient httpClient;
     private final CredentialProvider credentials;
@@ -100,15 +99,22 @@ public final class PdpTransport {
     }
 
     /**
+     * A document fetched with {@link #get(URI)}.
+     *
+     * @param body    the parsed document, empty if the PDP answered {@code 404}
+     * @param headers the response headers, for example for caching directives
+     */
+    public record Document(Optional<Object> body, HttpHeaders headers) {
+    }
+
+    /**
      * Gets a JSON document without presenting credentials, as for the PDP metadata.
      *
      * @param endpoint the document URL
-     * @return a future completed with the parsed document, empty if the PDP answers {@code 404}, or
-     *         exceptionally with an {@link AuthZenException}
+     * @return a future completed with the document, or exceptionally with an {@link AuthZenException}
      */
-    public CompletableFuture<Optional<Object>> get(URI endpoint) {
-        return send(new Call(endpoint, null, System.nanoTime()), 0, false)
-                .thenApply(body -> body == NOT_FOUND ? Optional.empty() : Optional.of(body));
+    public CompletableFuture<Document> get(URI endpoint) {
+        return send(new Call(endpoint, null, System.nanoTime()), 0, false).thenApply(Document.class::cast);
     }
 
     private CompletableFuture<Object> send(Call call, int retries, boolean refreshed) {
@@ -209,7 +215,7 @@ public final class PdpTransport {
             throw new PdpAuthenticationException(reason + status + exchange.suffix(), status);
         }
         if (status == 404 && exchange.isGet()) {
-            return NOT_FOUND;
+            return new Document(Optional.empty(), response.headers());
         }
         if (status >= 500) {
             throw new PdpCommunicationException("PDP returned HTTP " + status + exchange.suffix());
@@ -236,11 +242,20 @@ public final class PdpTransport {
         } catch (CharacterCodingException e) {
             throw new PdpProtocolException("PDP response is not valid UTF-8" + exchange.suffix(), e);
         }
+        Object body;
         try {
-            return codec.read(text);
+            body = codec.read(text);
         } catch (RuntimeException e) {
             throw new PdpProtocolException("PDP response is not valid JSON" + exchange.suffix(), e);
         }
+        if (!exchange.isGet()) {
+            return body;
+        }
+        // An empty document means 404, so a JSON null must not become one
+        if (body == null) {
+            throw new PdpProtocolException("PDP document is JSON null" + exchange.suffix());
+        }
+        return new Document(Optional.of(body), response.headers());
     }
 
     private AuthZenException transportFailure(Exchange exchange, Throwable error) {
