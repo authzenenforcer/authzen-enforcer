@@ -44,6 +44,16 @@ class DiscoveryOptionsTest {
     }
 
     @Test
+    void rejectsAMinTtlBelowTheFloor() {
+        DiscoveryOptions.Builder builder = DiscoveryOptions.builder();
+
+        assertThrows(IllegalArgumentException.class, () -> builder.minTtl(Duration.ofMillis(999)));
+        assertThrows(IllegalArgumentException.class, () -> builder.minTtl(Duration.ofNanos(1)));
+        assertEquals(DiscoveryOptions.MIN_TTL_FLOOR,
+                builder.minTtl(DiscoveryOptions.MIN_TTL_FLOOR).defaultTtl(Duration.ofSeconds(1)).build().getMinTtl());
+    }
+
+    @Test
     void rejectsAMinTtlLongerThanTheDefaultTtl() {
         DiscoveryOptions.Builder builder = DiscoveryOptions.builder().defaultTtl(Duration.ofSeconds(30));
 

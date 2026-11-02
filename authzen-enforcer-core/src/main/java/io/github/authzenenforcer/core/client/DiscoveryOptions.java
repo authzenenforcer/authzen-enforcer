@@ -21,7 +21,8 @@ import java.util.Objects;
  * error or is rate-limited, the previous result stays in use for at most
  * {@link #getMaxStale() maxStale} past its expiry, and the refresh is tried again every
  * {@link #getMinTtl() minTtl}. Once {@code maxStale} has passed, the previous result is dropped and
- * requests fail, so that they deny, until a refresh succeeds. A {@code 404} that replaces published
+ * requests fail, so that they deny, until a refresh succeeds. Any other failure, such as invalid
+ * metadata, drops the previous result at once. A {@code 404} that replaces published
  * metadata is also kept only for {@code minTtl}, since it may come from a proxy during a rollout.
  *
  * <p>Instances are immutable and thread-safe.
@@ -38,6 +39,9 @@ public final class DiscoveryOptions {
 
     /** Default time a previous result may still be used after its expiry while refreshes fail. */
     public static final Duration DEFAULT_MAX_STALE = Duration.ofHours(1);
+
+    /** Shortest accepted {@code minTtl}, so that a failing PDP is not asked for metadata on every request. */
+    public static final Duration MIN_TTL_FLOOR = Duration.ofSeconds(1);
 
     /** Longest accepted duration for any of the options. */
     public static final Duration MAX_DURATION = Duration.ofDays(365);
@@ -88,7 +92,7 @@ public final class DiscoveryOptions {
      * Returns the shortest time a result is kept. It is also the wait before a failed refresh is
      * tried again while a previous result stays in use.
      *
-     * @return a positive duration, not longer than {@link #getDefaultTtl()}
+     * @return a duration of at least {@link #MIN_TTL_FLOOR}, not longer than {@link #getDefaultTtl()}
      */
     public Duration getMinTtl() {
         return minTtl;
@@ -152,11 +156,15 @@ public final class DiscoveryOptions {
          * Sets the shortest time a result is kept, also the wait before a failed refresh is tried
          * again. Defaults to {@link #DEFAULT_MIN_TTL}.
          *
-         * @param minTtl a positive duration of at most {@link #MAX_DURATION}
+         * @param minTtl a duration between {@link #MIN_TTL_FLOOR} and {@link #MAX_DURATION}
          * @return this builder
          */
         public Builder minTtl(Duration minTtl) {
-            this.minTtl = check(minTtl, "minTtl", false);
+            check(minTtl, "minTtl", false);
+            if (minTtl.compareTo(MIN_TTL_FLOOR) < 0) {
+                throw new IllegalArgumentException("minTtl must be at least " + MIN_TTL_FLOOR);
+            }
+            this.minTtl = minTtl;
             return this;
         }
 

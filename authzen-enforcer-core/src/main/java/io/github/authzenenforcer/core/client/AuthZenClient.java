@@ -166,6 +166,9 @@ public interface AuthZenClient {
          * Enables or disables metadata discovery. Enabled by default, with
          * {@link DiscoveryOptions#defaults()}.
          *
+         * <p>The last call of this method or {@link #discovery(DiscoveryOptions)} decides. Disabling
+         * and enabling again keeps options set earlier.
+         *
          * <p>When enabled, the client fetches the metadata the first time it needs an endpoint
          * that is not overridden. The metadata request carries no credentials. Afterwards:
          * <ul>
@@ -195,7 +198,8 @@ public interface AuthZenClient {
         }
 
         /**
-         * Enables metadata discovery with the given cache options.
+         * Enables metadata discovery with the given cache options. A later
+         * {@link #discovery(boolean) discovery(false)} disables it again.
          *
          * @param options how discovered metadata is cached
          * @return this builder

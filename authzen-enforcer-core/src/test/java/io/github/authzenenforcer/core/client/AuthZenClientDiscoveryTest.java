@@ -332,6 +332,37 @@ class AuthZenClientDiscoveryTest {
     }
 
     @Test
+    void lastDiscoveryCallDecides() {
+        publish("/authzen/access/v1/evaluation");
+        DiscoveryOptions options = DiscoveryOptions.builder().defaultTtl(Duration.ofMinutes(5)).build();
+
+        builder("").discovery(options).discovery(false).build().evaluate(REQUEST);
+        assertTrue(pdp.metadataRequests().isEmpty(), "discovery(false) after discovery(options) disables it");
+
+        builder("").discovery(false).discovery(options).build().evaluate(REQUEST);
+        assertEquals(1, pdp.metadataRequests().size(), "discovery(options) after discovery(false) enables it");
+    }
+
+    @Test
+    void keepsCustomOptionsWhenDiscoveryIsEnabledAgain() {
+        pdp.respondToMetadata(sequence(
+                json(200, metadata(pdp.url().toString(), "/first")),
+                json(200, metadata(pdp.url().toString(), "/second"))));
+        AuthZenClient client = builder("")
+                .discovery(DiscoveryOptions.builder().defaultTtl(Duration.ofMinutes(5)).build())
+                .discovery(false)
+                .discovery(true)
+                .clock(clock)
+                .build();
+
+        client.evaluate(REQUEST);
+        clock.advance(Duration.ofMinutes(5));
+        client.evaluate(REQUEST);
+
+        assertEquals(List.of("/first", "/second"), paths());
+    }
+
+    @Test
     void keepsThePreviousMetadataWhenTheRefreshCannotReachThePdp() {
         pdp.respondToMetadata(sequence(json(200, metadata(pdp.url().toString(), "/first")), json(503, "")));
         AuthZenClient client = builder("").clock(clock).build();

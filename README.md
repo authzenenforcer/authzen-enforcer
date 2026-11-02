@@ -79,7 +79,8 @@ no credentials. Discovery follows these rules:
 - The result is kept for `defaultTtl` (one hour).
 - If a refresh cannot reach the PDP, gets a server error or keeps being rate-limited (`429`), the
   previous result stays in use for at most `maxStale` (one hour) after it expired. The refresh is
-  tried again every `minTtl` (one minute). After `maxStale`, requests fail until a refresh succeeds.
+  tried again every `minTtl` (one minute, at least one second). After `maxStale`, requests fail until
+  a refresh succeeds. Any other failure drops the previous result at once.
 - If the PDP answers `404`, it publishes no metadata, and the client uses the default paths of the
   specification below the PDP URL, such as `/access/v1/evaluation`. A `404` that replaces published
   metadata is kept only for `minTtl`, since it may come from a proxy during a rollout.

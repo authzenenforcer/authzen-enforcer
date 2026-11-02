@@ -29,7 +29,7 @@ import java.util.function.LongSupplier;
  * minTtl}. If a refresh fails with a communication error, which includes a PDP that keeps
  * rate-limiting, the previous result stays in use until {@link DiscoveryOptions#getMaxStale()
  * maxStale} after its expiry, and the refresh is tried again every {@code minTtl}. After that, and
- * for any other failure, the caller fails, so that it denies.
+ * for any other failure, the previous result is dropped and the caller fails, so that it denies.
  *
  * <p>Metadata whose {@code policy_decision_point} differs from the identifier is rejected, as the
  * specification requires, and so are endpoints that are not usable URLs or that use plain HTTP
@@ -58,6 +58,8 @@ final class MetadataResolver {
     // Guarded by lock
     private Cached cached;
     private CompletableFuture<Optional<PdpMetadata>> pending;
+    // Whether the last result the PDP gave was published metadata; survives dropping the cache
+    private boolean lastPublished;
 
     /**
      * Creates a resolver.
@@ -73,7 +75,9 @@ final class MetadataResolver {
         this.transport = Objects.requireNonNull(transport, "transport");
         this.identifier = Objects.requireNonNull(identifier, "identifier");
         this.location = Urls.wellKnown(identifier, WELL_KNOWN_PATH);
-        // DiscoveryOptions caps each duration at a year, so these sums cannot overflow
+        // Deadlines are sums on a clock with an arbitrary origin and may wrap around, so they are
+        // only ever compared through differences. DiscoveryOptions caps each duration at a year,
+        // which keeps every difference far below 2^63
         this.ttlNanos = options.getDefaultTtl().toNanos();
         this.minTtlNanos = options.getMinTtl().toNanos();
         this.maxStaleNanos = options.getMaxStale().toNanos();
@@ -89,9 +93,15 @@ final class MetadataResolver {
      */
     CompletableFuture<Optional<PdpMetadata>> metadata() {
         CompletableFuture<Optional<PdpMetadata>> result;
+        long now;
+        try {
+            now = now();
+        } catch (AuthZenException e) {
+            return CompletableFuture.failedFuture(e);
+        }
         lock.lock();
         try {
-            if (cached != null && clock.getAsLong() - cached.refreshAtNanos < 0) {
+            if (cached != null && now - cached.refreshAtNanos < 0) {
                 return CompletableFuture.completedFuture(cached.metadata);
             }
             if (pending != null) {
@@ -161,26 +171,42 @@ final class MetadataResolver {
 
     private void settle(CompletableFuture<Optional<PdpMetadata>> result, Optional<PdpMetadata> metadata,
             Throwable error) {
+        long now;
+        try {
+            now = now();
+        } catch (AuthZenException e) {
+            // Nothing changed yet; clear the fetch so that the next call tries again
+            lock.lock();
+            try {
+                pending = null;
+            } finally {
+                lock.unlock();
+            }
+            result.completeExceptionally(e);
+            return;
+        }
         Optional<PdpMetadata> value = null;
         AuthZenException failure = null;
         Optional<PdpMetadata> previous;
         boolean keptPrevious = false;
         boolean droppedStale = false;
+        boolean droppedUnusable = false;
         lock.lock();
         try {
             pending = null;
             previous = cached == null ? null : cached.metadata;
-            long now = clock.getAsLong();
             if (error == null) {
                 // A 404 right after published metadata may come from a proxy during a rollout, so
                 // it is checked again soon instead of pinning the default paths for a full interval
-                boolean unpublished = metadata.isEmpty() && previous != null && previous.isPresent();
+                boolean unpublished = metadata.isEmpty() && lastPublished;
                 long expiresAt = now + (unpublished ? minTtlNanos : ttlNanos);
                 cached = new Cached(metadata, expiresAt, expiresAt + maxStaleNanos);
+                lastPublished = metadata.isPresent();
                 value = metadata;
             } else {
                 Throwable cause = unwrap(error);
-                if (cause instanceof PdpCommunicationException && cached != null && now - cached.staleUntilNanos < 0) {
+                boolean communication = cause instanceof PdpCommunicationException;
+                if (communication && cached != null && now - cached.staleUntilNanos < 0) {
                     // Try again after minTtl, but never use the previous result past maxStale
                     long retryAt = now + minTtlNanos;
                     long refreshAt = retryAt - cached.staleUntilNanos < 0 ? retryAt : cached.staleUntilNanos;
@@ -188,10 +214,11 @@ final class MetadataResolver {
                     value = cached.metadata;
                     keptPrevious = true;
                 } else {
-                    droppedStale = cached != null && cause instanceof PdpCommunicationException;
-                    if (droppedStale) {
-                        cached = null;
-                    }
+                    // Past maxStale, or the PDP answered with something unusable: the previous
+                    // result must not come back on a later communication failure
+                    droppedStale = cached != null && communication;
+                    droppedUnusable = cached != null && !communication;
+                    cached = null;
                     failure = cause instanceof AuthZenException authZenException ? authZenException
                             : new AuthZenException("PDP metadata discovery failed unexpectedly", cause);
                 }
@@ -205,6 +232,9 @@ final class MetadataResolver {
             if (droppedStale) {
                 LOGGER.log(Level.WARNING, "PDP metadata from " + location + " expired more than maxStale ago and "
                         + "could not be refreshed; requests fail until a refresh succeeds: " + failure.getMessage());
+            } else if (droppedUnusable) {
+                LOGGER.log(Level.WARNING, "PDP metadata from " + location + " can no longer be used; dropping the "
+                        + "previous result, and requests fail until a refresh succeeds: " + failure.getMessage());
             } else {
                 LOGGER.log(Level.DEBUG, () -> "PDP metadata discovery at " + location + " failed: " + error);
             }
@@ -216,6 +246,15 @@ final class MetadataResolver {
                     + " failed; keeping the previous result: " + unwrap(error).getMessage());
         } else if (!value.equals(previous)) {
             logChange(value);
+        }
+    }
+
+    /** Reads the clock; a failing clock fails the request instead of leaving it pending. */
+    private long now() {
+        try {
+            return clock.getAsLong();
+        } catch (RuntimeException e) {
+            throw new AuthZenException("Clock of the PDP metadata cache failed", e);
         }
     }
 

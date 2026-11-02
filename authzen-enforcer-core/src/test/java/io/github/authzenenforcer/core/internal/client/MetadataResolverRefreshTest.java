@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.authzenenforcer.core.AuthZenException;
 import io.github.authzenenforcer.core.PdpCommunicationException;
 import io.github.authzenenforcer.core.client.DiscoveryOptions;
 import io.github.authzenenforcer.core.internal.http.PdpTransport;
@@ -23,6 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -43,6 +45,9 @@ class MetadataResolverRefreshTest {
     private static final DiscoveryOptions OPTIONS = DiscoveryOptions.builder()
             .defaultTtl(TTL).minTtl(MIN_TTL).maxStale(MAX_STALE).build();
 
+    // Stands for a 200 answer whose metadata belongs to another PDP
+    private static final int FOREIGN = 0;
+
     private HttpServer server;
     private final List<Integer> statuses = new CopyOnWriteArrayList<>();
     private final AtomicInteger requests = new AtomicInteger();
@@ -56,8 +61,11 @@ class MetadataResolverRefreshTest {
         server.createContext("/", exchange -> {
             try {
                 int index = requests.getAndIncrement();
-                int status = statuses.get(Math.min(index, statuses.size() - 1));
-                byte[] body = status == 200 ? metadata().getBytes(StandardCharsets.UTF_8) : new byte[0];
+                int answer = statuses.get(Math.min(index, statuses.size() - 1));
+                int status = answer == FOREIGN ? 200 : answer;
+                String document = answer == FOREIGN ? metadata().replace(identifier.toString(), "https://other.example")
+                        : status == 200 ? metadata() : "";
+                byte[] body = document.getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().set("Content-Type", "application/json");
                 exchange.sendResponseHeaders(status, body.length == 0 ? -1 : body.length);
                 if (body.length > 0) {
@@ -84,10 +92,13 @@ class MetadataResolverRefreshTest {
                 + "\"access_evaluation_endpoint\": \"" + identifier + "/authzen/access/v1/evaluation\"}";
     }
 
-    private MetadataResolver resolver(DiscoveryOptions options) {
-        PdpTransport transport = new PdpTransport(HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build(),
+    private static PdpTransport transport() {
+        return new PdpTransport(HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build(),
                 null, JsonCodec.defaultCodec(), Duration.ofSeconds(2), 0);
-        return new MetadataResolver(transport, identifier, options, false, nanos::get);
+    }
+
+    private MetadataResolver resolver(DiscoveryOptions options) {
+        return new MetadataResolver(transport(), identifier, options, false, nanos::get);
     }
 
     private MetadataResolver resolver() {
@@ -233,6 +244,67 @@ class MetadataResolverRefreshTest {
         // Without a previous result, each use tries again and fails
         assertThrows(CompletionException.class, () -> resolver.metadata().join());
         assertEquals(3, requests.get());
+    }
+
+    @Test
+    void checksA404AfterDroppedStaleMetadataAgainAfterMinTtl() {
+        statuses.addAll(List.of(200, 503, 404, 200));
+        MetadataResolver resolver = resolver();
+        resolver.metadata().join();
+        advance(TTL.plus(MAX_STALE));
+        assertThrows(CompletionException.class, () -> resolver.metadata().join());
+
+        assertEquals(Optional.empty(), resolver.metadata().join());
+        advance(MIN_TTL);
+
+        assertTrue(resolver.metadata().join().isPresent(), "the PDP published metadata before the outage");
+        assertEquals(4, requests.get());
+    }
+
+    @Test
+    void dropsThePreviousMetadataWhenTheRefreshReturnsUnusableMetadata() {
+        statuses.addAll(List.of(200, FOREIGN, 503));
+        MetadataResolver resolver = resolver();
+        resolver.metadata().join();
+        advance(TTL);
+        assertThrows(CompletionException.class, () -> resolver.metadata().join());
+
+        CompletionException e = assertThrows(CompletionException.class, () -> resolver.metadata().join(),
+                "a later outage must not bring back metadata the PDP has replaced");
+        assertTrue(e.getCause() instanceof PdpCommunicationException, String.valueOf(e.getCause()));
+    }
+
+    @Test
+    void failsInsteadOfBlockingWhenTheClockFailsWhileSettling() {
+        statuses.addAll(List.of(200));
+        AtomicInteger reads = new AtomicInteger();
+        MetadataResolver resolver = new MetadataResolver(transport(), identifier, OPTIONS, false, () -> {
+            if (reads.incrementAndGet() == 2) {
+                throw new IllegalStateException("clock failed");
+            }
+            return nanos.get();
+        });
+
+        CompletionException e = assertTimeoutPreemptively(Duration.ofSeconds(5),
+                () -> assertThrows(CompletionException.class, () -> resolver.metadata().join()));
+        assertTrue(e.getCause() instanceof AuthZenException, String.valueOf(e.getCause()));
+
+        // The failed settle released the fetch, so the next call fetches again
+        assertTrue(resolver.metadata().join().isPresent());
+        assertEquals(2, requests.get());
+    }
+
+    @Test
+    void returnsAFailedFutureWhenTheClockFailsOnRead() {
+        MetadataResolver resolver = new MetadataResolver(transport(), identifier, OPTIONS, false, () -> {
+            throw new IllegalStateException("clock failed");
+        });
+
+        CompletableFuture<Optional<PdpMetadata>> future = resolver.metadata();
+
+        CompletionException e = assertThrows(CompletionException.class, future::join);
+        assertTrue(e.getCause() instanceof AuthZenException, String.valueOf(e.getCause()));
+        assertEquals(0, requests.get());
     }
 
     @Test
