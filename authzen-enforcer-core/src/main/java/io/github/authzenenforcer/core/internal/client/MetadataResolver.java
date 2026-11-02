@@ -16,6 +16,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Discovers and caches the metadata of a PDP.
@@ -50,7 +51,8 @@ final class MetadataResolver {
     private final long refreshNanos;
     private final long retryNanos;
     private final boolean sendsCredentials;
-    private final Object lock = new Object();
+    // Not synchronized: on Java 21 to 23 a virtual thread waiting for a monitor pins its carrier
+    private final ReentrantLock lock = new ReentrantLock();
 
     // Guarded by lock
     private Cached cached;
@@ -90,7 +92,8 @@ final class MetadataResolver {
      */
     CompletableFuture<Optional<PdpMetadata>> metadata() {
         CompletableFuture<Optional<PdpMetadata>> result;
-        synchronized (lock) {
+        lock.lock();
+        try {
             if (cached != null && System.nanoTime() - cached.refreshAtNanos < 0) {
                 return CompletableFuture.completedFuture(cached.metadata);
             }
@@ -100,6 +103,8 @@ final class MetadataResolver {
             }
             result = new CompletableFuture<>();
             pending = result;
+        } finally {
+            lock.unlock();
         }
         // Started outside the lock, since the transport may complete synchronously
         CompletableFuture<Optional<PdpMetadata>> fetched;
@@ -163,7 +168,8 @@ final class MetadataResolver {
         AuthZenException failure = null;
         Optional<PdpMetadata> previous;
         boolean keptPrevious = false;
-        synchronized (lock) {
+        lock.lock();
+        try {
             pending = null;
             previous = cached == null ? null : cached.metadata;
             long now = System.nanoTime();
@@ -184,6 +190,8 @@ final class MetadataResolver {
                             : new AuthZenException("PDP metadata discovery failed unexpectedly", cause);
                 }
             }
+        } finally {
+            lock.unlock();
         }
         // Complete before logging, so that a failing logger cannot leave the waiting callers blocked
         if (failure != null) {
