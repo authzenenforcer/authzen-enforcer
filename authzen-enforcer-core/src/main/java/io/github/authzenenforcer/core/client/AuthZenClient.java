@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.LongSupplier;
 
 /**
  * Client for the AuthZEN Authorization API of a PDP.
@@ -102,9 +103,6 @@ public interface AuthZenClient {
         /** Highest accepted number of retries. */
         public static final int MAX_RETRIES_LIMIT = 10;
 
-        /** Default time discovered metadata is used before it is fetched again. */
-        public static final Duration DEFAULT_METADATA_REFRESH_INTERVAL = Duration.ofHours(1);
-
         private URI pdpUrl;
         private URI evaluationEndpoint;
         private CredentialProvider credentials;
@@ -114,7 +112,8 @@ public interface AuthZenClient {
         private Duration requestTimeout = DEFAULT_REQUEST_TIMEOUT;
         private int maxRetries = DEFAULT_MAX_RETRIES;
         private boolean discovery = true;
-        private Duration metadataRefreshInterval = DEFAULT_METADATA_REFRESH_INTERVAL;
+        private DiscoveryOptions discoveryOptions = DiscoveryOptions.defaults();
+        private LongSupplier clock = System::nanoTime;
 
         private Builder() {
         }
@@ -164,7 +163,11 @@ public interface AuthZenClient {
         }
 
         /**
-         * Enables or disables metadata discovery. Enabled by default.
+         * Enables or disables metadata discovery. Enabled by default, with
+         * {@link DiscoveryOptions#defaults()}.
+         *
+         * <p>The last call of this method or {@link #discovery(DiscoveryOptions)} decides. Disabling
+         * and enabling again keeps options set earlier.
          *
          * <p>When enabled, the client fetches the metadata the first time it needs an endpoint
          * that is not overridden. The metadata request carries no credentials. Afterwards:
@@ -179,12 +182,10 @@ public interface AuthZenClient {
          *   <li>Other failures, such as an unreachable PDP, fail the request as well; the next
          *       request tries again.</li>
          * </ul>
-         * Results, including a {@code 404}, are kept for {@link #metadataRefreshInterval(Duration)}.
-         * A {@code 404} that replaces published metadata is checked again after at most a minute,
-         * since it may come from a proxy during a rollout. If a refresh fails because the PDP
-         * cannot be reached, reports a server error or keeps rate-limiting, the previous result
-         * stays in use and the refresh is retried after at most a minute. HTTP caching headers of the metadata
-         * response are ignored. Signed metadata ({@code signed_metadata}) is not supported.
+         * How long results are kept, and how long a previous result may still be used while the PDP
+         * cannot be reached, is set with {@link #discovery(DiscoveryOptions)}. HTTP caching headers
+         * of the metadata response are ignored. Signed metadata ({@code signed_metadata}) is not
+         * supported.
          *
          * <p>When disabled, endpoints that are not overridden use the default paths.
          *
@@ -197,15 +198,22 @@ public interface AuthZenClient {
         }
 
         /**
-         * Sets how long discovered metadata is used before it is fetched again. Defaults to
-         * {@link #DEFAULT_METADATA_REFRESH_INTERVAL}.
+         * Enables metadata discovery with the given cache options. A later
+         * {@link #discovery(boolean) discovery(false)} disables it again.
          *
-         * @param refreshInterval a positive duration
+         * @param options how discovered metadata is cached
          * @return this builder
          * @see #discovery(boolean)
          */
-        public Builder metadataRefreshInterval(Duration refreshInterval) {
-            this.metadataRefreshInterval = requirePositive(refreshInterval, "metadataRefreshInterval");
+        public Builder discovery(DiscoveryOptions options) {
+            this.discoveryOptions = Objects.requireNonNull(options, "options");
+            this.discovery = true;
+            return this;
+        }
+
+        // Lets tests in this package drive the metadata cache without waiting
+        Builder clock(LongSupplier clock) {
+            this.clock = Objects.requireNonNull(clock, "clock");
             return this;
         }
 
@@ -322,7 +330,7 @@ public interface AuthZenClient {
                 throw new IllegalStateException("httpClient must not follow redirects");
             }
             return new DefaultAuthZenClient(pdpUrl, evaluationEndpoint, credentials, jsonCodec, client, requestTimeout,
-                    maxRetries, discovery, metadataRefreshInterval);
+                    maxRetries, discovery ? discoveryOptions : null, clock);
         }
 
         private static Duration requirePositive(Duration duration, String name) {

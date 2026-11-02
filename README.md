@@ -74,18 +74,33 @@ AuthZenClient client = AuthZenClient.builder()
 ```
 
 Discovery happens on the first request, not when the client is built. The metadata request carries
-no credentials. The result is kept for an hour (`metadataRefreshInterval`). If a refresh cannot reach
-the PDP, gets a server error or keeps being rate-limited (`429`), the previous result stays in use.
-Discovery follows these rules:
+no credentials. Discovery follows these rules:
 
+- The result is kept for `defaultTtl` (one hour).
+- If a refresh cannot reach the PDP, gets a server error or keeps being rate-limited (`429`), the
+  previous result stays in use for at most `maxStale` (one hour) after it expired. The refresh is
+  tried again every `minTtl` (one minute, at least one second). After `maxStale`, requests fail until
+  a refresh succeeds. Any other failure drops the previous result at once.
 - If the PDP answers `404`, it publishes no metadata, and the client uses the default paths of the
   specification below the PDP URL, such as `/access/v1/evaluation`. A `404` that replaces published
-  metadata is checked again within a minute, since it may come from a proxy during a rollout.
+  metadata is kept only for `minTtl`, since it may come from a proxy during a rollout.
 - If the metadata is invalid, it is for another `policy_decision_point`, or it lists an `http`
   endpoint for an `https` PDP, the request fails (fail-closed). Other errors fail it too, and the
   next request tries again.
 - `client.metadata()` returns the discovered metadata, for example to check whether the PDP supports
   the Access Evaluations API.
+
+The durations are set with `DiscoveryOptions`:
+
+```java
+AuthZenClient client = AuthZenClient.builder()
+        .pdpUrl("https://pdp.example.com")
+        .discovery(DiscoveryOptions.builder()
+                .defaultTtl(Duration.ofMinutes(30))
+                .maxStale(Duration.ofMinutes(15))
+                .build())
+        .build();
+```
 
 If a PDP publishes no metadata and serves the API at another path, set the endpoint with
 `evaluationEndpoint(URI)`. `discovery(false)` turns discovery off.
