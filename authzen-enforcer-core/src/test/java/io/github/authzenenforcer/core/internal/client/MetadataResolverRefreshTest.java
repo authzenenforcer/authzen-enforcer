@@ -56,6 +56,8 @@ class MetadataResolverRefreshTest {
     private HttpServer server;
     private final List<Integer> statuses = new CopyOnWriteArrayList<>();
     private final AtomicInteger requests = new AtomicInteger();
+    // Sent with every answer when set
+    private volatile String cacheControl;
     // Starts near the overflow point, so that the cache arithmetic must be wrap-safe
     private final AtomicLong nanos = new AtomicLong(Long.MAX_VALUE - Duration.ofMinutes(3).toNanos());
     private URI identifier;
@@ -72,6 +74,9 @@ class MetadataResolverRefreshTest {
                         : status == 200 ? metadata() : "";
                 byte[] body = document.getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().set("Content-Type", "application/json");
+                if (cacheControl != null) {
+                    exchange.getResponseHeaders().set("Cache-Control", cacheControl);
+                }
                 exchange.sendResponseHeaders(status, body.length == 0 ? -1 : body.length);
                 if (body.length > 0) {
                     try (OutputStream out = exchange.getResponseBody()) {
@@ -358,6 +363,124 @@ class MetadataResolverRefreshTest {
         advance(MAX_STALE.minus(MIN_TTL.multipliedBy(3)));
         assertThrows(CompletionException.class, () -> resolver.metadata().join(), "past maxStale nothing is served");
         assertEquals(4, requests.get());
+    }
+
+    @Test
+    void keepsAResultForItsMaxAge() {
+        cacheControl = "max-age=300";
+        statuses.addAll(List.of(200, 200));
+        MetadataResolver resolver = resolver();
+
+        resolver.metadata().join();
+        // The server's Date has second precision, so the apparent age may take up to a second off
+        advance(Duration.ofSeconds(298));
+        resolver.metadata().join();
+        assertEquals(1, requests.get());
+
+        advance(Duration.ofSeconds(2));
+        resolver.metadata().join();
+        assertEquals(2, requests.get());
+    }
+
+    @Test
+    void boundsTheMaxAgeByMinTtlAndMaxTtl() {
+        DiscoveryOptions options = DiscoveryOptions.builder().defaultTtl(TTL).minTtl(MIN_TTL).maxTtl(Duration.ofHours(1))
+                .maxStale(MAX_STALE).build();
+        statuses.addAll(List.of(200));
+        cacheControl = "max-age=86400";
+        MetadataResolver longLived = resolver(options);
+        longLived.metadata().join();
+        advance(Duration.ofHours(1));
+        longLived.metadata().join();
+        assertEquals(2, requests.get(), "kept for maxTtl, not a day");
+
+        cacheControl = "max-age=5";
+        MetadataResolver shortLived = resolver(options);
+        shortLived.metadata().join();
+        advance(Duration.ofSeconds(5));
+        shortLived.metadata().join();
+        assertEquals(3, requests.get(), "kept for minTtl, not five seconds");
+    }
+
+    @Test
+    void keepsANoStoreResultForMinTtl() {
+        cacheControl = "no-store";
+        statuses.addAll(List.of(200, 200));
+        MetadataResolver resolver = resolver();
+
+        resolver.metadata().join();
+        advance(MIN_TTL);
+        resolver.metadata().join();
+
+        assertEquals(2, requests.get());
+    }
+
+    @Test
+    void neverUsesAnExpiredKeycloakResult() {
+        // What Keycloak sends with its metadata
+        cacheControl = "no-cache, must-revalidate, no-transform, no-store";
+        statuses.addAll(List.of(200, 503));
+        MetadataResolver resolver = resolver();
+        resolver.metadata().join();
+        advance(MIN_TTL);
+
+        assertThrows(CompletionException.class, () -> resolver.metadata().join(),
+                "must-revalidate forbids using the expired result while the PDP is unreachable");
+    }
+
+    @Test
+    void neverUsesAnExpiredNoCacheResult() {
+        cacheControl = "no-cache";
+        statuses.addAll(List.of(200, 503));
+        MetadataResolver resolver = resolver();
+        resolver.metadata().join();
+        advance(MIN_TTL);
+
+        assertThrows(CompletionException.class, () -> resolver.metadata().join(),
+                "RFC 9111 section 4.2.4: a no-cache response must not be served stale");
+    }
+
+    @Test
+    void shortensMaxStaleToStaleIfError() {
+        cacheControl = "max-age=600, stale-if-error=90";
+        statuses.addAll(List.of(200, 503));
+        MetadataResolver resolver = resolver();
+        PdpMetadata first = resolver.metadata().join().orElseThrow();
+        advance(Duration.ofSeconds(600));
+        assertEquals(Optional.of(first), resolver.metadata().join());
+
+        advance(Duration.ofSeconds(90));
+
+        assertThrows(CompletionException.class, () -> resolver.metadata().join(), "stale-if-error is 90 s, maxStale 5 min");
+    }
+
+    @Test
+    void ignoresCacheHeadersWhenToldTo() {
+        DiscoveryOptions options = DiscoveryOptions.builder().defaultTtl(TTL).minTtl(MIN_TTL).maxStale(MAX_STALE)
+                .honorCacheHeaders(false).build();
+        cacheControl = "no-store, must-revalidate";
+        statuses.addAll(List.of(200, 503));
+        MetadataResolver resolver = resolver(options);
+        PdpMetadata first = resolver.metadata().join().orElseThrow();
+        advance(MIN_TTL);
+        resolver.metadata().join();
+        assertEquals(1, requests.get(), "kept for defaultTtl");
+
+        advance(TTL);
+        assertEquals(Optional.of(first), resolver.metadata().join(), "maxStale still applies");
+    }
+
+    @Test
+    void ignoresTheCacheHeadersOfA404() {
+        cacheControl = "max-age=5";
+        statuses.addAll(List.of(404, 200));
+        MetadataResolver resolver = resolver();
+
+        resolver.metadata().join();
+        advance(MIN_TTL);
+        resolver.metadata().join();
+
+        assertEquals(1, requests.get(), "a 404 is kept for defaultTtl");
     }
 
     @Test

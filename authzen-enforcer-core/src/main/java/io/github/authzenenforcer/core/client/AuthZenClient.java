@@ -184,9 +184,9 @@ public interface AuthZenClient {
          *       request tries again.</li>
          * </ul>
          * How long results are kept, and how long a previous result may still be used while the PDP
-         * cannot be reached, is set with {@link #discovery(DiscoveryOptions)}. HTTP caching headers
-         * of the metadata response are ignored. Signed metadata ({@code signed_metadata}) is not
-         * supported.
+         * cannot be reached, follows the caching headers of the metadata response within the
+         * bounds set with {@link #discovery(DiscoveryOptions)}. Signed metadata
+         * ({@code signed_metadata}) is not supported.
          *
          * <p>When disabled, endpoints that are not overridden use the default paths.
          *
