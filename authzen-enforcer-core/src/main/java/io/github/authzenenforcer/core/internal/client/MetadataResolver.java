@@ -28,8 +28,8 @@ import java.util.function.LongSupplier;
  * the lifetime its caching headers give, within {@link DiscoveryOptions#getMinTtl() minTtl} and
  * {@link DiscoveryOptions#getMaxTtl() maxTtl}, or for {@link DiscoveryOptions#getDefaultTtl()
  * defaultTtl} without such headers (see {@link CacheDirectives}), and fetched again on the next use
- * after that. {@code must-revalidate} allows no use after the expiry, and {@code stale-if-error}
- * shortens {@code maxStale}.
+ * after that. {@code must-revalidate}, {@code no-store} and {@code no-cache} allow no use after the
+ * expiry, and {@code stale-if-error} shortens {@code maxStale}.
  * A PDP that answers {@code 404} publishes no metadata, which is cached the same way, except that a
  * {@code 404} replacing published metadata is kept only for {@link DiscoveryOptions#getMinTtl()
  * minTtl}. If a refresh fails with a communication error, which includes a PDP that keeps
@@ -189,7 +189,7 @@ final class MetadataResolver {
     /** How long a result may be used after its expiry while refreshes cannot reach the PDP. */
     private long staleNanos(Fetched fetched) {
         CacheDirectives.Freshness freshness = fetched.freshness();
-        if (freshness.mustRevalidate()) {
+        if (freshness.staleForbidden()) {
             return 0;
         }
         return freshness.staleIfError()

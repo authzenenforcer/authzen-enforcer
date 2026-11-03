@@ -25,8 +25,9 @@ import java.util.Objects;
  *       {@code Age}, sets how long the result is kept;</li>
  *   <li>{@code no-store}, an unqualified {@code no-cache}, {@code max-age=0} and any invalid value
  *       keep it for {@code minTtl};</li>
- *   <li>{@code must-revalidate} or {@code proxy-revalidate} forbid using it once it has expired,
- *       and {@code stale-if-error=N} (RFC 5861) shortens {@code maxStale} to {@code N} seconds.</li>
+ *   <li>{@code no-store}, an unqualified {@code no-cache}, {@code must-revalidate} and
+ *       {@code proxy-revalidate} forbid using it once it has expired (RFC 9111 section 4.2.4), and
+ *       {@code stale-if-error=N} (RFC 5861) shortens {@code maxStale} to {@code N} seconds.</li>
  * </ul>
  * {@code s-maxage} is for shared caches and ignored, and so are the headers of a {@code 404}.
  *
@@ -73,7 +74,8 @@ public final class DiscoveryOptions {
         if (builder.minTtl.compareTo(builder.defaultTtl) > 0) {
             throw new IllegalStateException("minTtl must not be longer than defaultTtl");
         }
-        if (builder.defaultTtl.compareTo(builder.maxTtl) > 0) {
+        // maxTtl only bounds lifetimes from caching headers
+        if (builder.honorCacheHeaders && builder.defaultTtl.compareTo(builder.maxTtl) > 0) {
             throw new IllegalStateException("defaultTtl must not be longer than maxTtl");
         }
         this.defaultTtl = builder.defaultTtl;
@@ -133,7 +135,7 @@ public final class DiscoveryOptions {
     /**
      * Returns the longest time a result is kept, whatever its caching headers say.
      *
-     * @return a duration, not shorter than {@link #getDefaultTtl()}
+     * @return a duration, not shorter than {@link #getDefaultTtl()} while caching headers are honoured
      */
     public Duration getMaxTtl() {
         return maxTtl;
@@ -253,7 +255,8 @@ public final class DiscoveryOptions {
          *
          * @return the options
          * @throws IllegalStateException if {@code minTtl} is longer than {@code defaultTtl}, or
-         *                               {@code defaultTtl} longer than {@code maxTtl}
+         *                               {@code defaultTtl} longer than {@code maxTtl} while caching
+         *                               headers are honoured
          */
         public DiscoveryOptions build() {
             return new DiscoveryOptions(this);

@@ -95,7 +95,10 @@ public final class PdpTransport {
         } catch (RuntimeException e) {
             return CompletableFuture.failedFuture(new AuthZenException("Request cannot be serialized to JSON", e));
         }
-        return send(new Call(endpoint, json, System.nanoTime()), 0, false);
+        if (json == null) {
+            return CompletableFuture.failedFuture(new AuthZenException("JSON codec returned no text for the request"));
+        }
+        return send(new Call(endpoint, false, json, System.nanoTime()), 0, false);
     }
 
     /**
@@ -114,12 +117,12 @@ public final class PdpTransport {
      * @return a future completed with the document, or exceptionally with an {@link AuthZenException}
      */
     public CompletableFuture<Document> get(URI endpoint) {
-        return send(new Call(endpoint, null, System.nanoTime()), 0, false).thenApply(Document.class::cast);
+        return send(new Call(endpoint, true, null, System.nanoTime()), 0, false).thenApply(Document.class::cast);
     }
 
     private CompletableFuture<Object> send(Call call, int retries, boolean refreshed) {
         // Every HTTP exchange, including a repeated one, gets its own request id
-        Exchange exchange = new Exchange(call.endpoint, call.json, UUID.randomUUID().toString());
+        Exchange exchange = new Exchange(call.endpoint, call.get, call.json, UUID.randomUUID().toString());
         AccessCredential credential;
         HttpRequest request;
         try {
@@ -215,6 +218,7 @@ public final class PdpTransport {
             throw new PdpAuthenticationException(reason + status + exchange.suffix(), status);
         }
         if (status == 404 && exchange.isGet()) {
+            checkRequestId(exchange, response);
             return new Document(Optional.empty(), response.headers());
         }
         if (status >= 500) {
@@ -227,11 +231,7 @@ public final class PdpTransport {
         if (status != 200) {
             throw new PdpProtocolException("PDP returned unexpected HTTP " + status + exchange.suffix());
         }
-        Optional<String> echoed = response.headers().firstValue(REQUEST_ID_HEADER);
-        // Echoing through this header is only recommended, but a different value means a mixed-up response
-        if (echoed.isPresent() && !echoed.get().equals(exchange.requestId)) {
-            throw new PdpProtocolException("PDP response carries a different " + REQUEST_ID_HEADER + exchange.suffix());
-        }
+        checkRequestId(exchange, response);
         String text;
         try {
             text = StandardCharsets.UTF_8.newDecoder()
@@ -256,6 +256,14 @@ public final class PdpTransport {
             throw new PdpProtocolException("PDP document is JSON null" + exchange.suffix());
         }
         return new Document(Optional.of(body), response.headers());
+    }
+
+    // Echoing through this header is only recommended, but a different value means a mixed-up response
+    private static void checkRequestId(Exchange exchange, HttpResponse<byte[]> response) {
+        Optional<String> echoed = response.headers().firstValue(REQUEST_ID_HEADER);
+        if (echoed.isPresent() && !echoed.get().equals(exchange.requestId)) {
+            throw new PdpProtocolException("PDP response carries a different " + REQUEST_ID_HEADER + exchange.suffix());
+        }
     }
 
     private AuthZenException transportFailure(Exchange exchange, Throwable error) {
@@ -287,8 +295,8 @@ public final class PdpTransport {
         return version == null ? "authzen-enforcer" : "authzen-enforcer/" + version;
     }
 
-    /** One logical request, which may take several HTTP exchanges; without a body it is a GET. */
-    private record Call(URI endpoint, String json, long startNanos) {
+    /** One logical request, which may take several HTTP exchanges: a GET, or a POST of {@code json}. */
+    private record Call(URI endpoint, boolean get, String json, long startNanos) {
 
         Duration elapsed() {
             return Duration.ofNanos(System.nanoTime() - startNanos);
@@ -299,17 +307,19 @@ public final class PdpTransport {
     private final class Exchange {
 
         private final URI endpoint;
+        private final boolean get;
         private final String json;
         private final String requestId;
 
-        Exchange(URI endpoint, String json, String requestId) {
+        Exchange(URI endpoint, boolean get, String json, String requestId) {
             this.endpoint = endpoint;
+            this.get = get;
             this.json = json;
             this.requestId = requestId;
         }
 
         boolean isGet() {
-            return json == null;
+            return get;
         }
 
         HttpRequest request(AccessCredential credential) {

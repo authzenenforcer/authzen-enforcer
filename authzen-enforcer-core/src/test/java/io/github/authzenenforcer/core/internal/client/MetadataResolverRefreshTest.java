@@ -372,11 +372,12 @@ class MetadataResolverRefreshTest {
         MetadataResolver resolver = resolver();
 
         resolver.metadata().join();
-        advance(Duration.ofSeconds(300).minusNanos(1));
+        // The server's Date has second precision, so the apparent age may take up to a second off
+        advance(Duration.ofSeconds(298));
         resolver.metadata().join();
         assertEquals(1, requests.get());
 
-        advance(Duration.ofNanos(1));
+        advance(Duration.ofSeconds(2));
         resolver.metadata().join();
         assertEquals(2, requests.get());
     }
@@ -425,6 +426,18 @@ class MetadataResolverRefreshTest {
 
         assertThrows(CompletionException.class, () -> resolver.metadata().join(),
                 "must-revalidate forbids using the expired result while the PDP is unreachable");
+    }
+
+    @Test
+    void neverUsesAnExpiredNoCacheResult() {
+        cacheControl = "no-cache";
+        statuses.addAll(List.of(200, 503));
+        MetadataResolver resolver = resolver();
+        resolver.metadata().join();
+        advance(MIN_TTL);
+
+        assertThrows(CompletionException.class, () -> resolver.metadata().join(),
+                "RFC 9111 section 4.2.4: a no-cache response must not be served stale");
     }
 
     @Test

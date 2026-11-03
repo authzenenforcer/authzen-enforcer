@@ -37,7 +37,7 @@ class CacheDirectivesTest {
         CacheDirectives.Freshness freshness = parse("Content-Type", "application/json");
 
         assertEquals(Optional.empty(), freshness.lifetime());
-        assertFalse(freshness.mustRevalidate());
+        assertFalse(freshness.staleForbidden());
         assertEquals(Optional.empty(), freshness.staleIfError());
     }
 
@@ -97,10 +97,65 @@ class CacheDirectivesTest {
 
     @Test
     void readsRevalidationAndStaleIfError() {
-        assertTrue(parse("Cache-Control", "must-revalidate").mustRevalidate());
-        assertTrue(parse("Cache-Control", "proxy-revalidate").mustRevalidate());
+        assertTrue(parse("Cache-Control", "must-revalidate").staleForbidden());
+        assertTrue(parse("Cache-Control", "proxy-revalidate").staleForbidden());
         assertEquals(seconds(30), parse("Cache-Control", "stale-if-error=60, stale-if-error=30").staleIfError());
         assertEquals(Optional.empty(), parse("Cache-Control", "stale-if-error=soon").staleIfError());
+    }
+
+    @Test
+    void forbidsStaleUseForNoStoreAndUnqualifiedNoCache() {
+        assertTrue(parse("Cache-Control", "no-store").staleForbidden());
+        assertTrue(parse("Cache-Control", "no-cache").staleForbidden());
+        assertFalse(parse("Cache-Control", "no-cache=\"Set-Cookie\", max-age=60").staleForbidden());
+        assertFalse(parse("Cache-Control", "max-age=60").staleForbidden());
+    }
+
+    @Test
+    void honoursQuotedPairEscapes() {
+        // Without quoted-pair handling the quotes still balance, but no-store ends up inside a string
+        CacheDirectives.Freshness freshness = parse("Cache-Control", "ext=\"\\\"\", no-store, x=\"\\\"\"");
+
+        assertEquals(seconds(0), freshness.lifetime(), "the escaped quotes must not hide no-store");
+        assertTrue(freshness.staleForbidden());
+    }
+
+    @Test
+    void treatsAnUnterminatedQuotedStringAsNoStore() {
+        CacheDirectives.Freshness freshness = parse("Cache-Control", "max-age=600, ext=\"oops, stale-if-error=60");
+
+        assertEquals(seconds(0), freshness.lifetime());
+        assertTrue(freshness.staleForbidden());
+        assertEquals(Optional.empty(), freshness.staleIfError());
+    }
+
+    @Test
+    void subtractsTheApparentAgeWhenItExceedsAge() {
+        String oneMinuteAgo = "Mon, 02 Nov 2026 11:59:00 GMT";
+
+        assertEquals(seconds(240), parse("Cache-Control", "max-age=300", "Date", oneMinuteAgo).lifetime());
+        assertEquals(seconds(200), parse("Cache-Control", "max-age=300", "Date", oneMinuteAgo, "Age", "100").lifetime());
+        assertEquals(seconds(300), parse("Cache-Control", "max-age=300", "Date", "Mon, 02 Nov 2026 12:01:00 GMT").lifetime(),
+                "a Date in the future gives no apparent age");
+    }
+
+    @Test
+    void readsTheThreeHttpDateForms() {
+        assertEquals(Optional.of(Instant.parse("2026-11-02T12:10:00Z")),
+                CacheDirectives.httpDate("Mon, 02 Nov 2026 12:10:00 GMT", NOW));
+        assertEquals(Optional.of(Instant.parse("2026-11-02T12:10:00Z")),
+                CacheDirectives.httpDate("Monday, 02-Nov-26 12:10:00 GMT", NOW));
+        assertEquals(Optional.of(Instant.parse("1999-11-02T12:10:00Z")),
+                CacheDirectives.httpDate("Tuesday, 02-Nov-99 12:10:00 GMT", NOW), "more than 50 years ahead means the past");
+        assertEquals(Optional.of(Instant.parse("2026-11-02T08:49:37Z")),
+                CacheDirectives.httpDate("Mon Nov  2 08:49:37 2026", NOW));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Mon, 02 Nov 2026 12:10:00 +0000", "02 Nov 2026 12:10:00 GMT", "Tue, 02 Nov 2026 12:10:00 GMT",
+            "Mon, 2 Nov 2026 12:10 GMT", "yesterday", ""})
+    void rejectsOtherDateForms(String value) {
+        assertEquals(Optional.empty(), CacheDirectives.httpDate(value, NOW));
     }
 
     @Test
@@ -108,6 +163,6 @@ class CacheDirectivesTest {
         CacheDirectives.Freshness freshness = parse("Cache-Control", "no-cache, must-revalidate, no-transform, no-store");
 
         assertEquals(seconds(0), freshness.lifetime());
-        assertTrue(freshness.mustRevalidate());
+        assertTrue(freshness.staleForbidden());
     }
 }

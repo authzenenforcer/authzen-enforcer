@@ -57,6 +57,14 @@ class DiscoveryOptionsTest {
     }
 
     @Test
+    void acceptsADefaultTtlLongerThanTheMaxTtlWhenCacheHeadersAreIgnored() {
+        DiscoveryOptions options = DiscoveryOptions.builder()
+                .defaultTtl(Duration.ofDays(2)).honorCacheHeaders(false).build();
+
+        assertEquals(Duration.ofDays(2), options.getDefaultTtl());
+    }
+
+    @Test
     void canIgnoreCacheHeaders() {
         DiscoveryOptions options = DiscoveryOptions.builder().honorCacheHeaders(false).build();
 

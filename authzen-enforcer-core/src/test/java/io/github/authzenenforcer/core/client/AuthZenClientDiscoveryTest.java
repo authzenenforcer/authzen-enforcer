@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.authzenenforcer.core.AuthZenException;
 import io.github.authzenenforcer.core.PdpAuthenticationException;
 import io.github.authzenenforcer.core.PdpCommunicationException;
 import io.github.authzenenforcer.core.PdpProtocolException;
@@ -18,6 +19,7 @@ import io.github.authzenenforcer.core.model.EvaluationResponse;
 import io.github.authzenenforcer.core.model.PdpMetadata;
 import io.github.authzenenforcer.core.model.Resource;
 import io.github.authzenenforcer.core.model.Subject;
+import io.github.authzenenforcer.core.spi.JsonCodec;
 
 import java.io.IOException;
 import java.net.URI;
@@ -245,6 +247,34 @@ class AuthZenClientDiscoveryTest {
 
         assertThrows(PdpProtocolException.class, () -> client().evaluate(REQUEST));
         assertTrue(pdp.requests().isEmpty());
+    }
+
+    @Test
+    void rejectsA404ForAnotherRequest() {
+        pdp.respondToMetadata((request, exchange) -> FakePdp.send(exchange, 404, new byte[0], "another-request"));
+
+        assertThrows(PdpProtocolException.class, () -> client().evaluate(REQUEST));
+        assertTrue(pdp.requests().isEmpty(), "a mixed-up 404 must not select the default paths");
+    }
+
+    @Test
+    void rejectsACodecThatReturnsNoText() {
+        JsonCodec broken = new JsonCodec() {
+            @Override
+            public Object read(String json) {
+                return JsonCodec.defaultCodec().read(json);
+            }
+
+            @Override
+            public String write(Object value) {
+                return null;
+            }
+        };
+
+        AuthZenException e = assertThrows(AuthZenException.class,
+                () -> builder("").jsonCodec(broken).build().evaluate(REQUEST));
+        assertEquals("JSON codec returned no text for the request", e.getMessage());
+        assertTrue(pdp.requests().isEmpty(), "the evaluation must not turn into a GET");
     }
 
     @Test

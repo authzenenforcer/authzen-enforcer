@@ -81,10 +81,10 @@ no credentials. Discovery follows these rules:
   minus `Date`, minus `Age`. Without such headers it is kept for `defaultTtl` (one hour).
   `no-store`, `no-cache` and `max-age=0` keep it for `minTtl`. Keycloak sends these, so its
   metadata is fetched about once a minute.
-- `must-revalidate` forbids using expired metadata at all, and `stale-if-error=N` shortens
-  `maxStale` (see the next rule) to `N` seconds. Keycloak sends `must-revalidate`, so with Keycloak
-  requests fail as soon as a refresh cannot reach it. `honorCacheHeaders(false)` ignores all caching
-  headers.
+- `no-store`, `no-cache` and `must-revalidate` forbid using expired metadata at all (RFC 9111
+  section 4.2.4), and `stale-if-error=N` shortens `maxStale` (see the next rule) to `N` seconds.
+  Keycloak sends these, so with Keycloak requests fail as soon as a refresh cannot reach it.
+  `honorCacheHeaders(false)` ignores all caching headers, and `maxTtl` then has no effect.
 - If a refresh cannot reach the PDP, gets a server error or keeps being rate-limited (`429`), the
   previous result stays in use for at most `maxStale` (one hour) after it expired. The refresh is
   tried again every `minTtl` (one minute, at least one second). After `maxStale`, requests fail until
