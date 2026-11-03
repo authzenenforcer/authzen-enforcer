@@ -12,6 +12,8 @@ import io.github.authzenenforcer.core.internal.http.PdpTransport;
 import io.github.authzenenforcer.core.internal.wire.WireFormat;
 import io.github.authzenenforcer.core.model.EvaluationRequest;
 import io.github.authzenenforcer.core.model.EvaluationResponse;
+import io.github.authzenenforcer.core.model.EvaluationsRequest;
+import io.github.authzenenforcer.core.model.EvaluationsResponse;
 import io.github.authzenenforcer.core.model.PdpMetadata;
 import io.github.authzenenforcer.core.spi.JsonCodec;
 
@@ -39,8 +41,13 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     /** Default path of the Access Evaluation endpoint below the PDP URL. */
     static final String EVALUATION_PATH = "/access/v1/evaluation";
 
+    /** Default path of the Access Evaluations endpoint below the PDP URL. */
+    static final String EVALUATIONS_PATH = "/access/v1/evaluations";
+
     private final URI defaultEvaluationEndpoint;
     private final URI evaluationEndpoint;
+    private final URI defaultEvaluationsEndpoint;
+    private final URI evaluationsEndpoint;
     private final MetadataResolver metadata;
     private final PdpTransport transport;
     private final CircuitBreaker evaluations;
@@ -52,6 +59,8 @@ public final class DefaultAuthZenClient implements AuthZenClient {
      * @param pdpUrl                  the base URL of the PDP, also its identifier in the metadata
      * @param evaluationEndpoint      the evaluation endpoint, or {@code null} to discover it or use
      *                                the default path
+     * @param evaluationsEndpoint     the Access Evaluations endpoint, or {@code null} to discover it
+     *                                or use the default path
      * @param credentials             the credential provider, or {@code null}
      * @param codec                   the JSON codec
      * @param httpClient              an HTTP client that does not follow redirects
@@ -63,12 +72,16 @@ public final class DefaultAuthZenClient implements AuthZenClient {
      * @param clock                   a monotonic clock in nanoseconds for the metadata cache and the
      *                                breakers, such as {@link System#nanoTime()}
      */
-    public DefaultAuthZenClient(URI pdpUrl, URI evaluationEndpoint, CredentialProvider credentials, JsonCodec codec,
+    public DefaultAuthZenClient(URI pdpUrl, URI evaluationEndpoint, URI evaluationsEndpoint,
+            CredentialProvider credentials, JsonCodec codec,
             HttpClient httpClient, Duration requestTimeout, int maxRetries, DiscoveryOptions discovery,
             CircuitBreakerOptions circuitBreaker, LongSupplier clock) {
         URI identifier = Urls.withoutTrailingSlashes(Urls.check(pdpUrl, "pdpUrl"));
         this.defaultEvaluationEndpoint = Urls.append(identifier, EVALUATION_PATH);
         this.evaluationEndpoint = evaluationEndpoint != null ? Urls.check(evaluationEndpoint, "evaluationEndpoint") : null;
+        this.defaultEvaluationsEndpoint = Urls.append(identifier, EVALUATIONS_PATH);
+        this.evaluationsEndpoint = evaluationsEndpoint != null
+                ? Urls.check(evaluationsEndpoint, "evaluationsEndpoint") : null;
         this.transport = new PdpTransport(httpClient, credentials, codec, requestTimeout, maxRetries);
         this.clock = Objects.requireNonNull(clock, "clock");
         DoubleSupplier random = () -> ThreadLocalRandom.current().nextDouble();
@@ -80,6 +93,11 @@ public final class DefaultAuthZenClient implements AuthZenClient {
         URI configured = this.evaluationEndpoint != null ? this.evaluationEndpoint : identifier;
         if (credentials != null && Urls.isPlainHttpToRemoteHost(configured)) {
             LOGGER.log(Level.WARNING, "PDP endpoint " + configured + " uses plain HTTP; credentials are sent unencrypted");
+        }
+        if (credentials != null && this.evaluationsEndpoint != null && !this.evaluationsEndpoint.equals(configured)
+                && Urls.isPlainHttpToRemoteHost(this.evaluationsEndpoint)) {
+            LOGGER.log(Level.WARNING, "PDP endpoint " + this.evaluationsEndpoint
+                    + " uses plain HTTP; credentials are sent unencrypted");
         }
     }
 
@@ -175,6 +193,23 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     }
 
     @Override
+    public EvaluationsResponse evaluations(EvaluationsRequest request) {
+        return await(evaluationsAsync(request), "Evaluations");
+    }
+
+    @Override
+    public CompletableFuture<EvaluationsResponse> evaluationsAsync(EvaluationsRequest request) {
+        Objects.requireNonNull(request, "request");
+        Map<String, Object> body = WireFormat.evaluationsRequest(request);
+        BreakerLog log = new BreakerLog();
+        CompletableFuture<EvaluationsResponse> result = evaluationsEndpoint()
+                .thenCompose(endpoint -> post(endpoint, body, log))
+                .thenApply(json -> WireFormat.evaluationsResponse(json, request));
+        result.whenComplete((ignored, error) -> log.run());
+        return result;
+    }
+
+    @Override
     public Optional<PdpMetadata> metadata() {
         return await(metadataAsync(), "Metadata discovery");
     }
@@ -182,6 +217,20 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     @Override
     public CompletableFuture<Optional<PdpMetadata>> metadataAsync() {
         return metadata != null ? metadata.metadata() : CompletableFuture.completedFuture(Optional.empty());
+    }
+
+    // Published metadata without the endpoint means the PDP does not offer the API (section 9.1.1)
+    private CompletableFuture<URI> evaluationsEndpoint() {
+        if (evaluationsEndpoint != null) {
+            return CompletableFuture.completedFuture(evaluationsEndpoint);
+        }
+        return metadataAsync().thenApply(current -> {
+            if (current.isEmpty()) {
+                return defaultEvaluationsEndpoint;
+            }
+            return current.get().getAccessEvaluationsEndpoint().orElseThrow(() -> new PdpProtocolException(
+                    "PDP does not offer the Access Evaluations API: its metadata lists no access_evaluations_endpoint"));
+        });
     }
 
     private CompletableFuture<URI> evaluationEndpoint() {
