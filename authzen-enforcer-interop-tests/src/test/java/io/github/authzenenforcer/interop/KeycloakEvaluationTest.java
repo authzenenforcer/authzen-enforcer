@@ -90,7 +90,7 @@ class KeycloakEvaluationTest {
 
     @Test
     void evaluatesAsynchronously() {
-        assertTrue(client.evaluateAsync(request("carol", "read", "doc-2")).join().getDecision());
+        assertTrue(client.evaluateAsync(request("carol", "read", "doc-2")).toCompletableFuture().join().getDecision());
     }
 
     @Test

@@ -5,6 +5,8 @@ import io.github.authzenenforcer.core.auth.CredentialProvider;
 import io.github.authzenenforcer.core.internal.client.DefaultAuthZenClient;
 import io.github.authzenenforcer.core.model.EvaluationRequest;
 import io.github.authzenenforcer.core.model.EvaluationResponse;
+import io.github.authzenenforcer.core.model.EvaluationsRequest;
+import io.github.authzenenforcer.core.model.EvaluationsResponse;
 import io.github.authzenenforcer.core.model.PdpMetadata;
 import io.github.authzenenforcer.core.spi.JsonCodec;
 
@@ -13,7 +15,7 @@ import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.function.LongSupplier;
 
 /**
@@ -53,11 +55,44 @@ public interface AuthZenClient {
     /**
      * Asks the PDP for an access decision without blocking.
      *
+     * <p>The stage cannot be completed by its holder, so code it is handed to cannot make up a
+     * decision. Call {@code toCompletableFuture()} for {@code join()} or {@code get()}; that gives
+     * a separate future.
+     *
      * @param request the request
-     * @return a future completed with the decision, or exceptionally with an {@link AuthZenException}
+     * @return a stage completed with the decision, or exceptionally with an {@link AuthZenException}
      *         (wrapped in a {@link java.util.concurrent.CompletionException} by dependent stages)
      */
-    CompletableFuture<EvaluationResponse> evaluateAsync(EvaluationRequest request);
+    CompletionStage<EvaluationResponse> evaluateAsync(EvaluationRequest request);
+
+    /**
+     * Asks the PDP for several decisions in one call (Access Evaluations API) and waits for the answer.
+     *
+     * <p>The request is sent as built; the PDP applies its defaults to the items. If the PDP publishes
+     * metadata without an {@code access_evaluations_endpoint}, it does not offer this API, and the
+     * call fails without contacting it. Use {@link #evaluate(EvaluationRequest)} for each item then.
+     *
+     * <p>Batch calls share the circuit breaker of single evaluations. A batch that times out counts
+     * as a failure like any other, so keep batches small enough to finish within the request
+     * timeout, in particular if their size depends on user input; otherwise slow batches can open
+     * the breaker for single evaluations too.
+     *
+     * @param request the request
+     * @return the decisions; a decision the PDP did not return, because it stopped early, is a deny
+     * @throws AuthZenException if no answer could be obtained, the PDP does not offer the API, or the
+     *                          answer does not match the request
+     */
+    EvaluationsResponse evaluations(EvaluationsRequest request);
+
+    /**
+     * Asks the PDP for several decisions in one call (Access Evaluations API) without blocking.
+     *
+     * @param request the request
+     * @return a stage completed with the decisions, or exceptionally with an {@link AuthZenException};
+     *         like {@link #evaluateAsync(EvaluationRequest)}, its holder cannot complete it
+     * @see #evaluations(EvaluationsRequest)
+     */
+    CompletionStage<EvaluationsResponse> evaluationsAsync(EvaluationsRequest request);
 
     /**
      * Returns the metadata the PDP publishes, discovering it if needed, and waits for it.
@@ -71,11 +106,11 @@ public interface AuthZenClient {
     /**
      * Returns the metadata the PDP publishes, discovering it if needed, without blocking.
      *
-     * @return a future completed with the metadata, empty if the PDP publishes none or discovery is
+     * @return a stage completed with the metadata, empty if the PDP publishes none or discovery is
      *         disabled, or exceptionally with an {@link AuthZenException}
      * @see Builder#discovery(boolean)
      */
-    CompletableFuture<Optional<PdpMetadata>> metadataAsync();
+    CompletionStage<Optional<PdpMetadata>> metadataAsync();
 
     /**
      * Returns a new builder.
@@ -105,6 +140,7 @@ public interface AuthZenClient {
 
         private URI pdpUrl;
         private URI evaluationEndpoint;
+        private URI evaluationsEndpoint;
         private CredentialProvider credentials;
         private JsonCodec jsonCodec = JsonCodec.defaultCodec();
         private HttpClient httpClient;
@@ -160,6 +196,23 @@ public interface AuthZenClient {
          */
         public Builder evaluationEndpoint(URI endpoint) {
             this.evaluationEndpoint = Objects.requireNonNull(endpoint, "endpoint");
+            return this;
+        }
+
+        /**
+         * Overrides the URL of the Access Evaluations endpoint, for PDPs that publish no metadata
+         * and do not serve it at the default path below the PDP URL. The metadata is then not
+         * needed for batch evaluations.
+         *
+         * <p>It is independent of {@link #evaluationEndpoint(URI)}: overriding only that one leaves
+         * batch evaluations on the discovered endpoint, or on the default path below the PDP URL,
+         * which may be another host.
+         *
+         * @param endpoint an absolute {@code https} or {@code http} URL without query or fragment
+         * @return this builder
+         */
+        public Builder evaluationsEndpoint(URI endpoint) {
+            this.evaluationsEndpoint = Objects.requireNonNull(endpoint, "endpoint");
             return this;
         }
 
@@ -344,8 +397,8 @@ public interface AuthZenClient {
             } else if (client.followRedirects() != HttpClient.Redirect.NEVER) {
                 throw new IllegalStateException("httpClient must not follow redirects");
             }
-            return new DefaultAuthZenClient(pdpUrl, evaluationEndpoint, credentials, jsonCodec, client, requestTimeout,
-                    maxRetries, discovery ? discoveryOptions : null, circuitBreaker, clock);
+            return new DefaultAuthZenClient(pdpUrl, evaluationEndpoint, evaluationsEndpoint, credentials, jsonCodec,
+                    client, requestTimeout, maxRetries, discovery ? discoveryOptions : null, circuitBreaker, clock);
         }
 
         private static Duration requirePositive(Duration duration, String name) {

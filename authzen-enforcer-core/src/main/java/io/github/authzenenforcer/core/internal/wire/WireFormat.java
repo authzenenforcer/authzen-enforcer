@@ -3,14 +3,19 @@ package io.github.authzenenforcer.core.internal.wire;
 import io.github.authzenenforcer.core.PdpProtocolException;
 import io.github.authzenenforcer.core.model.Action;
 import io.github.authzenenforcer.core.model.Context;
+import io.github.authzenenforcer.core.model.EvaluationItem;
 import io.github.authzenenforcer.core.model.EvaluationRequest;
 import io.github.authzenenforcer.core.model.EvaluationResponse;
+import io.github.authzenenforcer.core.model.EvaluationsRequest;
+import io.github.authzenenforcer.core.model.EvaluationsResponse;
+import io.github.authzenenforcer.core.model.EvaluationsSemantic;
 import io.github.authzenenforcer.core.model.PdpMetadata;
 import io.github.authzenenforcer.core.model.Resource;
 import io.github.authzenenforcer.core.model.Subject;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -127,6 +132,114 @@ public final class WireFormat {
             return new URI(value);
         } catch (URISyntaxException e) {
             throw new PdpProtocolException("PDP metadata " + name + " is not a valid URL", e);
+        }
+    }
+
+    /**
+     * Converts an Access Evaluations request to its JSON tree. Defaults and items are written as
+     * set; the PDP applies the defaults.
+     *
+     * @param request the request
+     * @return an insertion-ordered map
+     */
+    public static Map<String, Object> evaluationsRequest(EvaluationsRequest request) {
+        Map<String, Object> json = new LinkedHashMap<>();
+        request.getSubject().ifPresent(subject -> json.put("subject", subject(subject)));
+        request.getAction().ifPresent(action -> json.put("action", action(action)));
+        request.getResource().ifPresent(resource -> json.put("resource", resource(resource)));
+        request.getContext().ifPresent(context -> json.put("context", context.asMap()));
+        if (!request.getEvaluations().isEmpty()) {
+            List<Object> evaluations = new ArrayList<>();
+            for (EvaluationItem item : request.getEvaluations()) {
+                Map<String, Object> entry = new LinkedHashMap<>();
+                item.getSubject().ifPresent(subject -> entry.put("subject", subject(subject)));
+                item.getAction().ifPresent(action -> entry.put("action", action(action)));
+                item.getResource().ifPresent(resource -> entry.put("resource", resource(resource)));
+                item.getContext().ifPresent(context -> entry.put("context", context.asMap()));
+                evaluations.add(entry);
+            }
+            json.put("evaluations", evaluations);
+        }
+        if (request.getSemantic().isPresent() || !request.getOptions().isEmpty()) {
+            Map<String, Object> options = new LinkedHashMap<>();
+            request.getSemantic().ifPresent(semantic -> options.put("evaluations_semantic", semantic.getWireValue()));
+            options.putAll(request.getOptions());
+            json.put("options", options);
+        }
+        return json;
+    }
+
+    /**
+     * Converts the JSON tree of an Access Evaluations response to the model and checks it against
+     * the request.
+     *
+     * <p>More decisions than items, or fewer with {@link EvaluationsSemantic#EXECUTE_ALL}, make the
+     * whole response invalid. With a short-circuit semantic the decisions must follow it: every
+     * decision before the last is the one that does not stop (permit for
+     * {@link EvaluationsSemantic#DENY_ON_FIRST_DENY}, deny for
+     * {@link EvaluationsSemantic#PERMIT_ON_FIRST_PERMIT}), and an answer that stops early ends with
+     * the one that does. The decisions not returned count as denies. A request without items is
+     * answered with either a single decision or an array of one, not both.
+     *
+     * @param json    the parsed response body
+     * @param request the request it answers
+     * @return the response
+     * @throws PdpProtocolException if the tree is not a valid answer to the request
+     */
+    public static EvaluationsResponse evaluationsResponse(Object json, EvaluationsRequest request) {
+        if (!(json instanceof Map<?, ?> object)) {
+            throw new PdpProtocolException("Evaluations response is not a JSON object");
+        }
+        int requested = Math.max(1, request.getEvaluations().size());
+        Object evaluations = object.get("evaluations");
+        if (evaluations == null) {
+            if (!request.getEvaluations().isEmpty()) {
+                throw new PdpProtocolException("Evaluations response has no evaluations");
+            }
+            return EvaluationsResponse.of(List.of(evaluationResponse(object)), 1);
+        }
+        // Two answers to the same single evaluation could be read differently by different consumers
+        if (request.getEvaluations().isEmpty() && object.get("decision") != null) {
+            throw new PdpProtocolException("Evaluations response has both a decision and evaluations");
+        }
+        if (!(evaluations instanceof List<?> list)) {
+            throw new PdpProtocolException("Evaluations response evaluations is not a JSON array");
+        }
+        if (list.size() > requested) {
+            throw new PdpProtocolException("Evaluations response has " + list.size() + " decisions for "
+                    + requested + " requested");
+        }
+        EvaluationsSemantic semantic = request.getSemantic().orElse(EvaluationsSemantic.EXECUTE_ALL);
+        if (semantic == EvaluationsSemantic.EXECUTE_ALL && list.size() < requested) {
+            throw new PdpProtocolException("Evaluations response has " + list.size() + " decisions for "
+                    + requested + " requested with execute_all");
+        }
+        List<EvaluationResponse> decisions = new ArrayList<>();
+        for (Object item : list) {
+            decisions.add(evaluationResponse(item));
+        }
+        if (semantic != EvaluationsSemantic.EXECUTE_ALL) {
+            checkShortCircuit(decisions, requested, semantic);
+        }
+        return EvaluationsResponse.of(decisions, requested);
+    }
+
+    private static void checkShortCircuit(List<EvaluationResponse> decisions, int requested,
+            EvaluationsSemantic semantic) {
+        // The decision that makes the PDP stop: a deny for deny_on_first_deny, a permit for permit_on_first_permit
+        boolean stopping = semantic == EvaluationsSemantic.PERMIT_ON_FIRST_PERMIT;
+        if (decisions.isEmpty()) {
+            throw new PdpProtocolException("Evaluations response has no decisions for " + requested + " requested");
+        }
+        for (int i = 0; i < decisions.size() - 1; i++) {
+            if (decisions.get(i).getDecision() == stopping) {
+                throw new PdpProtocolException("Evaluations response continues after decision " + i
+                        + ", where " + semantic.getWireValue() + " stops");
+            }
+        }
+        if (decisions.size() < requested && decisions.get(decisions.size() - 1).getDecision() != stopping) {
+            throw new PdpProtocolException("Evaluations response stops early without the decision that "
+                    + semantic.getWireValue() + " stops at");
         }
     }
 

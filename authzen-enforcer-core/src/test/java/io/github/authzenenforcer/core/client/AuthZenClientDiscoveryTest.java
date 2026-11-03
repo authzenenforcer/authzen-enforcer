@@ -144,7 +144,7 @@ class AuthZenClientDiscoveryTest {
 
         List<CompletableFuture<EvaluationResponse>> futures = new ArrayList<>();
         for (int i = 0; i < 20; i++) {
-            futures.add(client.evaluateAsync(REQUEST));
+            futures.add(client.evaluateAsync(REQUEST).toCompletableFuture());
         }
         release.countDown();
         futures.forEach(CompletableFuture::join);
@@ -166,8 +166,8 @@ class AuthZenClientDiscoveryTest {
         });
         AuthZenClient client = client();
 
-        CompletableFuture<Optional<PdpMetadata>> cancelled = client.metadataAsync();
-        CompletableFuture<Optional<PdpMetadata>> waiting = client.metadataAsync();
+        CompletableFuture<Optional<PdpMetadata>> cancelled = client.metadataAsync().toCompletableFuture();
+        CompletableFuture<Optional<PdpMetadata>> waiting = client.metadataAsync().toCompletableFuture();
         cancelled.cancel(true);
         release.countDown();
 
