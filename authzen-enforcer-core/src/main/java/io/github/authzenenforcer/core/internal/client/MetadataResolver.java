@@ -162,10 +162,11 @@ final class MetadataResolver {
     }
 
     private Fetched accept(PdpTransport.Document document) {
-        if (document.body().isEmpty()) {
+        Optional<Object> body = document.body();
+        if (body.isEmpty()) {
             return new Fetched(Optional.empty(), CacheDirectives.Freshness.NONE);
         }
-        PdpMetadata metadata = verify(WireFormat.pdpMetadata(document.body().get()), identifier, location);
+        PdpMetadata metadata = verify(WireFormat.pdpMetadata(body.get()), identifier, location);
         CacheDirectives.Freshness freshness = honorCacheHeaders
                 ? CacheDirectives.parse(document.headers(), Instant.now())
                 : CacheDirectives.Freshness.NONE;
@@ -253,9 +254,10 @@ final class MetadataResolver {
             result.completeExceptionally(e);
             return;
         }
-        Optional<PdpMetadata> value = null;
+        // Only read when failure stays null, and both branches that leave it null assign it
+        Optional<PdpMetadata> value = Optional.empty();
         AuthZenException failure = null;
-        Optional<PdpMetadata> previous = null;
+        Cached previous = null;
         boolean keptPrevious = false;
         boolean droppedStale = false;
         boolean droppedUnusable = false;
@@ -266,7 +268,7 @@ final class MetadataResolver {
             CircuitBreaker.Permit permit = pendingPermit;
             // Every failure counts: asking again does not fix invalid metadata or a rejected request
             breakerLog = error == null ? breaker.succeeded(permit) : breaker.failed(permit, now, unwrap(error));
-            previous = cached == null ? null : cached.metadata;
+            previous = cached;
             if (error == null) {
                 // A 404 right after published metadata may come from a proxy during a rollout, so
                 // it is checked again soon instead of pinning the default paths for a full interval
@@ -325,7 +327,7 @@ final class MetadataResolver {
         if (keptPrevious) {
             LOGGER.log(Level.WARNING, "Refreshing the PDP metadata from " + location
                     + " failed; keeping the previous result: " + unwrap(error).getMessage());
-        } else if (!value.equals(previous)) {
+        } else if (previous == null || !value.equals(previous.metadata)) {
             logChange(value);
         }
     }

@@ -55,7 +55,11 @@ final class KeycloakPdp {
         if (secret == null || secret.isEmpty()) {
             throw new IllegalStateException(SECRET_VARIABLE + " must be set when AUTHZEN_KEYCLOAK_URL is set");
         }
-        return new KeycloakPdp(URI.create(url.replaceAll("/+$", "")), secret);
+        int end = url.length();
+        while (end > 0 && url.charAt(end - 1) == '/') {
+            end--;
+        }
+        return new KeycloakPdp(URI.create(url.substring(0, end)), secret);
     }
 
     @SuppressWarnings("resource") // Testcontainers removes the container when the JVM exits
