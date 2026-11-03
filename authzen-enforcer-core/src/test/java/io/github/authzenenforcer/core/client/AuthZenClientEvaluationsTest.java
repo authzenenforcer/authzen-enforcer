@@ -10,6 +10,7 @@ import io.github.authzenenforcer.core.PdpCommunicationException;
 import io.github.authzenenforcer.core.PdpProtocolException;
 import io.github.authzenenforcer.core.auth.CredentialProvider;
 import io.github.authzenenforcer.core.client.FakePdp.RecordedRequest;
+import io.github.authzenenforcer.core.internal.client.TestLoggerFinder;
 import io.github.authzenenforcer.core.model.Action;
 import io.github.authzenenforcer.core.model.EvaluationItem;
 import io.github.authzenenforcer.core.model.EvaluationRequest;
@@ -153,6 +154,22 @@ class AuthZenClientEvaluationsTest {
         pdp.respond(json(503, ""));
 
         assertThrows(PdpCommunicationException.class, () -> builder().build().evaluations(REQUEST));
+    }
+
+    @Test
+    void warnsAboutPlainHttpOnTheDefaultBatchPath() {
+        TestLoggerFinder.clearRecords();
+
+        AuthZenClient.builder()
+                .pdpUrl("http://pdp.example.com")
+                .evaluationEndpoint(URI.create("https://gateway.example.com/evaluation"))
+                .credentials(CredentialProvider.staticBearer(TOKEN))
+                .discovery(false)
+                .build();
+
+        assertTrue(TestLoggerFinder.records().stream().anyMatch(record -> record.startsWith("WARNING")
+                        && record.contains("http://pdp.example.com uses plain HTTP")),
+                String.valueOf(TestLoggerFinder.records()));
     }
 
     @Test

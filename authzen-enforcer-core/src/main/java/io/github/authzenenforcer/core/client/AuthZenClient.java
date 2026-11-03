@@ -68,6 +68,11 @@ public interface AuthZenClient {
      * metadata without an {@code access_evaluations_endpoint}, it does not offer this API, and the
      * call fails without contacting it. Use {@link #evaluate(EvaluationRequest)} for each item then.
      *
+     * <p>Batch calls share the circuit breaker of single evaluations. A batch that times out counts
+     * as a failure like any other, so keep batches small enough to finish within the request
+     * timeout, in particular if their size depends on user input; otherwise slow batches can open
+     * the breaker for single evaluations too.
+     *
      * @param request the request
      * @return the decisions; a decision the PDP did not return, because it stopped early, is a deny
      * @throws AuthZenException if no answer could be obtained, the PDP does not offer the API, or the
@@ -193,6 +198,10 @@ public interface AuthZenClient {
          * Overrides the URL of the Access Evaluations endpoint, for PDPs that publish no metadata
          * and do not serve it at the default path below the PDP URL. The metadata is then not
          * needed for batch evaluations.
+         *
+         * <p>It is independent of {@link #evaluationEndpoint(URI)}: overriding only that one leaves
+         * batch evaluations on the discovered endpoint, or on the default path below the PDP URL,
+         * which may be another host.
          *
          * @param endpoint an absolute {@code https} or {@code http} URL without query or fragment
          * @return this builder

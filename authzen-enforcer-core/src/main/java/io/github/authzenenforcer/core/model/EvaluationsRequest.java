@@ -59,8 +59,11 @@ public final class EvaluationsRequest {
             requireDefault(item.getAction().isPresent() ? item : action, "action", i);
             requireDefault(item.getResource().isPresent() ? item : resource, "resource", i);
         }
-        if (options.containsKey("evaluations_semantic")) {
-            throw new IllegalStateException("set evaluations_semantic with semantic(...), not as an option");
+        // A lenient PDP might read a variant of the name, and then disagree with the semantic checked here
+        for (String name : options.keySet()) {
+            if (name.strip().equalsIgnoreCase("evaluations_semantic")) {
+                throw new IllegalStateException("set evaluations_semantic with semantic(...), not as an option");
+            }
         }
     }
 
@@ -270,7 +273,9 @@ public final class EvaluationsRequest {
         }
 
         /**
-         * Adds an option other than {@code evaluations_semantic}, which {@link #semantic} sets.
+         * Adds an option other than {@code evaluations_semantic}, which {@link #semantic} sets. A name
+         * that differs from {@code evaluations_semantic} only in case or surrounding whitespace is
+         * rejected as well. Some PDPs, such as Keycloak 26.8, reject any option they do not know.
          *
          * @param name  the option name
          * @param value a JSON-compatible value

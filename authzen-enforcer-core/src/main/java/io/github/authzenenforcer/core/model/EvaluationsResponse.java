@@ -45,6 +45,11 @@ public final class EvaluationsResponse {
     /**
      * Returns the decisions the PDP returned.
      *
+     * <p>With a short-circuit semantic the list can be shorter than the request. Aggregating it
+     * directly is not fail-closed: for example {@code getEvaluations().stream().allMatch(...)} does
+     * not see the items the PDP did not evaluate, and is {@code true} for an empty list. Use {@link #isPermitted(int)},
+     * {@link #allPermitted()} or {@link #anyPermitted()} for authorization decisions.
+     *
      * @return an unmodifiable list in request order; shorter than the request if the PDP stopped early
      */
     public List<EvaluationResponse> getEvaluations() {

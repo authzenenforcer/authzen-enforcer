@@ -21,9 +21,11 @@ import java.lang.System.Logger.Level;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Duration;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
@@ -90,14 +92,13 @@ public final class DefaultAuthZenClient implements AuthZenClient {
                 ? new MetadataResolver(transport, identifier, discovery, credentials != null, clock,
                         new CircuitBreaker("PDP metadata discovery", circuitBreaker, random))
                 : null;
-        URI configured = this.evaluationEndpoint != null ? this.evaluationEndpoint : identifier;
-        if (credentials != null && Urls.isPlainHttpToRemoteHost(configured)) {
-            LOGGER.log(Level.WARNING, "PDP endpoint " + configured + " uses plain HTTP; credentials are sent unencrypted");
-        }
-        if (credentials != null && this.evaluationsEndpoint != null && !this.evaluationsEndpoint.equals(configured)
-                && Urls.isPlainHttpToRemoteHost(this.evaluationsEndpoint)) {
-            LOGGER.log(Level.WARNING, "PDP endpoint " + this.evaluationsEndpoint
-                    + " uses plain HTTP; credentials are sent unencrypted");
+        if (credentials != null) {
+            // An endpoint that is not overridden may be a default path below the PDP URL
+            Set<URI> targets = new LinkedHashSet<>();
+            targets.add(this.evaluationEndpoint != null ? this.evaluationEndpoint : identifier);
+            targets.add(this.evaluationsEndpoint != null ? this.evaluationsEndpoint : identifier);
+            targets.stream().filter(Urls::isPlainHttpToRemoteHost).forEach(target -> LOGGER.log(Level.WARNING,
+                    "PDP endpoint " + target + " uses plain HTTP; credentials are sent unencrypted"));
         }
     }
 

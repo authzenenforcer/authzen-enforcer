@@ -174,8 +174,12 @@ public final class WireFormat {
      * the request.
      *
      * <p>More decisions than items, or fewer with {@link EvaluationsSemantic#EXECUTE_ALL}, make the
-     * whole response invalid. Fewer decisions are accepted when the PDP may stop early; the missing
-     * ones count as denies. A request without items may be answered with a single decision.
+     * whole response invalid. With a short-circuit semantic the decisions must follow it: every
+     * decision before the last is the one that does not stop (permit for
+     * {@link EvaluationsSemantic#DENY_ON_FIRST_DENY}, deny for
+     * {@link EvaluationsSemantic#PERMIT_ON_FIRST_PERMIT}), and an answer that stops early ends with
+     * the one that does. The decisions not returned count as denies. A request without items is
+     * answered with either a single decision or an array of one, not both.
      *
      * @param json    the parsed response body
      * @param request the request it answers
@@ -194,6 +198,10 @@ public final class WireFormat {
             }
             return EvaluationsResponse.of(List.of(evaluationResponse(object)), 1);
         }
+        // Two answers to the same single evaluation could be read differently by different consumers
+        if (request.getEvaluations().isEmpty() && object.get("decision") != null) {
+            throw new PdpProtocolException("Evaluations response has both a decision and evaluations");
+        }
         if (!(evaluations instanceof List<?> list)) {
             throw new PdpProtocolException("Evaluations response evaluations is not a JSON array");
         }
@@ -210,7 +218,29 @@ public final class WireFormat {
         for (Object item : list) {
             decisions.add(evaluationResponse(item));
         }
+        if (semantic != EvaluationsSemantic.EXECUTE_ALL) {
+            checkShortCircuit(decisions, requested, semantic);
+        }
         return EvaluationsResponse.of(decisions, requested);
+    }
+
+    private static void checkShortCircuit(List<EvaluationResponse> decisions, int requested,
+            EvaluationsSemantic semantic) {
+        // The decision that makes the PDP stop: a deny for deny_on_first_deny, a permit for permit_on_first_permit
+        boolean stopping = semantic == EvaluationsSemantic.PERMIT_ON_FIRST_PERMIT;
+        if (decisions.isEmpty()) {
+            throw new PdpProtocolException("Evaluations response has no decisions for " + requested + " requested");
+        }
+        for (int i = 0; i < decisions.size() - 1; i++) {
+            if (decisions.get(i).getDecision() == stopping) {
+                throw new PdpProtocolException("Evaluations response continues after decision " + i
+                        + ", where " + semantic.getWireValue() + " stops");
+            }
+        }
+        if (decisions.size() < requested && decisions.get(decisions.size() - 1).getDecision() != stopping) {
+            throw new PdpProtocolException("Evaluations response stops early without the decision that "
+                    + semantic.getWireValue() + " stops at");
+        }
     }
 
     private static Map<String, Object> subject(Subject subject) {

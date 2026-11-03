@@ -142,6 +142,48 @@ class WireFormatEvaluationsTest {
                 threeDocuments(EvaluationsSemantic.DENY_ON_FIRST_DENY)));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"evaluations\": []}",
+            "{\"evaluations\": [{\"decision\": true}]}",
+            "{\"evaluations\": [{\"decision\": false}, {\"decision\": true}]}",
+            "{\"evaluations\": [{\"decision\": false}, {\"decision\": true}, {\"decision\": true}]}"
+    })
+    void rejectsAnswersThatDoNotFollowDenyOnFirstDeny(String json) {
+        assertThrows(PdpProtocolException.class, () -> read(json, threeDocuments(EvaluationsSemantic.DENY_ON_FIRST_DENY)));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"evaluations\": []}",
+            "{\"evaluations\": [{\"decision\": false}]}",
+            "{\"evaluations\": [{\"decision\": true}, {\"decision\": false}]}",
+            "{\"evaluations\": [{\"decision\": false}, {\"decision\": true}, {\"decision\": false}]}"
+    })
+    void rejectsAnswersThatDoNotFollowPermitOnFirstPermit(String json) {
+        assertThrows(PdpProtocolException.class, () -> read(json, threeDocuments(EvaluationsSemantic.PERMIT_ON_FIRST_PERMIT)));
+    }
+
+    @Test
+    void acceptsCompleteAnswersThatNeverReachTheStoppingDecision() {
+        assertTrue(read("{\"evaluations\": [{\"decision\": true}, {\"decision\": true}, {\"decision\": true}]}",
+                threeDocuments(EvaluationsSemantic.DENY_ON_FIRST_DENY)).allPermitted());
+        assertFalse(read("{\"evaluations\": [{\"decision\": false}, {\"decision\": false}, {\"decision\": false}]}",
+                threeDocuments(EvaluationsSemantic.PERMIT_ON_FIRST_PERMIT)).anyPermitted());
+        assertFalse(read("{\"evaluations\": [{\"decision\": true}, {\"decision\": true}, {\"decision\": false}]}",
+                threeDocuments(EvaluationsSemantic.DENY_ON_FIRST_DENY)).allPermitted());
+    }
+
+    @Test
+    void rejectsBothAnswerFormsForARequestWithoutItems() {
+        EvaluationsRequest single = EvaluationsRequest.builder()
+                .subject(Subject.of("user", "alice")).action(Action.of("read")).resource(Resource.of("document", "a"))
+                .build();
+
+        assertThrows(PdpProtocolException.class,
+                () -> read("{\"decision\": true, \"evaluations\": [{\"decision\": false}]}", single));
+    }
+
     @Test
     void readsASingleDecisionForARequestWithoutItems() {
         EvaluationsRequest single = EvaluationsRequest.builder()

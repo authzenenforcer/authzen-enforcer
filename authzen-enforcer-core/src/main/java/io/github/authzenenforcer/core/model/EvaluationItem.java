@@ -157,7 +157,8 @@ public final class EvaluationItem {
         }
 
         /**
-         * Sets the context, replacing the default.
+         * Sets the context, replacing the default as a whole. An empty context is not the same as
+         * none: it is sent as {@code {}} and leaves this item without the default context.
          *
          * @param context the context, or {@code null} for the default
          * @return this builder

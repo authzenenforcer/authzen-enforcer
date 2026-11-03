@@ -10,6 +10,8 @@ import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class EvaluationsRequestTest {
 
@@ -67,6 +69,16 @@ class EvaluationsRequestTest {
         EvaluationsRequest.Builder builder = EvaluationsRequest.builder()
                 .evaluation(EvaluationItem.of(ALICE, READ, Resource.of("document", "a")))
                 .option("evaluations_semantic", "execute_all");
+
+        assertThrows(IllegalStateException.class, builder::build);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Evaluations_Semantic", " evaluations_semantic", "EVALUATIONS_SEMANTIC\t"})
+    void rejectsVariantsOfTheSemanticName(String name) {
+        EvaluationsRequest.Builder builder = EvaluationsRequest.builder()
+                .evaluation(EvaluationItem.of(ALICE, READ, Resource.of("document", "a")))
+                .option(name, "permit_on_first_permit");
 
         assertThrows(IllegalStateException.class, builder::build);
     }
