@@ -184,7 +184,7 @@ class AuthZenClientEvaluationsTest {
                 EvaluationRequest.of(
                         Subject.of("user", "alice"), Action.of("read"), Resource.of("document", "a"))));
 
-        assertTrue(e.getMessage().startsWith("PDP evaluation is suspended"), e.getMessage());
+        assertTrue(e.getMessage().startsWith("PDP authorization API is suspended"), e.getMessage());
         assertEquals(CircuitBreakerOptions.DEFAULT_FAILURE_THRESHOLD, pdp.requests().size());
     }
 }

@@ -26,7 +26,7 @@ class CircuitBreakerTest {
     private double jitter = 0.999_999_999_999;
 
     private CircuitBreaker breaker() {
-        return new CircuitBreaker("PDP evaluation", OPTIONS, () -> jitter);
+        return new CircuitBreaker("PDP authorization API", OPTIONS, () -> jitter);
     }
 
     private void advance(Duration duration) {
@@ -60,7 +60,7 @@ class CircuitBreakerTest {
 
         PdpCommunicationException e = assertThrows(PdpCommunicationException.class, () -> breaker.acquire(now));
         assertSame(FAILURE, e.getCause());
-        assertTrue(e.getMessage().startsWith("PDP evaluation is suspended"), e.getMessage());
+        assertTrue(e.getMessage().startsWith("PDP authorization API is suspended"), e.getMessage());
     }
 
     @Test
@@ -177,7 +177,7 @@ class CircuitBreakerTest {
 
     @Test
     void neverRejectsWhenDisabled() {
-        CircuitBreaker breaker = new CircuitBreaker("PDP evaluation", CircuitBreakerOptions.disabled(), () -> jitter);
+        CircuitBreaker breaker = new CircuitBreaker("PDP authorization API", CircuitBreakerOptions.disabled(), () -> jitter);
 
         fail(breaker, 50);
 

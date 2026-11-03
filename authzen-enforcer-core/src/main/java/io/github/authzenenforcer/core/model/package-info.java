@@ -1,6 +1,6 @@
 /**
- * Immutable AuthZEN information model: subject, action, resource, context, and the Access
- * Evaluation request and response.
+ * Immutable AuthZEN information model: subject, action, resource, context, and the requests and
+ * responses of the Access Evaluation, Access Evaluations and Search APIs.
  *
  * <p>Required fields must not be {@code null}. As in the specification, required strings
  * ({@code type}, {@code id}, {@code name}) may be empty: the model does not judge what a PDP accepts.

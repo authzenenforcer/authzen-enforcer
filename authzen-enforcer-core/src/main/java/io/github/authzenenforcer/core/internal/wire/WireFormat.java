@@ -2,6 +2,7 @@ package io.github.authzenenforcer.core.internal.wire;
 
 import io.github.authzenenforcer.core.PdpProtocolException;
 import io.github.authzenenforcer.core.model.Action;
+import io.github.authzenenforcer.core.model.ActionSearchRequest;
 import io.github.authzenenforcer.core.model.Context;
 import io.github.authzenenforcer.core.model.EvaluationItem;
 import io.github.authzenenforcer.core.model.EvaluationRequest;
@@ -9,16 +10,23 @@ import io.github.authzenenforcer.core.model.EvaluationResponse;
 import io.github.authzenenforcer.core.model.EvaluationsRequest;
 import io.github.authzenenforcer.core.model.EvaluationsResponse;
 import io.github.authzenenforcer.core.model.EvaluationsSemantic;
+import io.github.authzenenforcer.core.model.PageRequest;
+import io.github.authzenenforcer.core.model.PageResponse;
 import io.github.authzenenforcer.core.model.PdpMetadata;
 import io.github.authzenenforcer.core.model.Resource;
+import io.github.authzenenforcer.core.model.ResourceSearchRequest;
+import io.github.authzenenforcer.core.model.SearchResponse;
 import io.github.authzenenforcer.core.model.Subject;
+import io.github.authzenenforcer.core.model.SubjectSearchRequest;
 
+import java.math.BigInteger;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * Maps model types to and from JSON trees in the AuthZEN wire format.
@@ -241,6 +249,228 @@ public final class WireFormat {
             throw new PdpProtocolException("Evaluations response stops early without the decision that "
                     + semantic.getWireValue() + " stops at");
         }
+    }
+
+    /**
+     * Converts a Subject Search request to its JSON tree. The subject searched for is written with
+     * its type and properties only.
+     *
+     * @param request the request
+     * @return an insertion-ordered map
+     */
+    public static Map<String, Object> subjectSearchRequest(SubjectSearchRequest request) {
+        Map<String, Object> json = new LinkedHashMap<>();
+        json.put("subject", searchedEntity(request.getSubjectType(), request.getSubjectProperties()));
+        json.put("action", action(request.getAction()));
+        json.put("resource", resource(request.getResource()));
+        request.getContext().ifPresent(context -> json.put("context", context.asMap()));
+        request.getPage().ifPresent(page -> json.put("page", page(page)));
+        return json;
+    }
+
+    /**
+     * Converts a Resource Search request to its JSON tree. The resource searched for is written with
+     * its type and properties only.
+     *
+     * @param request the request
+     * @return an insertion-ordered map
+     */
+    public static Map<String, Object> resourceSearchRequest(ResourceSearchRequest request) {
+        Map<String, Object> json = new LinkedHashMap<>();
+        json.put("subject", subject(request.getSubject()));
+        json.put("action", action(request.getAction()));
+        json.put("resource", searchedEntity(request.getResourceType(), request.getResourceProperties()));
+        request.getContext().ifPresent(context -> json.put("context", context.asMap()));
+        request.getPage().ifPresent(page -> json.put("page", page(page)));
+        return json;
+    }
+
+    /**
+     * Converts an Action Search request to its JSON tree.
+     *
+     * @param request the request
+     * @return an insertion-ordered map
+     */
+    public static Map<String, Object> actionSearchRequest(ActionSearchRequest request) {
+        Map<String, Object> json = new LinkedHashMap<>();
+        json.put("subject", subject(request.getSubject()));
+        json.put("resource", resource(request.getResource()));
+        request.getContext().ifPresent(context -> json.put("context", context.asMap()));
+        request.getPage().ifPresent(page -> json.put("page", page(page)));
+        return json;
+    }
+
+    /**
+     * Converts the JSON tree of a Subject Search response to the model.
+     *
+     * @param json the parsed response body
+     * @return the response
+     * @throws PdpProtocolException if the tree is not a valid Search API response with subjects
+     */
+    public static SearchResponse<Subject> subjectSearchResponse(Object json) {
+        return searchResponse(json, "Subject search response", WireFormat::subjectResult);
+    }
+
+    /**
+     * Converts the JSON tree of a Resource Search response to the model.
+     *
+     * @param json the parsed response body
+     * @return the response
+     * @throws PdpProtocolException if the tree is not a valid Search API response with resources
+     */
+    public static SearchResponse<Resource> resourceSearchResponse(Object json) {
+        return searchResponse(json, "Resource search response", WireFormat::resourceResult);
+    }
+
+    /**
+     * Converts the JSON tree of an Action Search response to the model.
+     *
+     * @param json the parsed response body
+     * @return the response
+     * @throws PdpProtocolException if the tree is not a valid Search API response with actions
+     */
+    public static SearchResponse<Action> actionSearchResponse(Object json) {
+        return searchResponse(json, "Action search response", WireFormat::actionResult);
+    }
+
+    private static <T> SearchResponse<T> searchResponse(Object json, String owner, Function<Map<?, ?>, T> reader) {
+        if (!(json instanceof Map<?, ?> object)) {
+            throw new PdpProtocolException(owner + " is not a JSON object");
+        }
+        Object results = object.get("results");
+        if (results == null) {
+            throw new PdpProtocolException(owner + " has no results");
+        }
+        if (!(results instanceof List<?> list)) {
+            throw new PdpProtocolException(owner + " results is not a JSON array");
+        }
+        SearchResponse.Builder<T> response = SearchResponse.builder();
+        for (int i = 0; i < list.size(); i++) {
+            if (!(list.get(i) instanceof Map<?, ?> result)) {
+                throw new PdpProtocolException(owner + " result " + i + " is not a JSON object");
+            }
+            try {
+                response.result(reader.apply(result));
+            } catch (IllegalArgumentException | IllegalStateException e) {
+                throw new PdpProtocolException(owner + " result " + i + " is not valid: " + e.getMessage(), e);
+            }
+        }
+        Object page = object.get("page");
+        if (page != null) {
+            response.page(pageResponse(page, owner));
+        }
+        Object context = object.get("context");
+        if (context != null) {
+            response.context(context(context, owner));
+        }
+        return response.build();
+    }
+
+    // The builders reject a missing type, id or name, and properties that are no JSON object
+    @SuppressWarnings("unchecked")
+    private static Subject subjectResult(Map<?, ?> json) {
+        return Subject.builder().type(member(json, "type")).id(member(json, "id"))
+                .properties((Map<String, ?>) properties(json)).build();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Resource resourceResult(Map<?, ?> json) {
+        return Resource.builder().type(member(json, "type")).id(member(json, "id"))
+                .properties((Map<String, ?>) properties(json)).build();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Action actionResult(Map<?, ?> json) {
+        return Action.builder().name(member(json, "name")).properties((Map<String, ?>) properties(json)).build();
+    }
+
+    private static String member(Map<?, ?> json, String name) {
+        Object value = json.get(name);
+        if (value != null && !(value instanceof String)) {
+            throw new IllegalArgumentException(name + " is not a string");
+        }
+        return (String) value;
+    }
+
+    private static Map<?, ?> properties(Map<?, ?> json) {
+        Object value = json.get("properties");
+        if (value == null) {
+            return Map.of();
+        }
+        if (!(value instanceof Map<?, ?> map)) {
+            throw new IllegalArgumentException("properties is not a JSON object");
+        }
+        return map;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static PageResponse pageResponse(Object json, String owner) {
+        if (!(json instanceof Map<?, ?> object)) {
+            throw new PdpProtocolException(owner + " page is not a JSON object");
+        }
+        Object nextToken = object.get("next_token");
+        if (nextToken == null) {
+            throw new PdpProtocolException(owner + " page has no next_token");
+        }
+        if (!(nextToken instanceof String token)) {
+            throw new PdpProtocolException(owner + " page next_token is not a string");
+        }
+        PageResponse.Builder page = PageResponse.builder().nextToken(token);
+        Long count = count(object, "count", owner);
+        if (count != null) {
+            page.count(count);
+        }
+        Long total = count(object, "total", owner);
+        if (total != null) {
+            page.total(total);
+        }
+        Object properties = object.get("properties");
+        if (properties != null) {
+            if (!(properties instanceof Map<?, ?> map)) {
+                throw new PdpProtocolException(owner + " page properties is not a JSON object");
+            }
+            page.properties((Map<String, ?>) map);
+        }
+        try {
+            return page.build();
+        } catch (IllegalArgumentException e) {
+            throw new PdpProtocolException(owner + " page properties is not valid", e);
+        }
+    }
+
+    // A non-negative integer; codecs may represent it as any integral Number type
+    private static Long count(Map<?, ?> page, String name, String owner) {
+        Object value = page.get(name);
+        if (value == null) {
+            return null;
+        }
+        BigInteger number;
+        if (value instanceof Long || value instanceof Integer || value instanceof Short || value instanceof Byte) {
+            number = BigInteger.valueOf(((Number) value).longValue());
+        } else if (value instanceof BigInteger integer) {
+            number = integer;
+        } else {
+            throw new PdpProtocolException(owner + " page " + name + " is not an integer");
+        }
+        if (number.signum() < 0 || number.bitLength() >= Long.SIZE) {
+            throw new PdpProtocolException(owner + " page " + name + " is not a non-negative integer in range");
+        }
+        return number.longValue();
+    }
+
+    private static Map<String, Object> page(PageRequest page) {
+        Map<String, Object> json = new LinkedHashMap<>();
+        page.getToken().ifPresent(token -> json.put("token", token));
+        page.getLimit().ifPresent(limit -> json.put("limit", limit));
+        putProperties(json, page.getProperties());
+        return json;
+    }
+
+    private static Map<String, Object> searchedEntity(String type, Map<String, Object> properties) {
+        Map<String, Object> json = new LinkedHashMap<>();
+        json.put("type", type);
+        putProperties(json, properties);
+        return json;
     }
 
     private static Map<String, Object> subject(Subject subject) {
