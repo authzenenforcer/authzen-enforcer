@@ -46,7 +46,8 @@ if (response.getDecision()) {
 A deny is a regular response with `getDecision()` returning `false`. If no decision can be
 obtained, for example because the PDP is unreachable, times out or rejects the PEP's credentials,
 `evaluate` throws an `AuthZenException`. Treat it as a deny. `evaluateAsync` returns a
-`CompletableFuture` that completes the same way.
+`CompletionStage` that completes the same way. Code you hand the stage to cannot complete it with a
+made-up decision; call `toCompletableFuture()` for `join()`.
 
 The client is thread-safe. Create one per PDP and share it.
 

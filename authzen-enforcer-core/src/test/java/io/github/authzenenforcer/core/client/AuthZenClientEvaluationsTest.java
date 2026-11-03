@@ -134,7 +134,7 @@ class AuthZenClientEvaluationsTest {
                 .semantic(EvaluationsSemantic.DENY_ON_FIRST_DENY)
                 .build();
 
-        EvaluationsResponse response = builder().build().evaluationsAsync(request).join();
+        EvaluationsResponse response = builder().build().evaluationsAsync(request).toCompletableFuture().join();
 
         assertEquals(1, response.getEvaluations().size());
         assertFalse(response.isPermitted(1));

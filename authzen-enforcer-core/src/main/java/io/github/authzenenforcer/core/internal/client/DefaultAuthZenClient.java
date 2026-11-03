@@ -28,6 +28,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.DoubleSupplier;
@@ -104,11 +105,16 @@ public final class DefaultAuthZenClient implements AuthZenClient {
 
     @Override
     public EvaluationResponse evaluate(EvaluationRequest request) {
-        return await(evaluateAsync(request), "Evaluation");
+        return await(evaluation(request), "Evaluation");
     }
 
+    // Callers get a stage they cannot complete; the SDK keeps the future
     @Override
-    public CompletableFuture<EvaluationResponse> evaluateAsync(EvaluationRequest request) {
+    public CompletionStage<EvaluationResponse> evaluateAsync(EvaluationRequest request) {
+        return evaluation(request).minimalCompletionStage();
+    }
+
+    private CompletableFuture<EvaluationResponse> evaluation(EvaluationRequest request) {
         Objects.requireNonNull(request, "request");
         Map<String, Object> body = WireFormat.evaluationRequest(request);
         BreakerLog log = new BreakerLog();
@@ -195,11 +201,15 @@ public final class DefaultAuthZenClient implements AuthZenClient {
 
     @Override
     public EvaluationsResponse evaluations(EvaluationsRequest request) {
-        return await(evaluationsAsync(request), "Evaluations");
+        return await(batch(request), "Evaluations");
     }
 
     @Override
-    public CompletableFuture<EvaluationsResponse> evaluationsAsync(EvaluationsRequest request) {
+    public CompletionStage<EvaluationsResponse> evaluationsAsync(EvaluationsRequest request) {
+        return batch(request).minimalCompletionStage();
+    }
+
+    private CompletableFuture<EvaluationsResponse> batch(EvaluationsRequest request) {
         Objects.requireNonNull(request, "request");
         Map<String, Object> body = WireFormat.evaluationsRequest(request);
         BreakerLog log = new BreakerLog();
@@ -212,11 +222,15 @@ public final class DefaultAuthZenClient implements AuthZenClient {
 
     @Override
     public Optional<PdpMetadata> metadata() {
-        return await(metadataAsync(), "Metadata discovery");
+        return await(discovered(), "Metadata discovery");
     }
 
     @Override
-    public CompletableFuture<Optional<PdpMetadata>> metadataAsync() {
+    public CompletionStage<Optional<PdpMetadata>> metadataAsync() {
+        return discovered().minimalCompletionStage();
+    }
+
+    private CompletableFuture<Optional<PdpMetadata>> discovered() {
         return metadata != null ? metadata.metadata() : CompletableFuture.completedFuture(Optional.empty());
     }
 
@@ -225,7 +239,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
         if (evaluationsEndpoint != null) {
             return CompletableFuture.completedFuture(evaluationsEndpoint);
         }
-        return metadataAsync().thenApply(current -> {
+        return discovered().thenApply(current -> {
             if (current.isEmpty()) {
                 return defaultEvaluationsEndpoint;
             }
@@ -238,7 +252,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
         if (evaluationEndpoint != null) {
             return CompletableFuture.completedFuture(evaluationEndpoint);
         }
-        return metadataAsync().thenApply(current -> current
+        return discovered().thenApply(current -> current
                 .map(PdpMetadata::getAccessEvaluationEndpoint)
                 .orElse(defaultEvaluationEndpoint));
     }

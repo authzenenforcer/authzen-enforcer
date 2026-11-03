@@ -15,7 +15,7 @@ import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.function.LongSupplier;
 
 /**
@@ -55,11 +55,15 @@ public interface AuthZenClient {
     /**
      * Asks the PDP for an access decision without blocking.
      *
+     * <p>The stage cannot be completed by its holder, so code it is handed to cannot make up a
+     * decision. Call {@code toCompletableFuture()} for {@code join()} or {@code get()}; that gives
+     * a separate future.
+     *
      * @param request the request
-     * @return a future completed with the decision, or exceptionally with an {@link AuthZenException}
+     * @return a stage completed with the decision, or exceptionally with an {@link AuthZenException}
      *         (wrapped in a {@link java.util.concurrent.CompletionException} by dependent stages)
      */
-    CompletableFuture<EvaluationResponse> evaluateAsync(EvaluationRequest request);
+    CompletionStage<EvaluationResponse> evaluateAsync(EvaluationRequest request);
 
     /**
      * Asks the PDP for several decisions in one call (Access Evaluations API) and waits for the answer.
@@ -84,10 +88,11 @@ public interface AuthZenClient {
      * Asks the PDP for several decisions in one call (Access Evaluations API) without blocking.
      *
      * @param request the request
-     * @return a future completed with the decisions, or exceptionally with an {@link AuthZenException}
+     * @return a stage completed with the decisions, or exceptionally with an {@link AuthZenException};
+     *         like {@link #evaluateAsync(EvaluationRequest)}, its holder cannot complete it
      * @see #evaluations(EvaluationsRequest)
      */
-    CompletableFuture<EvaluationsResponse> evaluationsAsync(EvaluationsRequest request);
+    CompletionStage<EvaluationsResponse> evaluationsAsync(EvaluationsRequest request);
 
     /**
      * Returns the metadata the PDP publishes, discovering it if needed, and waits for it.
@@ -101,11 +106,11 @@ public interface AuthZenClient {
     /**
      * Returns the metadata the PDP publishes, discovering it if needed, without blocking.
      *
-     * @return a future completed with the metadata, empty if the PDP publishes none or discovery is
+     * @return a stage completed with the metadata, empty if the PDP publishes none or discovery is
      *         disabled, or exceptionally with an {@link AuthZenException}
      * @see Builder#discovery(boolean)
      */
-    CompletableFuture<Optional<PdpMetadata>> metadataAsync();
+    CompletionStage<Optional<PdpMetadata>> metadataAsync();
 
     /**
      * Returns a new builder.

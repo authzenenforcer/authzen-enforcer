@@ -37,8 +37,12 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
@@ -201,7 +205,7 @@ class AuthZenClientTest {
         void evaluatesAsynchronously() {
             pdp.respond(json(200, "{\"decision\": true}"));
 
-            assertTrue(client().evaluateAsync(REQUEST).join().getDecision());
+            assertTrue(client().evaluateAsync(REQUEST).toCompletableFuture().join().getDecision());
         }
     }
 
@@ -317,7 +321,7 @@ class AuthZenClientTest {
                     .build();
 
             CompletionException error = assertTimeoutPreemptively(Duration.ofSeconds(2),
-                    () -> assertThrows(CompletionException.class, () -> client.evaluateAsync(REQUEST).join()));
+                    () -> assertThrows(CompletionException.class, () -> client.evaluateAsync(REQUEST).toCompletableFuture().join()));
             assertInstanceOf(PdpCommunicationException.class, error.getCause());
         }
 
@@ -367,10 +371,31 @@ class AuthZenClientTest {
         }
 
         @Test
+        void returnsAStageItsHolderCannotComplete() {
+            CountDownLatch release = new CountDownLatch(1);
+            pdp.respond((request, exchange) -> {
+                try {
+                    release.await(2, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                json(200, "{\"decision\": false}").respond(request, exchange);
+            });
+            CompletionStage<EvaluationResponse> stage = client().evaluateAsync(REQUEST);
+
+            assertThrows(UnsupportedOperationException.class,
+                    () -> ((CompletableFuture<EvaluationResponse>) stage).complete(EvaluationResponse.of(true)));
+            stage.toCompletableFuture().complete(EvaluationResponse.of(true));
+            release.countDown();
+
+            assertFalse(stage.toCompletableFuture().join().getDecision(), "a forged copy must not change the stage");
+        }
+
+        @Test
         void completesTheAsyncFutureExceptionally() {
             pdp.respond(json(503, ""));
 
-            CompletionException e = assertThrows(CompletionException.class, () -> client().evaluateAsync(REQUEST).join());
+            CompletionException e = assertThrows(CompletionException.class, () -> client().evaluateAsync(REQUEST).toCompletableFuture().join());
             assertInstanceOf(PdpCommunicationException.class, e.getCause());
         }
 
@@ -443,7 +468,7 @@ class AuthZenClientTest {
             pdp.respond(sequence(json(401, ""), json(200, "{\"decision\": false}")));
             AuthZenClient client = AuthZenClient.builder().pdpUrl(pdp.url()).credentials(credentials).build();
 
-            assertFalse(client.evaluateAsync(REQUEST).join().getDecision());
+            assertFalse(client.evaluateAsync(REQUEST).toCompletableFuture().join().getDecision());
             assertEquals(2, pdp.requests().size());
         }
 
@@ -624,7 +649,7 @@ class AuthZenClientTest {
             pdp.respond(sequence(json(401, ""), json(503, ""), permit));
             AuthZenClient client = AuthZenClient.builder().pdpUrl(pdp.url()).credentials(credentials).build();
 
-            assertTrue(client.evaluateAsync(REQUEST).join().getDecision());
+            assertTrue(client.evaluateAsync(REQUEST).toCompletableFuture().join().getDecision());
 
             List<RecordedRequest> requests = pdp.requests();
             assertEquals(3, requests.size());
@@ -704,7 +729,7 @@ class AuthZenClientTest {
             clock.advance(CircuitBreakerOptions.DEFAULT_OPEN_DURATION);
             TestLoggerFinder.failWithError(Class.forName("io.github.authzenenforcer.core.internal.client.CircuitBreaker"));
             try {
-                assertTrue(client.evaluateAsync(REQUEST).join().getDecision());
+                assertTrue(client.evaluateAsync(REQUEST).toCompletableFuture().join().getDecision());
             } finally {
                 TestLoggerFinder.reset();
             }
