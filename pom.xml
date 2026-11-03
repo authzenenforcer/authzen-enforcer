@@ -89,6 +89,10 @@
             target/site/jacoco/jacoco.xml,
             ${maven.multiModuleProjectDirectory}/authzen-enforcer-interop-tests/target/site/jacoco-aggregate/jacoco.xml
         </sonar.coverage.jacoco.xmlReportPaths>
+        <!-- Model types share their shape (Subject/Resource; the evaluation request types), so their
+             accessors and builders repeat. A common base class would tie together types that the spec
+             may evolve separately; duplicated logic belongs outside this package. -->
+        <sonar.cpd.exclusions>**/io/github/authzenenforcer/core/model/**</sonar.cpd.exclusions>
     </properties>
 
     <build>

@@ -142,46 +142,39 @@ public final class JsonWriter {
         out.append('"');
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
-            switch (c) {
-                case '"':
-                    out.append("\\\"");
-                    break;
-                case '\\':
-                    out.append("\\\\");
-                    break;
-                case '\b':
-                    out.append("\\b");
-                    break;
-                case '\f':
-                    out.append("\\f");
-                    break;
-                case '\n':
-                    out.append("\\n");
-                    break;
-                case '\r':
-                    out.append("\\r");
-                    break;
-                case '\t':
-                    out.append("\\t");
-                    break;
-                default:
-                    if (c < 0x20) {
-                        appendUnicodeEscape(out, c);
-                    } else if (Character.isHighSurrogate(c)) {
-                        if (i + 1 < s.length() && Character.isLowSurrogate(s.charAt(i + 1))) {
-                            out.append(c).append(s.charAt(i + 1));
-                            i++;
-                        } else {
-                            appendUnicodeEscape(out, c);
-                        }
-                    } else if (Character.isLowSurrogate(c)) {
-                        appendUnicodeEscape(out, c);
-                    } else {
-                        out.append(c);
-                    }
+            String escape = shortEscape(c);
+            if (escape != null) {
+                out.append(escape);
+            } else if (c < 0x20) {
+                appendUnicodeEscape(out, c);
+            } else if (Character.isHighSurrogate(c)) {
+                if (i + 1 < s.length() && Character.isLowSurrogate(s.charAt(i + 1))) {
+                    out.append(c).append(s.charAt(i + 1));
+                    i++;
+                } else {
+                    appendUnicodeEscape(out, c);
+                }
+            } else if (Character.isLowSurrogate(c)) {
+                appendUnicodeEscape(out, c);
+            } else {
+                out.append(c);
             }
         }
         out.append('"');
+    }
+
+    /** Returns the two-character escape of {@code c}, or {@code null} if it has none. */
+    private static String shortEscape(char c) {
+        return switch (c) {
+            case '"' -> "\\\"";
+            case '\\' -> "\\\\";
+            case '\b' -> "\\b";
+            case '\f' -> "\\f";
+            case '\n' -> "\\n";
+            case '\r' -> "\\r";
+            case '\t' -> "\\t";
+            default -> null;
+        };
     }
 
     private static void appendUnicodeEscape(StringBuilder out, char c) {
