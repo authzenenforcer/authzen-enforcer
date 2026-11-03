@@ -87,7 +87,8 @@ public final class DefaultAuthZenClient implements AuthZenClient {
                 ? Urls.check(evaluationsEndpoint, "evaluationsEndpoint") : null;
         this.transport = new PdpTransport(httpClient, credentials, codec, requestTimeout, maxRetries);
         this.clock = Objects.requireNonNull(clock, "clock");
-        DoubleSupplier random = () -> ThreadLocalRandom.current().nextDouble();
+        // Only jitters the circuit breaker's open interval; nothing security-sensitive depends on it
+        DoubleSupplier random = () -> ThreadLocalRandom.current().nextDouble(); // NOSONAR java:S2245
         this.evaluations = new CircuitBreaker("PDP evaluation", circuitBreaker, random);
         this.metadata = discovery != null
                 ? new MetadataResolver(transport, identifier, discovery, credentials != null, clock,

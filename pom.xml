@@ -78,6 +78,17 @@
         <versions-maven-plugin.version>2.23.0</versions-maven-plugin.version>
         <maven-site-plugin.version>3.22.0</maven-site-plugin.version>
         <maven-toolchains-plugin.version>3.3.0</maven-toolchains-plugin.version>
+        <jacoco-maven-plugin.version>0.8.16</jacoco-maven-plugin.version>
+        <sonar-maven-plugin.version>5.8.0.7211</sonar-maven-plugin.version>
+
+        <!-- Code analysis: mvn verify sonar:sonar (server and token come from SONAR_HOST_URL / SONAR_TOKEN) -->
+        <sonar.projectKey>authzenenforcer_authzen-enforcer</sonar.projectKey>
+        <sonar.projectName>authzen-enforcer</sonar.projectName>
+        <!-- Per-module reports, plus the aggregate that adds the interop tests' coverage of core -->
+        <sonar.coverage.jacoco.xmlReportPaths>
+            target/site/jacoco/jacoco.xml,
+            ${maven.multiModuleProjectDirectory}/authzen-enforcer-interop-tests/target/site/jacoco-aggregate/jacoco.xml
+        </sonar.coverage.jacoco.xmlReportPaths>
     </properties>
 
     <build>
@@ -141,6 +152,16 @@
                     <artifactId>versions-maven-plugin</artifactId>
                     <version>${versions-maven-plugin.version}</version>
                 </plugin>
+                <plugin>
+                    <groupId>org.jacoco</groupId>
+                    <artifactId>jacoco-maven-plugin</artifactId>
+                    <version>${jacoco-maven-plugin.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.sonarsource.scanner.maven</groupId>
+                    <artifactId>sonar-maven-plugin</artifactId>
+                    <version>${sonar-maven-plugin.version}</version>
+                </plugin>
                 <!-- Activated by the jdkNN profiles; they set toolchain.jdk.version -->
                 <plugin>
                     <artifactId>maven-toolchains-plugin</artifactId>
@@ -182,6 +203,24 @@
                                 <banDuplicatePomDependencyVersions/>
                             </rules>
                         </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
                     </execution>
                 </executions>
             </plugin>

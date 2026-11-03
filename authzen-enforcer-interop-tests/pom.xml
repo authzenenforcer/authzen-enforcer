@@ -28,7 +28,8 @@
             <groupId>io.github.authzenenforcer</groupId>
             <artifactId>authzen-enforcer-core</artifactId>
             <version>${project.version}</version>
-            <scope>test</scope>
+            <!-- compile, not test: jacoco:report-aggregate only reports classes of non-test dependencies -->
+            <scope>compile</scope>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -51,6 +52,23 @@
                 <configuration>
                     <skipTests>${interop.skip}</skipTests>
                 </configuration>
+            </plugin>
+            <!-- Coverage of core by the interop tests, merged with core's own report -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>report-aggregate</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report-aggregate</goal>
+                        </goals>
+                        <configuration>
+                            <skip>${interop.skip}</skip>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
