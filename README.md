@@ -1,5 +1,12 @@
 # authzen-enforcer
 
+[![CI](https://github.com/authzenenforcer/authzen-enforcer/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/authzenenforcer/authzen-enforcer/actions/workflows/ci.yml)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=authzenenforcer_authzen-enforcer&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=authzenenforcer_authzen-enforcer)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=authzenenforcer_authzen-enforcer&metric=coverage)](https://sonarcloud.io/summary/new_code?id=authzenenforcer_authzen-enforcer)
+[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=authzenenforcer_authzen-enforcer&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=authzenenforcer_authzen-enforcer)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=authzenenforcer_authzen-enforcer&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=authzenenforcer_authzen-enforcer)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=authzenenforcer_authzen-enforcer&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=authzenenforcer_authzen-enforcer)
+
 A Java SDK that acts as a **Policy Enforcement Point (PEP)** for the
 [OpenID AuthZEN Authorization API](https://openid.net/wg/authzen/). It sends AuthZEN-compliant
 requests to a Policy Decision Point (PDP) and returns the decision to your application.

@@ -38,3 +38,27 @@ jobs:
           cache: maven
       - name: Run interop tests
         run: mvn -B -ntp -pl authzen-enforcer-interop-tests -am verify -Dinterop.skip=false
+
+  analysis:
+    name: Analysis (SonarQube Cloud)
+    runs-on: ubuntu-latest
+    env:
+      # Not available to pull requests from forks and Dependabot; the analysis is skipped there
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history for blame information and new code detection
+          fetch-depth: 0
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+      - name: Build, test with coverage and analyze
+        if: env.SONAR_TOKEN != ''
+        run: >
+          mvn -B -ntp verify sonar:sonar
+          -Dinterop.skip=false
+          -Dsonar.host.url=https://sonarcloud.io
+          -Dsonar.organization=authzenenforcer
