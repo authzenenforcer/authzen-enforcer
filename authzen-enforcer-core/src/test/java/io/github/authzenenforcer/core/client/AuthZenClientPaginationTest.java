@@ -231,6 +231,29 @@ class AuthZenClientPaginationTest {
     }
 
     @Test
+    void keepsFailingAfterACaughtFailure() {
+        pdp.respond(FakePdp.sequence(json(200, page("t2", "1")), json(500, ""), json(200, page("", "2"))));
+        Iterator<Resource> results = builder().build().searchAllResources(ACCOUNTS).iterator();
+        results.next();
+
+        PdpCommunicationException first = assertThrows(PdpCommunicationException.class, results::hasNext);
+        PdpCommunicationException again = assertThrows(PdpCommunicationException.class, results::hasNext);
+
+        assertSame(first, again);
+        assertEquals(2, pdp.requests().size());
+    }
+
+    @Test
+    void keepsFailingAfterARepeatedToken() {
+        pdp.respond(pages(Map.of("", page("t2", "1"), "t2", page("t2", "2"))));
+        Iterator<Resource> results = builder().build().searchAllResources(ACCOUNTS).iterator();
+        results.next();
+
+        assertThrows(PdpProtocolException.class, results::hasNext);
+        assertThrows(PdpProtocolException.class, results::hasNext);
+    }
+
+    @Test
     void rejectsNullArguments() {
         AuthZenClient client = builder().build();
 

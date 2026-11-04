@@ -153,16 +153,26 @@ final class PageCursor<R, T> {
                 Spliterator.ORDERED | Spliterator.NONNULL) {
 
             private Iterator<T> page = Collections.emptyIterator();
+            private RuntimeException failure;
 
             @Override
             public boolean tryAdvance(Consumer<? super T> action) {
-                while (!page.hasNext()) {
-                    if (!cursor.hasMorePages()) {
-                        return false;
-                    }
-                    page = cursor.accept(fetch.apply(cursor.nextRequest())).iterator();
+                // A caller that catches the failure and goes on must not see a complete result
+                if (failure != null) {
+                    throw failure;
                 }
-                cursor.countResult();
+                try {
+                    while (!page.hasNext()) {
+                        if (!cursor.hasMorePages()) {
+                            return false;
+                        }
+                        page = cursor.accept(fetch.apply(cursor.nextRequest())).iterator();
+                    }
+                    cursor.countResult();
+                } catch (RuntimeException e) {
+                    failure = e;
+                    throw e;
+                }
                 action.accept(page.next());
                 return true;
             }
