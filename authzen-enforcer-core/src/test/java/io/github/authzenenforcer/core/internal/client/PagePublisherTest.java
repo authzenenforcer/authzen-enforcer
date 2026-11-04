@@ -188,6 +188,39 @@ class PagePublisherTest {
     }
 
     @Test
+    void cancelsAndLogsASubscriberThatThrowsAnErrorOnThePageThread() {
+        TestLoggerFinder.clearRecords();
+        subscriber.errorOnNext = true;
+        Flow.Subscription subscription = subscribe(PaginationOptions.defaults());
+        subscription.request(1);
+        answer(0, page("2", "a", "b"));
+        assertEquals(List.of("a"), subscriber.items);
+        assertTrue(TestLoggerFinder.records().contains("WARNING " + PagePublisher.class.getName()
+                + ": Subscriber of a Test search threw; cancelled the subscription [SubscriberError]"),
+                String.valueOf(TestLoggerFinder.records()));
+
+        subscription.request(10);
+        assertEquals(List.of("a"), subscriber.items);
+        assertEquals(1, fetched.size());
+        assertNull(subscriber.error);
+    }
+
+    @Test
+    void passesAnErrorFromOnNextToTheCallerOfRequest() {
+        PagePublisher<Integer, String> immediate = new PagePublisher<>("Test search",
+                () -> new PageCursor<>("Test search", 1, Optional.empty(), (page, token) -> 2,
+                        PaginationOptions.defaults()),
+                page -> CompletableFuture.completedFuture(page("", "x")), error -> error);
+        Recorder second = new Recorder();
+        second.errorOnNext = true;
+        immediate.subscribe(second);
+
+        assertThrows(SubscriberError.class, () -> second.subscription.request(1));
+        assertEquals(List.of("x"), second.items);
+        assertFalse(second.completed);
+    }
+
+    @Test
     void handlesAPageThatIsAlreadyComplete() {
         PagePublisher<Integer, String> immediate = new PagePublisher<>("Test search",
                 () -> new PageCursor<>("Test search", 1, Optional.empty(), (page, token) -> Integer.valueOf(token),
@@ -210,6 +243,12 @@ class PagePublisherTest {
         assertThrows(NullPointerException.class, () -> publisher.subscribe(null));
     }
 
+    /** An error a broken subscriber throws. */
+    private static final class SubscriberError extends Error {
+
+        private static final long serialVersionUID = 1L;
+    }
+
     private static final class Recorder implements Flow.Subscriber<String> {
 
         final List<String> items = new ArrayList<>();
@@ -218,6 +257,7 @@ class PagePublisherTest {
         boolean completed;
         int signals;
         boolean throwOnNext;
+        boolean errorOnNext;
 
         @Override
         public void onSubscribe(Flow.Subscription subscription) {
@@ -229,6 +269,9 @@ class PagePublisherTest {
             items.add(item);
             if (throwOnNext) {
                 throw new IllegalStateException("subscriber failure");
+            }
+            if (errorOnNext) {
+                throw new SubscriberError();
             }
         }
 

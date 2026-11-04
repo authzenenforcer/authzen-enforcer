@@ -167,10 +167,14 @@ final class PagePublisher<R, T> implements Flow.Publisher<T> {
             try {
                 subscriber.onNext(result);
                 return true;
-            } catch (RuntimeException e) {
-                // Rule 2.13: a subscriber must not throw; treat it as cancelled
+            } catch (Throwable e) {
+                // Rule 2.13: a subscriber must not throw; treat it as cancelled. Log it first, since
+                // on the thread that completed the page nothing else would report it.
                 cancelled = true;
                 LOGGER.log(Level.WARNING, "Subscriber of a " + operation + " threw; cancelled the subscription", e);
+                if (e instanceof Error error) {
+                    throw error;
+                }
                 return false;
             }
         }
