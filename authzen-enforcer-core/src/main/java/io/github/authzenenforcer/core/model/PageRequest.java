@@ -21,6 +21,9 @@ import java.util.OptionalInt;
  * object, must stay as it was; {@link SubjectSearchRequest#withPageToken(String)} and its
  * counterparts take care of that.
  *
+ * <p>A token is opaque, and the SDK sends it as given. A token that went through a client, for
+ * example a browser, is user input: the PDP must bind its tokens to the query they were issued for.
+ *
  * <p>Instances are immutable and thread-safe.
  */
 public final class PageRequest {
@@ -147,6 +150,9 @@ public final class PageRequest {
 
         /**
          * Sets the maximum number of results per page.
+         *
+         * <p>The SDK sends the limit as given and sets no upper bound; the PDP may apply its own.
+         * Cap a limit that comes from user input.
          *
          * @param limit the limit, not negative
          * @return this builder

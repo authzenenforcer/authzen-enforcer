@@ -47,6 +47,10 @@ public final class SearchResponse<T> {
     /**
      * Returns the results of this page.
      *
+     * <p>The results are kept as the PDP sent them. Like the specification, the model accepts an
+     * empty identifier, for example a resource with {@code "id": ""}; reject such a result before
+     * using it for further lookups or requests.
+     *
      * @return an unmodifiable list in the order the PDP returned them, possibly empty
      */
     public List<T> getResults() {

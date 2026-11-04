@@ -15,6 +15,10 @@ import java.util.OptionalLong;
  * {"next_token": "a3M9NDU2O3N6PTI=", "count": 2, "total": 3}
  * }</pre>
  *
+ * <p>The count and the total are what the PDP states; they are not checked against the results
+ * or against each other. Do not use them as loop bounds or to size buffers; use the results
+ * themselves.
+ *
  * <p>Instances are immutable and thread-safe.
  */
 public final class PageResponse {

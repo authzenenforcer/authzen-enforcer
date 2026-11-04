@@ -111,9 +111,13 @@ public interface AuthZenClient {
      * result is not an access decision: enforce access with {@link #evaluate(EvaluationRequest)}.
      *
      * <p>If the PDP publishes metadata without a {@code search_subject_endpoint}, it does not offer
-     * this API, and the call fails without contacting it. Searches share the circuit breaker of
-     * evaluations, so keep them fast enough to finish within the request timeout, for example with
-     * a page limit.
+     * this API, and the call fails without contacting it.
+     *
+     * <p>Searches share the circuit breaker of evaluations. A search that times out counts as a
+     * failure like any other, so keep searches fast enough to finish within the request timeout,
+     * for example with a page limit, in particular if their filters or limit depend on user input;
+     * also rate-limit searches that users can trigger. Otherwise slow searches can open the breaker,
+     * and evaluations then fail without contacting the PDP.
      *
      * @param request the request
      * @return one page of subjects
