@@ -64,6 +64,12 @@ public final class PaginationOptions {
     /**
      * Returns the number of pages a search may take, that is, the number of requests it may send.
      *
+     * <p>Each page is a single search: the client repeats it after a transient failure up to
+     * {@link AuthZenClient.Builder#maxRetries(int) maxRetries} times, and once after a {@code 401}
+     * with a refreshed credential. A search over all pages therefore sends at most
+     * {@code maxPages * (maxRetries + 2)} HTTP requests, and each page counts on the circuit breaker
+     * like a single search.
+     *
      * @return a positive number
      */
     public int getMaxPages() {
@@ -112,7 +118,8 @@ public final class PaginationOptions {
         }
 
         /**
-         * Sets the number of pages a search may take. Defaults to {@link #DEFAULT_MAX_PAGES}.
+         * Sets the number of pages a search may take. Defaults to {@link #DEFAULT_MAX_PAGES}. See
+         * {@link PaginationOptions#getMaxPages()} for the number of HTTP requests this allows.
          *
          * @param maxPages a positive number
          * @return this builder
