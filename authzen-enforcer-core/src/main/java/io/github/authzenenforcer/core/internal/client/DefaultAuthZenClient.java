@@ -8,6 +8,7 @@ import io.github.authzenenforcer.core.auth.CredentialProvider;
 import io.github.authzenenforcer.core.client.AuthZenClient;
 import io.github.authzenenforcer.core.client.CircuitBreakerOptions;
 import io.github.authzenenforcer.core.client.DiscoveryOptions;
+import io.github.authzenenforcer.core.client.PaginationOptions;
 import io.github.authzenenforcer.core.internal.http.PdpTransport;
 import io.github.authzenenforcer.core.internal.wire.WireFormat;
 import io.github.authzenenforcer.core.model.Action;
@@ -16,6 +17,7 @@ import io.github.authzenenforcer.core.model.EvaluationRequest;
 import io.github.authzenenforcer.core.model.EvaluationResponse;
 import io.github.authzenenforcer.core.model.EvaluationsRequest;
 import io.github.authzenenforcer.core.model.EvaluationsResponse;
+import io.github.authzenenforcer.core.model.PageRequest;
 import io.github.authzenenforcer.core.model.PdpMetadata;
 import io.github.authzenenforcer.core.model.Resource;
 import io.github.authzenenforcer.core.model.ResourceSearchRequest;
@@ -38,10 +40,13 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Flow;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.BiFunction;
 import java.util.function.DoubleSupplier;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
+import java.util.stream.Stream;
 
 /**
  * Default {@link AuthZenClient} on top of {@link java.net.http.HttpClient}.
@@ -65,6 +70,10 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     /** Default path of the Action Search endpoint below the PDP URL. */
     static final String SEARCH_ACTION_PATH = "/access/v1/search/action";
 
+    private static final String SUBJECT_SEARCH = "Subject search";
+    private static final String RESOURCE_SEARCH = "Resource search";
+    private static final String ACTION_SEARCH = "Action search";
+
     private final Api evaluationApi;
     private final Api evaluationsApi;
     private final Api searchSubjectApi;
@@ -73,6 +82,10 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     private final MetadataResolver metadata;
     private final PdpTransport transport;
     private final CircuitBreaker breaker;
+    private final PaginationOptions pagination;
+    private final Search<SubjectSearchRequest, Subject> subjectSearches;
+    private final Search<ResourceSearchRequest, Resource> resourceSearches;
+    private final Search<ActionSearchRequest, Action> actionSearches;
     private final LongSupplier clock;
 
     /**
@@ -89,6 +102,25 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     }
 
     /**
+     * A Search API and how to walk its pages.
+     *
+     * @param operation the name of the search in messages
+     * @param call      sends the request for one page
+     * @param page      the page a request asks for
+     * @param withToken copies a request with another page token
+     * @param <R>       the type of the request
+     * @param <T>       the type of the results
+     */
+    private record Search<R, T>(String operation, Function<R, CompletableFuture<SearchResponse<T>>> call,
+            Function<R, Optional<PageRequest>> page, BiFunction<R, String, R> withToken) {
+
+        PageCursor<R, T> cursor(R request, PaginationOptions options) {
+            return new PageCursor<>(operation, request, page.apply(request).flatMap(PageRequest::getToken),
+                    withToken, options);
+        }
+    }
+
+    /**
      * Creates a client. Use {@link AuthZenClient#builder()} instead.
      *
      * @param pdpUrl         the base URL of the PDP, also its identifier in the metadata
@@ -101,12 +133,14 @@ public final class DefaultAuthZenClient implements AuthZenClient {
      * @param maxRetries     how often a request that failed transiently may be repeated
      * @param discovery      how discovered metadata is cached, or {@code null} to use no discovery
      * @param circuitBreaker how the breakers for discovery and the APIs behave
+     * @param pagination     the limits for searches over all pages
      * @param clock          a monotonic clock in nanoseconds for the metadata cache and the
      *                       breakers, such as {@link System#nanoTime()}
      */
     public DefaultAuthZenClient(URI pdpUrl, EndpointOverrides overrides, CredentialProvider credentials,
             JsonCodec codec, HttpClient httpClient, Duration requestTimeout, int maxRetries,
-            DiscoveryOptions discovery, CircuitBreakerOptions circuitBreaker, LongSupplier clock) {
+            DiscoveryOptions discovery, CircuitBreakerOptions circuitBreaker, PaginationOptions pagination,
+            LongSupplier clock) {
         URI identifier = Urls.withoutTrailingSlashes(Urls.check(pdpUrl, "pdpUrl"));
         Objects.requireNonNull(overrides, "overrides must not be null");
         this.evaluationApi = new Api("Access Evaluation", checked(overrides.evaluation(), "evaluationEndpoint"),
@@ -126,6 +160,13 @@ public final class DefaultAuthZenClient implements AuthZenClient {
                 Urls.append(identifier, SEARCH_ACTION_PATH),
                 PdpMetadata::getSearchActionEndpoint, "search_action_endpoint");
         this.transport = new PdpTransport(httpClient, credentials, codec, requestTimeout, maxRetries);
+        this.pagination = Objects.requireNonNull(pagination, "pagination must not be null");
+        this.subjectSearches = new Search<>(SUBJECT_SEARCH, this::subjectSearch, SubjectSearchRequest::getPage,
+                SubjectSearchRequest::withPageToken);
+        this.resourceSearches = new Search<>(RESOURCE_SEARCH, this::resourceSearch, ResourceSearchRequest::getPage,
+                ResourceSearchRequest::withPageToken);
+        this.actionSearches = new Search<>(ACTION_SEARCH, this::actionSearch, ActionSearchRequest::getPage,
+                ActionSearchRequest::withPageToken);
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
         // Only jitters the circuit breaker's open interval; nothing security-sensitive depends on it
         DoubleSupplier random = () -> ThreadLocalRandom.current().nextDouble(); // NOSONAR java:S2245
@@ -266,7 +307,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
 
     @Override
     public SearchResponse<Subject> searchSubjects(SubjectSearchRequest request) {
-        return await(subjectSearch(request), "Subject search");
+        return await(subjectSearch(request), SUBJECT_SEARCH);
     }
 
     @Override
@@ -281,7 +322,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
 
     @Override
     public SearchResponse<Resource> searchResources(ResourceSearchRequest request) {
-        return await(resourceSearch(request), "Resource search");
+        return await(resourceSearch(request), RESOURCE_SEARCH);
     }
 
     @Override
@@ -296,7 +337,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
 
     @Override
     public SearchResponse<Action> searchActions(ActionSearchRequest request) {
-        return await(actionSearch(request), "Action search");
+        return await(actionSearch(request), ACTION_SEARCH);
     }
 
     @Override
@@ -307,6 +348,81 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     private CompletableFuture<SearchResponse<Action>> actionSearch(ActionSearchRequest request) {
         Objects.requireNonNull(request, "request must not be null");
         return call(searchActionApi, WireFormat.actionSearchRequest(request), WireFormat::actionSearchResponse);
+    }
+
+    @Override
+    public Stream<Subject> searchAllSubjects(SubjectSearchRequest request) {
+        return searchAllSubjects(request, pagination);
+    }
+
+    @Override
+    public Stream<Subject> searchAllSubjects(SubjectSearchRequest request, PaginationOptions options) {
+        return all(subjectSearches, request, options);
+    }
+
+    @Override
+    public Flow.Publisher<Subject> searchAllSubjectsAsync(SubjectSearchRequest request) {
+        return searchAllSubjectsAsync(request, pagination);
+    }
+
+    @Override
+    public Flow.Publisher<Subject> searchAllSubjectsAsync(SubjectSearchRequest request, PaginationOptions options) {
+        return publisher(subjectSearches, request, options);
+    }
+
+    @Override
+    public Stream<Resource> searchAllResources(ResourceSearchRequest request) {
+        return searchAllResources(request, pagination);
+    }
+
+    @Override
+    public Stream<Resource> searchAllResources(ResourceSearchRequest request, PaginationOptions options) {
+        return all(resourceSearches, request, options);
+    }
+
+    @Override
+    public Flow.Publisher<Resource> searchAllResourcesAsync(ResourceSearchRequest request) {
+        return searchAllResourcesAsync(request, pagination);
+    }
+
+    @Override
+    public Flow.Publisher<Resource> searchAllResourcesAsync(ResourceSearchRequest request,
+            PaginationOptions options) {
+        return publisher(resourceSearches, request, options);
+    }
+
+    @Override
+    public Stream<Action> searchAllActions(ActionSearchRequest request) {
+        return searchAllActions(request, pagination);
+    }
+
+    @Override
+    public Stream<Action> searchAllActions(ActionSearchRequest request, PaginationOptions options) {
+        return all(actionSearches, request, options);
+    }
+
+    @Override
+    public Flow.Publisher<Action> searchAllActionsAsync(ActionSearchRequest request) {
+        return searchAllActionsAsync(request, pagination);
+    }
+
+    @Override
+    public Flow.Publisher<Action> searchAllActionsAsync(ActionSearchRequest request, PaginationOptions options) {
+        return publisher(actionSearches, request, options);
+    }
+
+    private static <R, T> Stream<T> all(Search<R, T> search, R request, PaginationOptions options) {
+        Objects.requireNonNull(request, "request must not be null");
+        Objects.requireNonNull(options, "options must not be null");
+        return PageCursor.stream(search.cursor(request, options),
+                next -> await(search.call().apply(next), search.operation()));
+    }
+
+    private static <R, T> Flow.Publisher<T> publisher(Search<R, T> search, R request, PaginationOptions options) {
+        Objects.requireNonNull(request, "request must not be null");
+        Objects.requireNonNull(options, "options must not be null");
+        return new PagePublisher<>(search.operation(), () -> search.cursor(request, options),
+                next -> search.call().apply(next), error -> asAuthZenException(error, search.operation()));
     }
 
     @Override

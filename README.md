@@ -117,6 +117,26 @@ A response holds one page. If `getNextPageToken()` is present, ask for the next 
 requires. A result is not an access decision: the PDP is expected to permit it in an evaluation, but
 this is not guaranteed, so enforce access with `evaluate`.
 
+`searchAllSubjects`, `searchAllResources` and `searchAllActions` walk all pages for you. They return a
+lazy `Stream`: a page is fetched only once the results before it are consumed, so `limit(10)` stops
+sending requests after the page that holds the tenth result. The `...Async` variants return a
+`java.util.concurrent.Flow.Publisher` that fetches pages as its subscriber asks for results; Reactor
+adapts it with `JdkFlowAdapter.flowPublisherToFlux(publisher)` and Mutiny with
+`Multi.createFrom().publisher(publisher)`.
+
+```java
+try (Stream<Resource> accounts = client.searchAllResources(request)) {
+    accounts.filter(account -> account.getId().startsWith("eu-")).forEach(this::show);
+}
+```
+
+A PDP decides how many pages a search takes, so the client limits a search to 100 pages and 10,000
+results by default. A search that goes beyond a limit, or a PDP that hands out a page token a second
+time, fails with an `AuthZenException`; the results are never cut off silently. Set other limits with
+`pagination(PaginationOptions)` on the builder, or for a single search with the overloads that take
+`PaginationOptions`. Pagination is no snapshot: if the data changes while paging, a result can appear
+twice or not at all, and the client passes the results on as the PDP returns them.
+
 The endpoints come from `search_subject_endpoint`, `search_resource_endpoint` and
 `search_action_endpoint` in the metadata. As with batch evaluations, a PDP that publishes metadata
 without one of them does not offer that search, and the call fails without contacting it. Without
