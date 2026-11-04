@@ -153,8 +153,7 @@ final class PagePublisher<R, T> implements Flow.Publisher<T> {
                 }
             } catch (RuntimeException e) {
                 if (cancelled) {
-                    // Thrown by onError or onComplete themselves (rule 2.13)
-                    LOGGER.log(Level.WARNING, "Subscriber of a " + operation + " threw on completion", e);
+                    // The subscriber cancelled meanwhile and gets no signal
                     return false;
                 }
                 // A limit, a repeated page token or a request that could not be sent
@@ -179,9 +178,18 @@ final class PagePublisher<R, T> implements Flow.Publisher<T> {
             }
         }
 
+        // Every terminal signal goes through here, so that a subscriber that throws from it is handled alike
         private boolean end(Runnable signal) {
             cancelled = true;
-            signal.run();
+            try {
+                signal.run();
+            } catch (Throwable e) {
+                // Rule 2.13: the subscription has ended anyway
+                LOGGER.log(Level.WARNING, "Subscriber of a " + operation + " threw from onError or onComplete", e);
+                if (e instanceof Error error) {
+                    throw error;
+                }
+            }
             return false;
         }
     }

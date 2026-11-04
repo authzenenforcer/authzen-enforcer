@@ -221,6 +221,43 @@ class PagePublisherTest {
     }
 
     @Test
+    void logsASubscriberThatThrowsFromOnErrorAfterALimit() {
+        TestLoggerFinder.clearRecords();
+        PagePublisher<Integer, String> immediate = new PagePublisher<>("Test search",
+                () -> new PageCursor<>("Test search", 1, Optional.empty(), (page, token) -> 2,
+                        PaginationOptions.builder().maxResults(1).build()),
+                page -> CompletableFuture.completedFuture(page("", "a", "b")), error -> error);
+        Recorder failing = new Recorder();
+        failing.throwOnError = true;
+        immediate.subscribe(failing);
+
+        failing.subscription.request(10);
+
+        assertEquals(List.of("a"), failing.items);
+        assertEquals(1, failing.signals);
+        assertTrue(TestLoggerFinder.records().contains("WARNING " + PagePublisher.class.getName()
+                + ": Subscriber of a Test search threw from onError or onComplete [IllegalStateException]"),
+                String.valueOf(TestLoggerFinder.records()));
+    }
+
+    @Test
+    void logsASubscriberThatThrowsFromOnComplete() {
+        TestLoggerFinder.clearRecords();
+        subscriber.throwOnComplete = true;
+        Flow.Subscription subscription = subscribe(PaginationOptions.defaults());
+        subscription.request(1);
+
+        answer(0, page(""));
+        subscription.request(1);
+
+        assertTrue(subscriber.completed);
+        assertEquals(1, subscriber.signals);
+        assertTrue(TestLoggerFinder.records().contains("WARNING " + PagePublisher.class.getName()
+                + ": Subscriber of a Test search threw from onError or onComplete [IllegalStateException]"),
+                String.valueOf(TestLoggerFinder.records()));
+    }
+
+    @Test
     void handlesAPageThatIsAlreadyComplete() {
         PagePublisher<Integer, String> immediate = new PagePublisher<>("Test search",
                 () -> new PageCursor<>("Test search", 1, Optional.empty(), (page, token) -> Integer.valueOf(token),
@@ -258,6 +295,8 @@ class PagePublisherTest {
         int signals;
         boolean throwOnNext;
         boolean errorOnNext;
+        boolean throwOnError;
+        boolean throwOnComplete;
 
         @Override
         public void onSubscribe(Flow.Subscription subscription) {
@@ -279,12 +318,18 @@ class PagePublisherTest {
         public void onError(Throwable throwable) {
             error = throwable;
             signals++;
+            if (throwOnError) {
+                throw new IllegalStateException("subscriber failure");
+            }
         }
 
         @Override
         public void onComplete() {
             completed = true;
             signals++;
+            if (throwOnComplete) {
+                throw new IllegalStateException("subscriber failure");
+            }
         }
     }
 }
