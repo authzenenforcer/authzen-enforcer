@@ -30,6 +30,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -264,6 +265,47 @@ class AuthZenClientPaginationTest {
 
         assertThrows(PdpProtocolException.class, results::hasNext);
         assertThrows(PdpProtocolException.class, results::hasNext);
+    }
+
+    @Test
+    void stopsWaitingForAPageWhenInterrupted() throws Exception {
+        CountDownLatch release = new CountDownLatch(1);
+        pdp.respond((request, exchange) -> {
+            try {
+                release.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            json(200, page("", "1")).respond(request, exchange);
+        });
+        Stream<Resource> stream = builder().build().searchAllResources(ACCOUNTS);
+        CompletableFuture<Throwable> failure = new CompletableFuture<>();
+        CompletableFuture<Boolean> interrupted = new CompletableFuture<>();
+        Thread consumer = new Thread(() -> {
+            try {
+                stream.count();
+                failure.complete(null);
+            } catch (RuntimeException e) {
+                failure.complete(e);
+            }
+            interrupted.complete(Thread.currentThread().isInterrupted());
+        });
+        try {
+            consumer.start();
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (pdp.requests().isEmpty() && System.nanoTime() < deadline) {
+                Thread.onSpinWait();
+            }
+            consumer.interrupt();
+
+            Throwable error = failure.get(5, TimeUnit.SECONDS);
+            assertInstanceOf(PdpCommunicationException.class, error);
+            assertEquals("Interrupted while waiting for the PDP", error.getMessage());
+            assertTrue(interrupted.get(5, TimeUnit.SECONDS));
+        } finally {
+            release.countDown();
+            consumer.join(5000);
+        }
     }
 
     @Test
