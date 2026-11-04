@@ -10,7 +10,7 @@ import java.util.stream.Collectors;
 
 /**
  * Logging backend of the core tests, registered as a {@link System.LoggerFinder} service. It
- * keeps the text of plain log records for {@link #records()} instead of printing them, and the
+ * keeps the text of log records for {@link #records()} instead of printing them, and the
  * loggers named with {@link #fail(Class...)} throw, as a broken logging backend of an application
  * would.
  */
@@ -21,7 +21,8 @@ public final class TestLoggerFinder extends System.LoggerFinder {
     private static final List<String> RECORDS = new CopyOnWriteArrayList<>();
 
     /**
-     * Returns the plain log records so far, as {@code LEVEL logger: message}.
+     * Returns the log records so far, as {@code LEVEL logger: message}, followed by
+     * {@code [ExceptionClass]} for a record with an exception.
      *
      * @return a snapshot of the records
      */
@@ -75,13 +76,19 @@ public final class TestLoggerFinder extends System.LoggerFinder {
             @Override
             public void log(Level level, ResourceBundle bundle, String message, Throwable thrown) {
                 check();
+                record(level + " " + name + ": " + message
+                        + (thrown != null ? " [" + thrown.getClass().getSimpleName() + "]" : ""));
             }
 
             @Override
             public void log(Level level, ResourceBundle bundle, String format, Object... params) {
                 check();
+                record(level + " " + name + ": " + format);
+            }
+
+            private void record(String text) {
                 if (RECORDS.size() < 1000) {
-                    RECORDS.add(level + " " + name + ": " + format);
+                    RECORDS.add(text);
                 }
             }
 

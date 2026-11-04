@@ -24,7 +24,9 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Flow;
 import java.util.function.LongSupplier;
+import java.util.stream.Stream;
 
 /**
  * Client for the AuthZEN Authorization API of a PDP.
@@ -195,6 +197,155 @@ public interface AuthZenClient {
     CompletionStage<SearchResponse<Action>> searchActionsAsync(ActionSearchRequest request);
 
     /**
+     * Searches for subjects like {@link #searchSubjects(SubjectSearchRequest)}, but over all pages.
+     *
+     * <p>The stream is lazy: the first request is sent when a terminal operation starts, and each
+     * further page is fetched only once the results before it are consumed, so
+     * {@code limit(10)} stops sending requests after the page that holds the tenth result. The
+     * stream does not split, so {@code parallel()} does not fetch pages ahead either. Each
+     * following request is {@code request} with the PDP's {@code next_token}, as the specification
+     * requires; a request that already carries a token starts at that page.
+     *
+     * <p>Pagination is no snapshot (AuthZEN 1.0 section 8.2): if the data changes while paging, a
+     * result can appear twice or not at all. The results are passed on as the PDP returns them,
+     * without removing duplicates.
+     *
+     * <p>A failure while paging, for example an unreachable PDP on the fifth page, is thrown from
+     * the stream operation that needed the page, after the results of the earlier pages. The
+     * search also fails if it takes more pages or returns more results than the client's
+     * {@link Builder#pagination(PaginationOptions) pagination options} allow, or if the PDP hands
+     * out a page token a second time. Every page counts on the circuit breaker like a single search.
+     *
+     * @param request the request for the first page
+     * @return a sequential stream of the subjects; it holds no resources, so closing it is optional
+     * @throws AuthZenException from the stream's operations if a page could not be obtained, is not
+     *                          a valid Search API response, or a limit was reached
+     */
+    Stream<Subject> searchAllSubjects(SubjectSearchRequest request);
+
+    /**
+     * Searches for subjects over all pages with the given limits instead of the client's.
+     *
+     * @param request the request for the first page
+     * @param options the limits of this search
+     * @return a sequential stream of the subjects
+     * @see #searchAllSubjects(SubjectSearchRequest)
+     */
+    Stream<Subject> searchAllSubjects(SubjectSearchRequest request, PaginationOptions options);
+
+    /**
+     * Searches for subjects over all pages without blocking.
+     *
+     * <p>Each subscriber gets its own search, which starts when it first requests results. A page
+     * is fetched only once the subscriber has requested more results than the earlier pages held,
+     * so the subscriber's demand limits the requests sent. Failures and limits are as for
+     * {@link #searchAllSubjects(SubjectSearchRequest)}; they reach {@code onError} as an
+     * {@link AuthZenException}.
+     *
+     * <p>Cancelling the subscription stops the search: no further page is requested and nothing
+     * more is signalled. A page request that is already sent is not aborted; it runs until the PDP
+     * answers or the request timeout passes, and its answer is dropped.
+     *
+     * <p>The publisher follows the Reactive Streams rules of {@link Flow}. Reactive libraries adapt
+     * it directly, for example Reactor with {@code JdkFlowAdapter.flowPublisherToFlux(publisher)}
+     * and Mutiny with {@code Multi.createFrom().publisher(publisher)}.
+     *
+     * @param request the request for the first page
+     * @return a publisher of the subjects
+     */
+    Flow.Publisher<Subject> searchAllSubjectsAsync(SubjectSearchRequest request);
+
+    /**
+     * Searches for subjects over all pages without blocking, with the given limits instead of the
+     * client's.
+     *
+     * @param request the request for the first page
+     * @param options the limits of this search
+     * @return a publisher of the subjects
+     * @see #searchAllSubjectsAsync(SubjectSearchRequest)
+     */
+    Flow.Publisher<Subject> searchAllSubjectsAsync(SubjectSearchRequest request, PaginationOptions options);
+
+    /**
+     * Searches for resources like {@link #searchResources(ResourceSearchRequest)}, but over all
+     * pages. Paging, failures and limits work as for
+     * {@link #searchAllSubjects(SubjectSearchRequest)}.
+     *
+     * @param request the request for the first page
+     * @return a sequential stream of the resources
+     */
+    Stream<Resource> searchAllResources(ResourceSearchRequest request);
+
+    /**
+     * Searches for resources over all pages with the given limits instead of the client's.
+     *
+     * @param request the request for the first page
+     * @param options the limits of this search
+     * @return a sequential stream of the resources
+     * @see #searchAllResources(ResourceSearchRequest)
+     */
+    Stream<Resource> searchAllResources(ResourceSearchRequest request, PaginationOptions options);
+
+    /**
+     * Searches for resources over all pages without blocking. The publisher works as for
+     * {@link #searchAllSubjectsAsync(SubjectSearchRequest)}.
+     *
+     * @param request the request for the first page
+     * @return a publisher of the resources
+     */
+    Flow.Publisher<Resource> searchAllResourcesAsync(ResourceSearchRequest request);
+
+    /**
+     * Searches for resources over all pages without blocking, with the given limits instead of the
+     * client's.
+     *
+     * @param request the request for the first page
+     * @param options the limits of this search
+     * @return a publisher of the resources
+     * @see #searchAllResourcesAsync(ResourceSearchRequest)
+     */
+    Flow.Publisher<Resource> searchAllResourcesAsync(ResourceSearchRequest request, PaginationOptions options);
+
+    /**
+     * Searches for actions like {@link #searchActions(ActionSearchRequest)}, but over all pages.
+     * Paging, failures and limits work as for {@link #searchAllSubjects(SubjectSearchRequest)}.
+     *
+     * @param request the request for the first page
+     * @return a sequential stream of the actions
+     */
+    Stream<Action> searchAllActions(ActionSearchRequest request);
+
+    /**
+     * Searches for actions over all pages with the given limits instead of the client's.
+     *
+     * @param request the request for the first page
+     * @param options the limits of this search
+     * @return a sequential stream of the actions
+     * @see #searchAllActions(ActionSearchRequest)
+     */
+    Stream<Action> searchAllActions(ActionSearchRequest request, PaginationOptions options);
+
+    /**
+     * Searches for actions over all pages without blocking. The publisher works as for
+     * {@link #searchAllSubjectsAsync(SubjectSearchRequest)}.
+     *
+     * @param request the request for the first page
+     * @return a publisher of the actions
+     */
+    Flow.Publisher<Action> searchAllActionsAsync(ActionSearchRequest request);
+
+    /**
+     * Searches for actions over all pages without blocking, with the given limits instead of the
+     * client's.
+     *
+     * @param request the request for the first page
+     * @param options the limits of this search
+     * @return a publisher of the actions
+     * @see #searchAllActionsAsync(ActionSearchRequest)
+     */
+    Flow.Publisher<Action> searchAllActionsAsync(ActionSearchRequest request, PaginationOptions options);
+
+    /**
      * Returns the metadata the PDP publishes, discovering it if needed, and waits for it.
      *
      * @return the metadata, or empty if the PDP publishes none or discovery is disabled
@@ -253,6 +404,7 @@ public interface AuthZenClient {
         private boolean discovery = true;
         private DiscoveryOptions discoveryOptions = DiscoveryOptions.defaults();
         private CircuitBreakerOptions circuitBreaker = CircuitBreakerOptions.defaults();
+        private PaginationOptions pagination = PaginationOptions.defaults();
         private LongSupplier clock = System::nanoTime;
 
         private Builder() {
@@ -421,6 +573,20 @@ public interface AuthZenClient {
             return this;
         }
 
+        /**
+         * Sets the limits for searches over all pages, such as
+         * {@link AuthZenClient#searchAllSubjects(SubjectSearchRequest)}. Defaults to
+         * {@link PaginationOptions#defaults()}; a single search can use other limits.
+         *
+         * @param options the limits
+         * @return this builder
+         * @see PaginationOptions
+         */
+        public Builder pagination(PaginationOptions options) {
+            this.pagination = Objects.requireNonNull(options, "options must not be null");
+            return this;
+        }
+
         // Lets tests in this package drive the metadata cache and the breakers without waiting
         Builder clock(LongSupplier clock) {
             this.clock = Objects.requireNonNull(clock, "clock must not be null");
@@ -542,7 +708,7 @@ public interface AuthZenClient {
             EndpointOverrides overrides = new EndpointOverrides(evaluationEndpoint, evaluationsEndpoint,
                     searchSubjectEndpoint, searchResourceEndpoint, searchActionEndpoint);
             return new DefaultAuthZenClient(pdpUrl, overrides, credentials, jsonCodec, client, requestTimeout,
-                    maxRetries, discovery ? discoveryOptions : null, circuitBreaker, clock);
+                    maxRetries, discovery ? discoveryOptions : null, circuitBreaker, pagination, clock);
         }
 
         private static Duration requirePositive(Duration duration, String name) {
