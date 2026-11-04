@@ -5,6 +5,9 @@ import io.github.authzenenforcer.core.PdpProtocolException;
 import io.github.authzenenforcer.core.client.PaginationOptions;
 import io.github.authzenenforcer.core.model.SearchResponse;
 
+import java.nio.ByteBuffer;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -36,8 +39,9 @@ final class PageCursor<R, T> {
     private final String operation;
     private final BiFunction<R, String, R> withToken;
     private final PaginationOptions options;
-    // Bounded by maxPages: one token per page
-    private final Set<String> tokens = new HashSet<>();
+    // One digest per page: a PDP may hand out tokens as large as a response, and keeping them all
+    // would let it fill the heap within maxPages
+    private final Set<ByteBuffer> tokens = new HashSet<>();
     private R pending;
     private R current;
     private int pages;
@@ -58,7 +62,7 @@ final class PageCursor<R, T> {
         this.pending = Objects.requireNonNull(first, "first must not be null");
         this.withToken = withToken;
         this.options = options;
-        firstToken.ifPresent(tokens::add);
+        firstToken.ifPresent(token -> tokens.add(digest(token)));
     }
 
     /**
@@ -99,7 +103,7 @@ final class PageCursor<R, T> {
     List<T> accept(SearchResponse<T> response) {
         Optional<String> token = response.getNextPageToken();
         if (token.isPresent()) {
-            if (!tokens.add(token.get())) {
+            if (!tokens.add(digest(token.get()))) {
                 throw new PdpProtocolException(operation + " response repeats an earlier page token");
             }
             pending = withToken.apply(current, token.get());
@@ -118,6 +122,20 @@ final class PageCursor<R, T> {
                     + " results (PaginationOptions.maxResults)");
         }
         results++;
+    }
+
+    // Hashes the UTF-16 code units, so that tokens with unpaired surrogates stay distinct
+    private static ByteBuffer digest(String token) {
+        ByteBuffer units = ByteBuffer.allocate(token.length() * Character.BYTES);
+        units.asCharBuffer().put(token);
+        try {
+            MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
+            sha256.update(units);
+            return ByteBuffer.wrap(sha256.digest());
+        } catch (NoSuchAlgorithmException e) {
+            // Every Java platform has to support SHA-256
+            throw new IllegalStateException("SHA-256 is not available", e);
+        }
     }
 
     /**
