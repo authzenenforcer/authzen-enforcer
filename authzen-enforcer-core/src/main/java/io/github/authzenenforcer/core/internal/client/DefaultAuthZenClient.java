@@ -10,11 +10,18 @@ import io.github.authzenenforcer.core.client.CircuitBreakerOptions;
 import io.github.authzenenforcer.core.client.DiscoveryOptions;
 import io.github.authzenenforcer.core.internal.http.PdpTransport;
 import io.github.authzenenforcer.core.internal.wire.WireFormat;
+import io.github.authzenenforcer.core.model.Action;
+import io.github.authzenenforcer.core.model.ActionSearchRequest;
 import io.github.authzenenforcer.core.model.EvaluationRequest;
 import io.github.authzenenforcer.core.model.EvaluationResponse;
 import io.github.authzenenforcer.core.model.EvaluationsRequest;
 import io.github.authzenenforcer.core.model.EvaluationsResponse;
 import io.github.authzenenforcer.core.model.PdpMetadata;
+import io.github.authzenenforcer.core.model.Resource;
+import io.github.authzenenforcer.core.model.ResourceSearchRequest;
+import io.github.authzenenforcer.core.model.SearchResponse;
+import io.github.authzenenforcer.core.model.Subject;
+import io.github.authzenenforcer.core.model.SubjectSearchRequest;
 import io.github.authzenenforcer.core.spi.JsonCodec;
 
 import java.lang.System.Logger.Level;
@@ -22,6 +29,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -32,6 +40,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.DoubleSupplier;
+import java.util.function.Function;
 import java.util.function.LongSupplier;
 
 /**
@@ -47,49 +56,80 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     /** Default path of the Access Evaluations endpoint below the PDP URL. */
     static final String EVALUATIONS_PATH = "/access/v1/evaluations";
 
-    private final URI defaultEvaluationEndpoint;
-    private final URI evaluationEndpoint;
-    private final URI defaultEvaluationsEndpoint;
-    private final URI evaluationsEndpoint;
+    /** Default path of the Subject Search endpoint below the PDP URL. */
+    static final String SEARCH_SUBJECT_PATH = "/access/v1/search/subject";
+
+    /** Default path of the Resource Search endpoint below the PDP URL. */
+    static final String SEARCH_RESOURCE_PATH = "/access/v1/search/resource";
+
+    /** Default path of the Action Search endpoint below the PDP URL. */
+    static final String SEARCH_ACTION_PATH = "/access/v1/search/action";
+
+    private final Api evaluationApi;
+    private final Api evaluationsApi;
+    private final Api searchSubjectApi;
+    private final Api searchResourceApi;
+    private final Api searchActionApi;
     private final MetadataResolver metadata;
     private final PdpTransport transport;
-    private final CircuitBreaker evaluations;
+    private final CircuitBreaker breaker;
     private final LongSupplier clock;
+
+    /**
+     * An API of the PDP and where to find it.
+     *
+     * @param name      the name of the API in messages
+     * @param override  the endpoint set on the builder, or {@code null}
+     * @param fallback  the default path below the PDP URL, used when the PDP publishes no metadata
+     * @param listed    the endpoint the metadata lists; empty if the PDP does not offer the API
+     * @param parameter the metadata parameter of the endpoint
+     */
+    private record Api(String name, URI override, URI fallback, Function<PdpMetadata, Optional<URI>> listed,
+            String parameter) {
+    }
 
     /**
      * Creates a client. Use {@link AuthZenClient#builder()} instead.
      *
-     * @param pdpUrl                  the base URL of the PDP, also its identifier in the metadata
-     * @param evaluationEndpoint      the evaluation endpoint, or {@code null} to discover it or use
-     *                                the default path
-     * @param evaluationsEndpoint     the Access Evaluations endpoint, or {@code null} to discover it
-     *                                or use the default path
-     * @param credentials             the credential provider, or {@code null}
-     * @param codec                   the JSON codec
-     * @param httpClient              an HTTP client that does not follow redirects
-     * @param requestTimeout          the timeout of a single request
-     * @param maxRetries              how often a request that failed transiently may be repeated
-     * @param discovery               how discovered metadata is cached, or {@code null} to use no
-     *                                discovery
-     * @param circuitBreaker          how the breakers for discovery and evaluations behave
-     * @param clock                   a monotonic clock in nanoseconds for the metadata cache and the
-     *                                breakers, such as {@link System#nanoTime()}
+     * @param pdpUrl         the base URL of the PDP, also its identifier in the metadata
+     * @param overrides      the endpoints set on the builder; the others are discovered or use
+     *                       the default paths
+     * @param credentials    the credential provider, or {@code null}
+     * @param codec          the JSON codec
+     * @param httpClient     an HTTP client that does not follow redirects
+     * @param requestTimeout the timeout of a single request
+     * @param maxRetries     how often a request that failed transiently may be repeated
+     * @param discovery      how discovered metadata is cached, or {@code null} to use no discovery
+     * @param circuitBreaker how the breakers for discovery and the APIs behave
+     * @param clock          a monotonic clock in nanoseconds for the metadata cache and the
+     *                       breakers, such as {@link System#nanoTime()}
      */
-    public DefaultAuthZenClient(URI pdpUrl, URI evaluationEndpoint, URI evaluationsEndpoint,
-            CredentialProvider credentials, JsonCodec codec,
-            HttpClient httpClient, Duration requestTimeout, int maxRetries, DiscoveryOptions discovery,
-            CircuitBreakerOptions circuitBreaker, LongSupplier clock) {
+    public DefaultAuthZenClient(URI pdpUrl, EndpointOverrides overrides, CredentialProvider credentials,
+            JsonCodec codec, HttpClient httpClient, Duration requestTimeout, int maxRetries,
+            DiscoveryOptions discovery, CircuitBreakerOptions circuitBreaker, LongSupplier clock) {
         URI identifier = Urls.withoutTrailingSlashes(Urls.check(pdpUrl, "pdpUrl"));
-        this.defaultEvaluationEndpoint = Urls.append(identifier, EVALUATION_PATH);
-        this.evaluationEndpoint = evaluationEndpoint != null ? Urls.check(evaluationEndpoint, "evaluationEndpoint") : null;
-        this.defaultEvaluationsEndpoint = Urls.append(identifier, EVALUATIONS_PATH);
-        this.evaluationsEndpoint = evaluationsEndpoint != null
-                ? Urls.check(evaluationsEndpoint, "evaluationsEndpoint") : null;
+        Objects.requireNonNull(overrides, "overrides");
+        this.evaluationApi = new Api("Access Evaluation", checked(overrides.evaluation(), "evaluationEndpoint"),
+                Urls.append(identifier, EVALUATION_PATH),
+                current -> Optional.of(current.getAccessEvaluationEndpoint()), "access_evaluation_endpoint");
+        this.evaluationsApi = new Api("Access Evaluations", checked(overrides.evaluations(), "evaluationsEndpoint"),
+                Urls.append(identifier, EVALUATIONS_PATH),
+                PdpMetadata::getAccessEvaluationsEndpoint, "access_evaluations_endpoint");
+        this.searchSubjectApi = new Api("Subject Search", checked(overrides.searchSubject(), "searchSubjectEndpoint"),
+                Urls.append(identifier, SEARCH_SUBJECT_PATH),
+                PdpMetadata::getSearchSubjectEndpoint, "search_subject_endpoint");
+        this.searchResourceApi = new Api("Resource Search",
+                checked(overrides.searchResource(), "searchResourceEndpoint"),
+                Urls.append(identifier, SEARCH_RESOURCE_PATH),
+                PdpMetadata::getSearchResourceEndpoint, "search_resource_endpoint");
+        this.searchActionApi = new Api("Action Search", checked(overrides.searchAction(), "searchActionEndpoint"),
+                Urls.append(identifier, SEARCH_ACTION_PATH),
+                PdpMetadata::getSearchActionEndpoint, "search_action_endpoint");
         this.transport = new PdpTransport(httpClient, credentials, codec, requestTimeout, maxRetries);
         this.clock = Objects.requireNonNull(clock, "clock");
         // Only jitters the circuit breaker's open interval; nothing security-sensitive depends on it
         DoubleSupplier random = () -> ThreadLocalRandom.current().nextDouble(); // NOSONAR java:S2245
-        this.evaluations = new CircuitBreaker("PDP evaluation", circuitBreaker, random);
+        this.breaker = new CircuitBreaker("PDP authorization API", circuitBreaker, random);
         this.metadata = discovery != null
                 ? new MetadataResolver(transport, identifier, discovery, credentials != null, clock,
                         new CircuitBreaker("PDP metadata discovery", circuitBreaker, random))
@@ -97,11 +137,16 @@ public final class DefaultAuthZenClient implements AuthZenClient {
         if (credentials != null) {
             // An endpoint that is not overridden may be a default path below the PDP URL
             Set<URI> targets = new LinkedHashSet<>();
-            targets.add(this.evaluationEndpoint != null ? this.evaluationEndpoint : identifier);
-            targets.add(this.evaluationsEndpoint != null ? this.evaluationsEndpoint : identifier);
+            for (Api api : List.of(evaluationApi, evaluationsApi, searchSubjectApi, searchResourceApi, searchActionApi)) {
+                targets.add(api.override() != null ? api.override() : identifier);
+            }
             targets.stream().filter(Urls::isPlainHttpToRemoteHost).forEach(target -> LOGGER.log(Level.WARNING,
                     "PDP endpoint " + target + " uses plain HTTP; credentials are sent unencrypted"));
         }
+    }
+
+    private static URI checked(URI endpoint, String name) {
+        return endpoint != null ? Urls.check(endpoint, name) : null;
     }
 
     @Override
@@ -117,13 +162,16 @@ public final class DefaultAuthZenClient implements AuthZenClient {
 
     private CompletableFuture<EvaluationResponse> evaluation(EvaluationRequest request) {
         Objects.requireNonNull(request, "request");
-        Map<String, Object> body = WireFormat.evaluationRequest(request);
+        return call(evaluationApi, WireFormat.evaluationRequest(request), WireFormat::evaluationResponse);
+    }
+
+    private <T> CompletableFuture<T> call(Api api, Map<String, Object> body, Function<Object, T> reader) {
         BreakerLog log = new BreakerLog();
-        CompletableFuture<EvaluationResponse> result = evaluationEndpoint()
+        CompletableFuture<T> result = endpoint(api)
                 .thenCompose(endpoint -> post(endpoint, body, log))
-                .thenApply(WireFormat::evaluationResponse);
+                .thenApply(reader);
         // A separate stage after the caller's future: a slow or failing logger can neither delay
-        // nor change the decision
+        // nor change the result
         result.whenComplete((ignored, error) -> log.run());
         return result;
     }
@@ -131,7 +179,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     private CompletableFuture<Object> post(URI endpoint, Map<String, Object> body, BreakerLog log) {
         CircuitBreaker.Permit permit;
         try {
-            permit = evaluations.acquire(now());
+            permit = breaker.acquire(now());
         } catch (AuthZenException e) {
             return CompletableFuture.failedFuture(e);
         }
@@ -139,11 +187,11 @@ public final class DefaultAuthZenClient implements AuthZenClient {
         try {
             response = transport.post(endpoint, body);
         } catch (RuntimeException e) {
-            evaluations.released(permit);
+            breaker.released(permit);
             return CompletableFuture.failedFuture(e);
         } catch (Error e) {
             // A lost probe permit would keep the breaker rejecting every call
-            evaluations.released(permit);
+            breaker.released(permit);
             throw e;
         }
         return response.whenComplete((ignored, error) -> log.action = record(permit, error));
@@ -153,24 +201,24 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     private Runnable record(CircuitBreaker.Permit permit, Throwable error) {
         Throwable cause = unwrap(error);
         if (cause == null || cause instanceof PdpProtocolException || cause instanceof PdpAuthenticationException) {
-            return evaluations.succeeded(permit);
+            return breaker.succeeded(permit);
         }
         if (cause instanceof PdpCommunicationException) {
             long now;
             try {
                 now = now();
             } catch (AuthZenException e) {
-                evaluations.released(permit);
+                breaker.released(permit);
                 return BreakerLog.NONE;
             }
-            return evaluations.failed(permit, now, cause);
+            return breaker.failed(permit, now, cause);
         }
         // A failing credential provider, a cancelled call or a serialization error says nothing about the PDP
-        evaluations.released(permit);
+        breaker.released(permit);
         return BreakerLog.NONE;
     }
 
-    /** The log action of the evaluation breaker, run once the caller's future has completed. */
+    /** The log action of the breaker, run once the caller's future has completed. */
     private static final class BreakerLog implements Runnable {
 
         static final Runnable NONE = () -> { };
@@ -212,13 +260,53 @@ public final class DefaultAuthZenClient implements AuthZenClient {
 
     private CompletableFuture<EvaluationsResponse> batch(EvaluationsRequest request) {
         Objects.requireNonNull(request, "request");
-        Map<String, Object> body = WireFormat.evaluationsRequest(request);
-        BreakerLog log = new BreakerLog();
-        CompletableFuture<EvaluationsResponse> result = evaluationsEndpoint()
-                .thenCompose(endpoint -> post(endpoint, body, log))
-                .thenApply(json -> WireFormat.evaluationsResponse(json, request));
-        result.whenComplete((ignored, error) -> log.run());
-        return result;
+        return call(evaluationsApi, WireFormat.evaluationsRequest(request),
+                json -> WireFormat.evaluationsResponse(json, request));
+    }
+
+    @Override
+    public SearchResponse<Subject> searchSubjects(SubjectSearchRequest request) {
+        return await(subjectSearch(request), "Subject search");
+    }
+
+    @Override
+    public CompletionStage<SearchResponse<Subject>> searchSubjectsAsync(SubjectSearchRequest request) {
+        return subjectSearch(request).minimalCompletionStage();
+    }
+
+    private CompletableFuture<SearchResponse<Subject>> subjectSearch(SubjectSearchRequest request) {
+        Objects.requireNonNull(request, "request");
+        return call(searchSubjectApi, WireFormat.subjectSearchRequest(request), WireFormat::subjectSearchResponse);
+    }
+
+    @Override
+    public SearchResponse<Resource> searchResources(ResourceSearchRequest request) {
+        return await(resourceSearch(request), "Resource search");
+    }
+
+    @Override
+    public CompletionStage<SearchResponse<Resource>> searchResourcesAsync(ResourceSearchRequest request) {
+        return resourceSearch(request).minimalCompletionStage();
+    }
+
+    private CompletableFuture<SearchResponse<Resource>> resourceSearch(ResourceSearchRequest request) {
+        Objects.requireNonNull(request, "request");
+        return call(searchResourceApi, WireFormat.resourceSearchRequest(request), WireFormat::resourceSearchResponse);
+    }
+
+    @Override
+    public SearchResponse<Action> searchActions(ActionSearchRequest request) {
+        return await(actionSearch(request), "Action search");
+    }
+
+    @Override
+    public CompletionStage<SearchResponse<Action>> searchActionsAsync(ActionSearchRequest request) {
+        return actionSearch(request).minimalCompletionStage();
+    }
+
+    private CompletableFuture<SearchResponse<Action>> actionSearch(ActionSearchRequest request) {
+        Objects.requireNonNull(request, "request");
+        return call(searchActionApi, WireFormat.actionSearchRequest(request), WireFormat::actionSearchResponse);
     }
 
     @Override
@@ -236,26 +324,17 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     }
 
     // Published metadata without the endpoint means the PDP does not offer the API (section 9.1.1)
-    private CompletableFuture<URI> evaluationsEndpoint() {
-        if (evaluationsEndpoint != null) {
-            return CompletableFuture.completedFuture(evaluationsEndpoint);
+    private CompletableFuture<URI> endpoint(Api api) {
+        if (api.override() != null) {
+            return CompletableFuture.completedFuture(api.override());
         }
         return discovered().thenApply(current -> {
             if (current.isEmpty()) {
-                return defaultEvaluationsEndpoint;
+                return api.fallback();
             }
-            return current.get().getAccessEvaluationsEndpoint().orElseThrow(() -> new PdpProtocolException(
-                    "PDP does not offer the Access Evaluations API: its metadata lists no access_evaluations_endpoint"));
+            return api.listed().apply(current.get()).orElseThrow(() -> new PdpProtocolException(
+                    "PDP does not offer the " + api.name() + " API: its metadata lists no " + api.parameter()));
         });
-    }
-
-    private CompletableFuture<URI> evaluationEndpoint() {
-        if (evaluationEndpoint != null) {
-            return CompletableFuture.completedFuture(evaluationEndpoint);
-        }
-        return discovered().thenApply(current -> current
-                .map(PdpMetadata::getAccessEvaluationEndpoint)
-                .orElse(defaultEvaluationEndpoint));
     }
 
     private static <T> T await(CompletableFuture<T> future, String operation) {

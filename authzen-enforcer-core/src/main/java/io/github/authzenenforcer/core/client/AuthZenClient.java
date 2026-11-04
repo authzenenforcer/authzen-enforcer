@@ -3,11 +3,19 @@ package io.github.authzenenforcer.core.client;
 import io.github.authzenenforcer.core.AuthZenException;
 import io.github.authzenenforcer.core.auth.CredentialProvider;
 import io.github.authzenenforcer.core.internal.client.DefaultAuthZenClient;
+import io.github.authzenenforcer.core.internal.client.EndpointOverrides;
+import io.github.authzenenforcer.core.model.Action;
+import io.github.authzenenforcer.core.model.ActionSearchRequest;
 import io.github.authzenenforcer.core.model.EvaluationRequest;
 import io.github.authzenenforcer.core.model.EvaluationResponse;
 import io.github.authzenenforcer.core.model.EvaluationsRequest;
 import io.github.authzenenforcer.core.model.EvaluationsResponse;
 import io.github.authzenenforcer.core.model.PdpMetadata;
+import io.github.authzenenforcer.core.model.Resource;
+import io.github.authzenenforcer.core.model.ResourceSearchRequest;
+import io.github.authzenenforcer.core.model.SearchResponse;
+import io.github.authzenenforcer.core.model.Subject;
+import io.github.authzenenforcer.core.model.SubjectSearchRequest;
 import io.github.authzenenforcer.core.spi.JsonCodec;
 
 import java.net.URI;
@@ -95,6 +103,98 @@ public interface AuthZenClient {
     CompletionStage<EvaluationsResponse> evaluationsAsync(EvaluationsRequest request);
 
     /**
+     * Asks the PDP which subjects of a type may perform an action on a resource (Subject Search API)
+     * and waits for the answer.
+     *
+     * <p>The answer holds one page of results; when {@link SearchResponse#getNextPageToken()} is
+     * present, ask for the next page with {@link SubjectSearchRequest#withPageToken(String)}. A
+     * result is not an access decision: enforce access with {@link #evaluate(EvaluationRequest)}.
+     *
+     * <p>If the PDP publishes metadata without a {@code search_subject_endpoint}, it does not offer
+     * this API, and the call fails without contacting it.
+     *
+     * <p>Searches share the circuit breaker of evaluations. A search that times out counts as a
+     * failure like any other, so keep searches fast enough to finish within the request timeout,
+     * for example with a page limit, in particular if their filters or limit depend on user input;
+     * also rate-limit searches that users can trigger. Otherwise slow searches can open the breaker,
+     * and evaluations then fail without contacting the PDP.
+     *
+     * @param request the request
+     * @return one page of subjects
+     * @throws AuthZenException if no answer could be obtained, the PDP does not offer the API, or the
+     *                          answer is not a valid Search API response
+     */
+    SearchResponse<Subject> searchSubjects(SubjectSearchRequest request);
+
+    /**
+     * Asks the PDP which subjects of a type may perform an action on a resource (Subject Search API)
+     * without blocking.
+     *
+     * @param request the request
+     * @return a stage completed with one page of subjects, or exceptionally with an
+     *         {@link AuthZenException}; like {@link #evaluateAsync(EvaluationRequest)}, its holder
+     *         cannot complete it
+     * @see #searchSubjects(SubjectSearchRequest)
+     */
+    CompletionStage<SearchResponse<Subject>> searchSubjectsAsync(SubjectSearchRequest request);
+
+    /**
+     * Asks the PDP on which resources of a type a subject may perform an action (Resource Search
+     * API) and waits for the answer.
+     *
+     * <p>Paging, the metadata and the circuit breaker work as for
+     * {@link #searchSubjects(SubjectSearchRequest)}; the metadata parameter is
+     * {@code search_resource_endpoint}. A result is not an access decision: enforce access with
+     * {@link #evaluate(EvaluationRequest)}.
+     *
+     * @param request the request
+     * @return one page of resources
+     * @throws AuthZenException if no answer could be obtained, the PDP does not offer the API, or the
+     *                          answer is not a valid Search API response
+     */
+    SearchResponse<Resource> searchResources(ResourceSearchRequest request);
+
+    /**
+     * Asks the PDP on which resources of a type a subject may perform an action (Resource Search
+     * API) without blocking.
+     *
+     * @param request the request
+     * @return a stage completed with one page of resources, or exceptionally with an
+     *         {@link AuthZenException}; like {@link #evaluateAsync(EvaluationRequest)}, its holder
+     *         cannot complete it
+     * @see #searchResources(ResourceSearchRequest)
+     */
+    CompletionStage<SearchResponse<Resource>> searchResourcesAsync(ResourceSearchRequest request);
+
+    /**
+     * Asks the PDP which actions a subject may perform on a resource (Action Search API) and waits
+     * for the answer.
+     *
+     * <p>Paging, the metadata and the circuit breaker work as for
+     * {@link #searchSubjects(SubjectSearchRequest)}; the metadata parameter is
+     * {@code search_action_endpoint}. A result is not an access decision: enforce access with
+     * {@link #evaluate(EvaluationRequest)}.
+     *
+     * @param request the request
+     * @return one page of actions
+     * @throws AuthZenException if no answer could be obtained, the PDP does not offer the API, or the
+     *                          answer is not a valid Search API response
+     */
+    SearchResponse<Action> searchActions(ActionSearchRequest request);
+
+    /**
+     * Asks the PDP which actions a subject may perform on a resource (Action Search API) without
+     * blocking.
+     *
+     * @param request the request
+     * @return a stage completed with one page of actions, or exceptionally with an
+     *         {@link AuthZenException}; like {@link #evaluateAsync(EvaluationRequest)}, its holder
+     *         cannot complete it
+     * @see #searchActions(ActionSearchRequest)
+     */
+    CompletionStage<SearchResponse<Action>> searchActionsAsync(ActionSearchRequest request);
+
+    /**
      * Returns the metadata the PDP publishes, discovering it if needed, and waits for it.
      *
      * @return the metadata, or empty if the PDP publishes none or discovery is disabled
@@ -141,6 +241,9 @@ public interface AuthZenClient {
         private URI pdpUrl;
         private URI evaluationEndpoint;
         private URI evaluationsEndpoint;
+        private URI searchSubjectEndpoint;
+        private URI searchResourceEndpoint;
+        private URI searchActionEndpoint;
         private CredentialProvider credentials;
         private JsonCodec jsonCodec = JsonCodec.defaultCodec();
         private HttpClient httpClient;
@@ -213,6 +316,45 @@ public interface AuthZenClient {
          */
         public Builder evaluationsEndpoint(URI endpoint) {
             this.evaluationsEndpoint = Objects.requireNonNull(endpoint, "endpoint");
+            return this;
+        }
+
+        /**
+         * Overrides the URL of the Subject Search endpoint, for PDPs that publish no metadata and
+         * do not serve it at the default path below the PDP URL. Like
+         * {@link #evaluationsEndpoint(URI)}, it is independent of the other endpoints.
+         *
+         * @param endpoint an absolute {@code https} or {@code http} URL without query or fragment
+         * @return this builder
+         */
+        public Builder searchSubjectEndpoint(URI endpoint) {
+            this.searchSubjectEndpoint = Objects.requireNonNull(endpoint, "endpoint");
+            return this;
+        }
+
+        /**
+         * Overrides the URL of the Resource Search endpoint, for PDPs that publish no metadata and
+         * do not serve it at the default path below the PDP URL. Like
+         * {@link #evaluationsEndpoint(URI)}, it is independent of the other endpoints.
+         *
+         * @param endpoint an absolute {@code https} or {@code http} URL without query or fragment
+         * @return this builder
+         */
+        public Builder searchResourceEndpoint(URI endpoint) {
+            this.searchResourceEndpoint = Objects.requireNonNull(endpoint, "endpoint");
+            return this;
+        }
+
+        /**
+         * Overrides the URL of the Action Search endpoint, for PDPs that publish no metadata and
+         * do not serve it at the default path below the PDP URL. Like
+         * {@link #evaluationsEndpoint(URI)}, it is independent of the other endpoints.
+         *
+         * @param endpoint an absolute {@code https} or {@code http} URL without query or fragment
+         * @return this builder
+         */
+        public Builder searchActionEndpoint(URI endpoint) {
+            this.searchActionEndpoint = Objects.requireNonNull(endpoint, "endpoint");
             return this;
         }
 
@@ -397,8 +539,10 @@ public interface AuthZenClient {
             } else if (client.followRedirects() != HttpClient.Redirect.NEVER) {
                 throw new IllegalStateException("httpClient must not follow redirects");
             }
-            return new DefaultAuthZenClient(pdpUrl, evaluationEndpoint, evaluationsEndpoint, credentials, jsonCodec,
-                    client, requestTimeout, maxRetries, discovery ? discoveryOptions : null, circuitBreaker, clock);
+            EndpointOverrides overrides = new EndpointOverrides(evaluationEndpoint, evaluationsEndpoint,
+                    searchSubjectEndpoint, searchResourceEndpoint, searchActionEndpoint);
+            return new DefaultAuthZenClient(pdpUrl, overrides, credentials, jsonCodec, client, requestTimeout,
+                    maxRetries, discovery ? discoveryOptions : null, circuitBreaker, clock);
         }
 
         private static Duration requirePositive(Duration duration, String name) {

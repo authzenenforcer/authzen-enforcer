@@ -6,7 +6,8 @@ import java.util.Objects;
 /**
  * How the client stops calling a PDP that keeps failing.
  *
- * <p>The client keeps one circuit breaker for metadata discovery and one for evaluations. After
+ * <p>The client keeps one circuit breaker for metadata discovery and one for the Authorization API:
+ * evaluations, batch evaluations and searches share it. After
  * {@link #getFailureThreshold() failureThreshold} failures in a row, a breaker opens: requests fail
  * at once with a {@link io.github.authzenenforcer.core.PdpCommunicationException}, so that they deny,
  * without contacting the PDP. The exception's cause is the last real failure. After the open
@@ -15,7 +16,7 @@ import java.util.Objects;
  * Each open duration is randomized between half and all of its nominal value, so that many clients
  * do not probe a recovering PDP at the same moment.
  *
- * <p>For evaluations, only communication failures count: an unreachable PDP, a timeout, a server
+ * <p>For the Authorization API, only communication failures count: an unreachable PDP, a timeout, a server
  * error ({@code 5xx}) or a lasting {@code 429}. Any other answer shows that the PDP is up and closes
  * the breaker. For discovery, every failure counts, including invalid metadata and
  * {@code 401}/{@code 403}, since asking again does not help. While the discovery breaker is open,

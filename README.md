@@ -31,8 +31,8 @@ requests to a Policy Decision Point (PDP) and returns the decision to your appli
 
 ## Usage
 
-The core module currently supports the Access Evaluation and Access Evaluations APIs with Bearer
-authentication and metadata discovery.
+The core module currently supports the Access Evaluation, Access Evaluations and Search APIs with
+Bearer authentication and metadata discovery.
 
 ```java
 AuthZenClient client = AuthZenClient.builder()
@@ -88,6 +88,40 @@ The endpoint comes from `access_evaluations_endpoint` in the metadata. If the PD
 without it, the PDP does not offer this API: the call fails without contacting it, and the
 application can use `evaluate` for each item instead. Without metadata, the default path
 `/access/v1/evaluations` is used, and `evaluationsEndpoint(URI)` sets the endpoint explicitly.
+
+### Searching for subjects, resources and actions
+
+The Search APIs ask which subjects, resources or actions the PDP permits. The entity searched for is
+given by its type only, since its identifier is what the search finds.
+
+```java
+// Which accounts may Alice read?
+SearchResponse<Resource> accounts = client.searchResources(ResourceSearchRequest.builder()
+        .subject(Subject.of("user", "alice"))
+        .action(Action.of("can_read"))
+        .resourceType("account")
+        .page(PageRequest.ofLimit(50))
+        .build());
+
+// Who may read account 123?
+SearchResponse<Subject> readers = client.searchSubjects(
+        SubjectSearchRequest.of("user", Action.of("can_read"), Resource.of("account", "123")));
+
+// What may Alice do with account 123?
+SearchResponse<Action> actions = client.searchActions(
+        ActionSearchRequest.of(Subject.of("user", "alice"), Resource.of("account", "123")));
+```
+
+A response holds one page. If `getNextPageToken()` is present, ask for the next page with
+`request.withPageToken(token)`, which keeps the rest of the request unchanged, as the specification
+requires. A result is not an access decision: the PDP is expected to permit it in an evaluation, but
+this is not guaranteed, so enforce access with `evaluate`.
+
+The endpoints come from `search_subject_endpoint`, `search_resource_endpoint` and
+`search_action_endpoint` in the metadata. As with batch evaluations, a PDP that publishes metadata
+without one of them does not offer that search, and the call fails without contacting it. Without
+metadata, the default paths below `/access/v1/search/` are used; `searchSubjectEndpoint(URI)`,
+`searchResourceEndpoint(URI)` and `searchActionEndpoint(URI)` set them explicitly.
 
 ### Credentials
 
@@ -154,15 +188,16 @@ If a PDP publishes no metadata and serves the API at another path, set the endpo
 
 ### When the PDP keeps failing
 
-The client keeps one circuit breaker for discovery and one for evaluations. After three failures in
-a row, a breaker opens. Requests then fail at once with a `PdpCommunicationException` (deny),
-without contacting the PDP, and the exception's cause is the last real failure. After about five
-seconds, one request goes through as a probe. If it succeeds, the breaker closes. If it fails, the
-breaker opens again for twice as long, up to five minutes. Each open period is randomized between
-half and all of its length, so that many clients do not probe a recovering PDP at once.
+The client keeps one circuit breaker for discovery and one for the Authorization API, which
+evaluations, batch evaluations and searches share. After three failures in a row, a breaker opens.
+Requests then fail at once with a `PdpCommunicationException` (deny), without contacting the PDP,
+and the exception's cause is the last real failure. After about five seconds, one request goes
+through as a probe. If it succeeds, the breaker closes. If it fails, the breaker opens again for
+twice as long, up to five minutes. Each open period is randomized between half and all of its
+length, so that many clients do not probe a recovering PDP at once.
 
-- For evaluations, only an unreachable PDP, a timeout, a `5xx` or a lasting `429` counts. Any other
-  answer, such as `400` or `403`, shows that the PDP is up.
+- For the Authorization API, only an unreachable PDP, a timeout, a `5xx` or a lasting `429` counts.
+  Any other answer, such as `400` or `403`, shows that the PDP is up.
 - For discovery, every failure counts, including invalid metadata. Previously discovered metadata is
   still used within `maxStale` while the breaker is open.
 

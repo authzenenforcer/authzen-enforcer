@@ -683,7 +683,7 @@ class AuthZenClientTest {
 
             PdpCommunicationException e = assertThrows(PdpCommunicationException.class, () -> client.evaluate(REQUEST));
 
-            assertTrue(e.getMessage().startsWith("PDP evaluation is suspended"), e.getMessage());
+            assertTrue(e.getMessage().startsWith("PDP authorization API is suspended"), e.getMessage());
             assertTrue(e.getCause() instanceof PdpCommunicationException, "the last real failure is the cause");
             assertEquals(3, pdp.requests().size());
         }
