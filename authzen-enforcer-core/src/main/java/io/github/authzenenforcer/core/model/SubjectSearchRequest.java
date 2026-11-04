@@ -125,7 +125,7 @@ public final class SubjectSearchRequest {
      */
     public SubjectSearchRequest withPageToken(String token) {
         PageRequest next = page != null ? page.withToken(token)
-                : PageRequest.builder().token(Objects.requireNonNull(token, "token")).build();
+                : PageRequest.builder().token(Objects.requireNonNull(token, "token must not be null")).build();
         return builder().subjectType(subjectType).subjectProperties(subjectProperties).action(action)
                 .resource(resource).context(context).page(next).build();
     }
@@ -193,7 +193,7 @@ public final class SubjectSearchRequest {
          * @return this builder
          */
         public Builder subjectProperty(String name, Object value) {
-            subjectProperties.put(Objects.requireNonNull(name, "name"), value);
+            subjectProperties.put(Objects.requireNonNull(name, "name must not be null"), value);
             return this;
         }
 
@@ -204,7 +204,7 @@ public final class SubjectSearchRequest {
          * @return this builder
          */
         public Builder subjectProperties(Map<String, ?> properties) {
-            Objects.requireNonNull(properties, "properties");
+            Objects.requireNonNull(properties, "properties must not be null");
             this.subjectProperties.clear();
             this.subjectProperties.putAll(properties);
             return this;

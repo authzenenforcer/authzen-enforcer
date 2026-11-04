@@ -77,7 +77,7 @@ public final class JsonParser {
      * @throws JsonException if the input is not valid JSON or exceeds a limit
      */
     public Object parse(String json) {
-        Objects.requireNonNull(json, "json");
+        Objects.requireNonNull(json, "json must not be null");
         if (json.length() > maxLength) {
             throw new JsonException("Input exceeds the maximum length of " + maxLength + " characters", 0);
         }

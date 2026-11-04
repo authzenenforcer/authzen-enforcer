@@ -29,7 +29,8 @@ class CredentialProviderTest {
 
     @Test
     void rejectsNullToken() {
-        assertThrows(NullPointerException.class, () -> AccessCredential.bearer(null));
+        NullPointerException e = assertThrows(NullPointerException.class, () -> AccessCredential.bearer(null));
+        assertEquals("token must not be null", e.getMessage());
     }
 
     @Test

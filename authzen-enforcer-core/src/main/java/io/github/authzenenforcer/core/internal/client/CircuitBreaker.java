@@ -63,12 +63,12 @@ final class CircuitBreaker {
      * @param random  uniform values in {@code [0, 1)} for the jitter
      */
     CircuitBreaker(String name, CircuitBreakerOptions options, DoubleSupplier random) {
-        this.name = Objects.requireNonNull(name, "name");
+        this.name = Objects.requireNonNull(name, "name must not be null");
         this.enabled = options.isEnabled();
         this.threshold = options.getFailureThreshold();
         this.openNanos = options.getOpenDuration().toNanos();
         this.maxOpenNanos = options.getMaxOpenDuration().toNanos();
-        this.random = Objects.requireNonNull(random, "random");
+        this.random = Objects.requireNonNull(random, "random must not be null");
     }
 
     /**

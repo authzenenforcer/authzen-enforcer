@@ -273,7 +273,7 @@ public interface AuthZenClient {
          * @return this builder
          */
         public Builder pdpUrl(String pdpUrl) {
-            Objects.requireNonNull(pdpUrl, "pdpUrl");
+            Objects.requireNonNull(pdpUrl, "pdpUrl must not be null");
             return pdpUrl(URI.create(pdpUrl));
         }
 
@@ -285,7 +285,7 @@ public interface AuthZenClient {
          * @see #pdpUrl(String)
          */
         public Builder pdpUrl(URI pdpUrl) {
-            this.pdpUrl = Objects.requireNonNull(pdpUrl, "pdpUrl");
+            this.pdpUrl = Objects.requireNonNull(pdpUrl, "pdpUrl must not be null");
             return this;
         }
 
@@ -298,7 +298,7 @@ public interface AuthZenClient {
          * @return this builder
          */
         public Builder evaluationEndpoint(URI endpoint) {
-            this.evaluationEndpoint = Objects.requireNonNull(endpoint, "endpoint");
+            this.evaluationEndpoint = Objects.requireNonNull(endpoint, "endpoint must not be null");
             return this;
         }
 
@@ -315,7 +315,7 @@ public interface AuthZenClient {
          * @return this builder
          */
         public Builder evaluationsEndpoint(URI endpoint) {
-            this.evaluationsEndpoint = Objects.requireNonNull(endpoint, "endpoint");
+            this.evaluationsEndpoint = Objects.requireNonNull(endpoint, "endpoint must not be null");
             return this;
         }
 
@@ -328,7 +328,7 @@ public interface AuthZenClient {
          * @return this builder
          */
         public Builder searchSubjectEndpoint(URI endpoint) {
-            this.searchSubjectEndpoint = Objects.requireNonNull(endpoint, "endpoint");
+            this.searchSubjectEndpoint = Objects.requireNonNull(endpoint, "endpoint must not be null");
             return this;
         }
 
@@ -341,7 +341,7 @@ public interface AuthZenClient {
          * @return this builder
          */
         public Builder searchResourceEndpoint(URI endpoint) {
-            this.searchResourceEndpoint = Objects.requireNonNull(endpoint, "endpoint");
+            this.searchResourceEndpoint = Objects.requireNonNull(endpoint, "endpoint must not be null");
             return this;
         }
 
@@ -354,7 +354,7 @@ public interface AuthZenClient {
          * @return this builder
          */
         public Builder searchActionEndpoint(URI endpoint) {
-            this.searchActionEndpoint = Objects.requireNonNull(endpoint, "endpoint");
+            this.searchActionEndpoint = Objects.requireNonNull(endpoint, "endpoint must not be null");
             return this;
         }
 
@@ -402,7 +402,7 @@ public interface AuthZenClient {
          * @see #discovery(boolean)
          */
         public Builder discovery(DiscoveryOptions options) {
-            this.discoveryOptions = Objects.requireNonNull(options, "options");
+            this.discoveryOptions = Objects.requireNonNull(options, "options must not be null");
             this.discovery = true;
             return this;
         }
@@ -417,13 +417,13 @@ public interface AuthZenClient {
          * @see CircuitBreakerOptions
          */
         public Builder circuitBreaker(CircuitBreakerOptions options) {
-            this.circuitBreaker = Objects.requireNonNull(options, "options");
+            this.circuitBreaker = Objects.requireNonNull(options, "options must not be null");
             return this;
         }
 
         // Lets tests in this package drive the metadata cache and the breakers without waiting
         Builder clock(LongSupplier clock) {
-            this.clock = Objects.requireNonNull(clock, "clock");
+            this.clock = Objects.requireNonNull(clock, "clock must not be null");
             return this;
         }
 
@@ -435,7 +435,7 @@ public interface AuthZenClient {
          * @return this builder
          */
         public Builder credentials(CredentialProvider credentials) {
-            this.credentials = Objects.requireNonNull(credentials, "credentials");
+            this.credentials = Objects.requireNonNull(credentials, "credentials must not be null");
             return this;
         }
 
@@ -446,7 +446,7 @@ public interface AuthZenClient {
          * @return this builder
          */
         public Builder jsonCodec(JsonCodec jsonCodec) {
-            this.jsonCodec = Objects.requireNonNull(jsonCodec, "jsonCodec");
+            this.jsonCodec = Objects.requireNonNull(jsonCodec, "jsonCodec must not be null");
             return this;
         }
 
@@ -461,7 +461,7 @@ public interface AuthZenClient {
          * @return this builder
          */
         public Builder httpClient(HttpClient httpClient) {
-            this.httpClient = Objects.requireNonNull(httpClient, "httpClient");
+            this.httpClient = Objects.requireNonNull(httpClient, "httpClient must not be null");
             return this;
         }
 
@@ -546,7 +546,7 @@ public interface AuthZenClient {
         }
 
         private static Duration requirePositive(Duration duration, String name) {
-            Objects.requireNonNull(duration, name);
+            Objects.requireNonNull(duration, () -> name + " must not be null");
             if (duration.isNegative() || duration.isZero()) {
                 throw new IllegalArgumentException(name + " must be positive");
             }

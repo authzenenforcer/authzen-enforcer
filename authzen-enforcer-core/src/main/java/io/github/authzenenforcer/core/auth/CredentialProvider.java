@@ -53,7 +53,7 @@ public interface CredentialProvider {
      * @return the provider
      */
     static CredentialProvider bearer(Supplier<String> tokenSupplier) {
-        Objects.requireNonNull(tokenSupplier, "tokenSupplier");
+        Objects.requireNonNull(tokenSupplier, "tokenSupplier must not be null");
         return () -> AccessCredential.bearer(tokenSupplier.get());
     }
 

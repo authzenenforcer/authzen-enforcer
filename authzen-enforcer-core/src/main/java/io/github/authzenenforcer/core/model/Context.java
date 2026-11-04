@@ -41,7 +41,7 @@ public final class Context {
      * @throws IllegalArgumentException if a value is not JSON-compatible
      */
     public static Context of(Map<String, ?> values) {
-        Objects.requireNonNull(values, "values");
+        Objects.requireNonNull(values, "values must not be null");
         return values.isEmpty() ? EMPTY : new Context(values);
     }
 
@@ -112,7 +112,7 @@ public final class Context {
          * @return this builder
          */
         public Builder put(String name, Object value) {
-            values.put(Objects.requireNonNull(name, "name"), value);
+            values.put(Objects.requireNonNull(name, "name must not be null"), value);
             return this;
         }
 

@@ -242,7 +242,7 @@ public final class PdpMetadata {
          * @return this builder
          */
         public Builder capability(String capability) {
-            capabilities.add(Objects.requireNonNull(capability, "capability"));
+            capabilities.add(Objects.requireNonNull(capability, "capability must not be null"));
             return this;
         }
 

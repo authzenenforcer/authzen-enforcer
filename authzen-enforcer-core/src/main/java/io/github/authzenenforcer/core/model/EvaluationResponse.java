@@ -47,7 +47,7 @@ public final class EvaluationResponse {
      * @return the response
      */
     public static EvaluationResponse of(boolean decision, Context context) {
-        return new EvaluationResponse(decision, Objects.requireNonNull(context, "context"));
+        return new EvaluationResponse(decision, Objects.requireNonNull(context, "context must not be null"));
     }
 
     /**

@@ -128,7 +128,7 @@ public final class SearchResponse<T> {
          * @return this builder
          */
         public Builder<T> result(T result) {
-            results.add(Objects.requireNonNull(result, "result"));
+            results.add(Objects.requireNonNull(result, "result must not be null"));
             return this;
         }
 
@@ -139,7 +139,7 @@ public final class SearchResponse<T> {
          * @return this builder
          */
         public Builder<T> results(List<? extends T> results) {
-            Objects.requireNonNull(results, "results");
+            Objects.requireNonNull(results, "results must not be null");
             this.results.clear();
             results.forEach(this::result);
             return this;

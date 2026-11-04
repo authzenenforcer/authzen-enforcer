@@ -33,7 +33,7 @@ public sealed interface AccessCredential permits AccessCredential.Bearer {
         private final String token;
 
         private Bearer(String token) {
-            Objects.requireNonNull(token, "token");
+            Objects.requireNonNull(token, "token must not be null");
             // Also stops header injection; the message must not contain the token
             if (!B64TOKEN.matcher(token).matches()) {
                 throw new IllegalArgumentException("Bearer token contains characters not allowed by RFC 6750");

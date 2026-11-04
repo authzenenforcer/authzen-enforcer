@@ -119,7 +119,7 @@ public final class Action {
          * @return this builder
          */
         public Builder property(String name, Object value) {
-            properties.put(Objects.requireNonNull(name, "name"), value);
+            properties.put(Objects.requireNonNull(name, "name must not be null"), value);
             return this;
         }
 
@@ -130,7 +130,7 @@ public final class Action {
          * @return this builder
          */
         public Builder properties(Map<String, ?> properties) {
-            Objects.requireNonNull(properties, "properties");
+            Objects.requireNonNull(properties, "properties must not be null");
             this.properties.clear();
             this.properties.putAll(properties);
             return this;

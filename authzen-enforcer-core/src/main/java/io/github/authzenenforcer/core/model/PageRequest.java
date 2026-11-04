@@ -92,7 +92,7 @@ public final class PageRequest {
      * @return the page request
      */
     public PageRequest withToken(String token) {
-        Builder copy = builder().token(Objects.requireNonNull(token, "token")).properties(properties);
+        Builder copy = builder().token(Objects.requireNonNull(token, "token must not be null")).properties(properties);
         copy.limit = limit;
         return copy.build();
     }
@@ -174,7 +174,7 @@ public final class PageRequest {
          * @return this builder
          */
         public Builder property(String name, Object value) {
-            properties.put(Objects.requireNonNull(name, "name"), value);
+            properties.put(Objects.requireNonNull(name, "name must not be null"), value);
             return this;
         }
 
@@ -185,7 +185,7 @@ public final class PageRequest {
          * @return this builder
          */
         public Builder properties(Map<String, ?> properties) {
-            Objects.requireNonNull(properties, "properties");
+            Objects.requireNonNull(properties, "properties must not be null");
             this.properties.clear();
             this.properties.putAll(properties);
             return this;

@@ -73,10 +73,10 @@ public final class PdpTransport {
      */
     public PdpTransport(HttpClient httpClient, CredentialProvider credentials, JsonCodec codec,
             Duration requestTimeout, int maxRetries) {
-        this.httpClient = Objects.requireNonNull(httpClient, "httpClient");
+        this.httpClient = Objects.requireNonNull(httpClient, "httpClient must not be null");
         this.credentials = credentials;
-        this.codec = Objects.requireNonNull(codec, "codec");
-        this.requestTimeout = Objects.requireNonNull(requestTimeout, "requestTimeout");
+        this.codec = Objects.requireNonNull(codec, "codec must not be null");
+        this.requestTimeout = Objects.requireNonNull(requestTimeout, "requestTimeout must not be null");
         this.retryPolicy = new RetryPolicy(maxRetries, requestTimeout, Clock.systemUTC());
     }
 
