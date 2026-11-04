@@ -125,7 +125,7 @@ public final class ResourceSearchRequest {
      */
     public ResourceSearchRequest withPageToken(String token) {
         PageRequest next = page != null ? page.withToken(token)
-                : PageRequest.builder().token(Objects.requireNonNull(token, "token")).build();
+                : PageRequest.builder().token(Objects.requireNonNull(token, "token must not be null")).build();
         return builder().subject(subject).action(action).resourceType(resourceType)
                 .resourceProperties(resourceProperties).context(context).page(next).build();
     }
@@ -215,7 +215,7 @@ public final class ResourceSearchRequest {
          * @return this builder
          */
         public Builder resourceProperty(String name, Object value) {
-            resourceProperties.put(Objects.requireNonNull(name, "name"), value);
+            resourceProperties.put(Objects.requireNonNull(name, "name must not be null"), value);
             return this;
         }
 
@@ -226,7 +226,7 @@ public final class ResourceSearchRequest {
          * @return this builder
          */
         public Builder resourceProperties(Map<String, ?> properties) {
-            Objects.requireNonNull(properties, "properties");
+            Objects.requireNonNull(properties, "properties must not be null");
             this.resourceProperties.clear();
             this.resourceProperties.putAll(properties);
             return this;

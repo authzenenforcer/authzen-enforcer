@@ -55,7 +55,8 @@ class CircuitBreakerOptionsTest {
         assertThrows(IllegalArgumentException.class, () -> builder.failureThreshold(101));
         assertThrows(IllegalArgumentException.class, () -> builder.openDuration(Duration.ofMillis(99)));
         assertThrows(IllegalArgumentException.class, () -> builder.maxOpenDuration(Duration.ofDays(1).plusNanos(1)));
-        assertThrows(NullPointerException.class, () -> builder.openDuration(null));
+        NullPointerException e = assertThrows(NullPointerException.class, () -> builder.openDuration(null));
+        assertEquals("openDuration must not be null", e.getMessage());
     }
 
     @Test

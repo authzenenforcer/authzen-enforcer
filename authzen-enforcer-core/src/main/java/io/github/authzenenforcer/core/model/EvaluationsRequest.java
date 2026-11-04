@@ -243,7 +243,7 @@ public final class EvaluationsRequest {
          * @return this builder
          */
         public Builder evaluation(EvaluationItem evaluation) {
-            evaluations.add(Objects.requireNonNull(evaluation, "evaluation"));
+            evaluations.add(Objects.requireNonNull(evaluation, "evaluation must not be null"));
             return this;
         }
 
@@ -254,7 +254,7 @@ public final class EvaluationsRequest {
          * @return this builder
          */
         public Builder evaluations(List<EvaluationItem> evaluations) {
-            Objects.requireNonNull(evaluations, "evaluations");
+            Objects.requireNonNull(evaluations, "evaluations must not be null");
             this.evaluations.clear();
             evaluations.forEach(this::evaluation);
             return this;
@@ -268,7 +268,7 @@ public final class EvaluationsRequest {
          * @return this builder
          */
         public Builder semantic(EvaluationsSemantic semantic) {
-            this.semantic = Objects.requireNonNull(semantic, "semantic");
+            this.semantic = Objects.requireNonNull(semantic, "semantic must not be null");
             return this;
         }
 
@@ -282,7 +282,7 @@ public final class EvaluationsRequest {
          * @return this builder
          */
         public Builder option(String name, Object value) {
-            options.put(Objects.requireNonNull(name, "name"), value);
+            options.put(Objects.requireNonNull(name, "name must not be null"), value);
             return this;
         }
 

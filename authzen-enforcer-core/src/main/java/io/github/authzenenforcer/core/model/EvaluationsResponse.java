@@ -35,7 +35,7 @@ public final class EvaluationsResponse {
      * @throws IllegalArgumentException if there are more decisions than requested items
      */
     public static EvaluationsResponse of(List<EvaluationResponse> evaluations, int requested) {
-        Objects.requireNonNull(evaluations, "evaluations");
+        Objects.requireNonNull(evaluations, "evaluations must not be null");
         if (requested < evaluations.size()) {
             throw new IllegalArgumentException("more decisions than requested items");
         }

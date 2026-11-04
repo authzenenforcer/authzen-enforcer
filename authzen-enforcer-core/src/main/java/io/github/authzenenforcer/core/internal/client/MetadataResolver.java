@@ -89,8 +89,8 @@ final class MetadataResolver {
      */
     MetadataResolver(PdpTransport transport, URI identifier, DiscoveryOptions options, boolean sendsCredentials,
             LongSupplier clock, CircuitBreaker breaker) {
-        this.transport = Objects.requireNonNull(transport, "transport");
-        this.identifier = Objects.requireNonNull(identifier, "identifier");
+        this.transport = Objects.requireNonNull(transport, "transport must not be null");
+        this.identifier = Objects.requireNonNull(identifier, "identifier must not be null");
         this.location = Urls.wellKnown(identifier, WELL_KNOWN_PATH);
         // Deadlines are sums on a clock with an arbitrary origin and may wrap around, so they are
         // only ever compared through differences. DiscoveryOptions caps each duration at a year,
@@ -103,8 +103,8 @@ final class MetadataResolver {
         this.maxStale = options.getMaxStale();
         this.honorCacheHeaders = options.isHonorCacheHeaders();
         this.sendsCredentials = sendsCredentials;
-        this.clock = Objects.requireNonNull(clock, "clock");
-        this.breaker = Objects.requireNonNull(breaker, "breaker");
+        this.clock = Objects.requireNonNull(clock, "clock must not be null");
+        this.breaker = Objects.requireNonNull(breaker, "breaker must not be null");
     }
 
     /**

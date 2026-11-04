@@ -263,7 +263,7 @@ public final class DiscoveryOptions {
         }
 
         private static Duration check(Duration duration, String name, boolean zeroAllowed) {
-            Objects.requireNonNull(duration, name);
+            Objects.requireNonNull(duration, () -> name + " must not be null");
             if (duration.isNegative() || (!zeroAllowed && duration.isZero())) {
                 throw new IllegalArgumentException(name + (zeroAllowed ? " must not be negative" : " must be positive"));
             }

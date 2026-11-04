@@ -108,7 +108,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
             JsonCodec codec, HttpClient httpClient, Duration requestTimeout, int maxRetries,
             DiscoveryOptions discovery, CircuitBreakerOptions circuitBreaker, LongSupplier clock) {
         URI identifier = Urls.withoutTrailingSlashes(Urls.check(pdpUrl, "pdpUrl"));
-        Objects.requireNonNull(overrides, "overrides");
+        Objects.requireNonNull(overrides, "overrides must not be null");
         this.evaluationApi = new Api("Access Evaluation", checked(overrides.evaluation(), "evaluationEndpoint"),
                 Urls.append(identifier, EVALUATION_PATH),
                 current -> Optional.of(current.getAccessEvaluationEndpoint()), "access_evaluation_endpoint");
@@ -126,7 +126,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
                 Urls.append(identifier, SEARCH_ACTION_PATH),
                 PdpMetadata::getSearchActionEndpoint, "search_action_endpoint");
         this.transport = new PdpTransport(httpClient, credentials, codec, requestTimeout, maxRetries);
-        this.clock = Objects.requireNonNull(clock, "clock");
+        this.clock = Objects.requireNonNull(clock, "clock must not be null");
         // Only jitters the circuit breaker's open interval; nothing security-sensitive depends on it
         DoubleSupplier random = () -> ThreadLocalRandom.current().nextDouble(); // NOSONAR java:S2245
         this.breaker = new CircuitBreaker("PDP authorization API", circuitBreaker, random);
@@ -161,7 +161,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     }
 
     private CompletableFuture<EvaluationResponse> evaluation(EvaluationRequest request) {
-        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(request, "request must not be null");
         return call(evaluationApi, WireFormat.evaluationRequest(request), WireFormat::evaluationResponse);
     }
 
@@ -259,7 +259,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     }
 
     private CompletableFuture<EvaluationsResponse> batch(EvaluationsRequest request) {
-        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(request, "request must not be null");
         return call(evaluationsApi, WireFormat.evaluationsRequest(request),
                 json -> WireFormat.evaluationsResponse(json, request));
     }
@@ -275,7 +275,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     }
 
     private CompletableFuture<SearchResponse<Subject>> subjectSearch(SubjectSearchRequest request) {
-        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(request, "request must not be null");
         return call(searchSubjectApi, WireFormat.subjectSearchRequest(request), WireFormat::subjectSearchResponse);
     }
 
@@ -290,7 +290,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     }
 
     private CompletableFuture<SearchResponse<Resource>> resourceSearch(ResourceSearchRequest request) {
-        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(request, "request must not be null");
         return call(searchResourceApi, WireFormat.resourceSearchRequest(request), WireFormat::resourceSearchResponse);
     }
 
@@ -305,7 +305,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     }
 
     private CompletableFuture<SearchResponse<Action>> actionSearch(ActionSearchRequest request) {
-        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(request, "request must not be null");
         return call(searchActionApi, WireFormat.actionSearchRequest(request), WireFormat::actionSearchResponse);
     }
 

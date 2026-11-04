@@ -41,7 +41,7 @@ public final class JsonValues {
      *                                  value or is nested deeper than {@link #MAX_DEPTH}
      */
     public static Map<String, Object> copyObject(Map<?, ?> object) {
-        Objects.requireNonNull(object, "object");
+        Objects.requireNonNull(object, "object must not be null");
         return copyObject(object, 1);
     }
 

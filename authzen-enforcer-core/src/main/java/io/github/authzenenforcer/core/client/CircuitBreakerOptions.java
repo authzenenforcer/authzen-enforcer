@@ -236,7 +236,7 @@ public final class CircuitBreakerOptions {
         }
 
         private static Duration check(Duration duration, String name) {
-            Objects.requireNonNull(duration, name);
+            Objects.requireNonNull(duration, () -> name + " must not be null");
             if (duration.compareTo(MIN_OPEN_DURATION) < 0 || duration.compareTo(MAX_OPEN_DURATION) > 0) {
                 throw new IllegalArgumentException(name + " must be between " + MIN_OPEN_DURATION + " and "
                         + MAX_OPEN_DURATION);

@@ -36,9 +36,9 @@ public final class EvaluationItem {
      */
     public static EvaluationItem of(Subject subject, Action action, Resource resource) {
         return builder()
-                .subject(Objects.requireNonNull(subject, "subject"))
-                .action(Objects.requireNonNull(action, "action"))
-                .resource(Objects.requireNonNull(resource, "resource"))
+                .subject(Objects.requireNonNull(subject, "subject must not be null"))
+                .action(Objects.requireNonNull(action, "action must not be null"))
+                .resource(Objects.requireNonNull(resource, "resource must not be null"))
                 .build();
     }
 

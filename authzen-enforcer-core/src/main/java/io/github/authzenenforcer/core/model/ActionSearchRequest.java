@@ -96,7 +96,7 @@ public final class ActionSearchRequest {
      */
     public ActionSearchRequest withPageToken(String token) {
         PageRequest next = page != null ? page.withToken(token)
-                : PageRequest.builder().token(Objects.requireNonNull(token, "token")).build();
+                : PageRequest.builder().token(Objects.requireNonNull(token, "token must not be null")).build();
         return builder().subject(subject).resource(resource).context(context).page(next).build();
     }
 
