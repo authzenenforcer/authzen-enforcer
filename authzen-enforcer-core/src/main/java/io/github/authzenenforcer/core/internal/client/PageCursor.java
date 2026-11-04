@@ -176,6 +176,12 @@ final class PageCursor<R, T> {
                 action.accept(page.next());
                 return true;
             }
+
+            // Splitting would fetch pages before the results are consumed, for example with parallel()
+            @Override
+            public Spliterator<T> trySplit() {
+                return null;
+            }
         };
         return StreamSupport.stream(results, false);
     }

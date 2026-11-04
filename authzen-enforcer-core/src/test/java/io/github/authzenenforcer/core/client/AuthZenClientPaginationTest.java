@@ -3,6 +3,7 @@ package io.github.authzenenforcer.core.client;
 import static io.github.authzenenforcer.core.client.FakePdp.json;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -130,6 +131,18 @@ class AuthZenClientPaginationTest {
 
         assertEquals(accounts("1", "2", "3"), stream.limit(3).collect(Collectors.toList()));
         assertEquals(2, pdp.requests().size());
+    }
+
+    @Test
+    void doesNotSplitAheadOfTheConsumer() {
+        threePages();
+        AuthZenClient client = builder().build();
+
+        assertNull(client.searchAllResources(ACCOUNTS).spliterator().trySplit());
+        assertTrue(pdp.requests().isEmpty());
+        assertEquals(accounts("1", "2", "3", "4", "5"),
+                client.searchAllResources(ACCOUNTS).parallel().collect(Collectors.toList()));
+        assertEquals(3, pdp.requests().size());
     }
 
     @Test

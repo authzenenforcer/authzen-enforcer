@@ -201,7 +201,8 @@ public interface AuthZenClient {
      *
      * <p>The stream is lazy: the first request is sent when a terminal operation starts, and each
      * further page is fetched only once the results before it are consumed, so
-     * {@code limit(10)} stops sending requests after the page that holds the tenth result. Each
+     * {@code limit(10)} stops sending requests after the page that holds the tenth result. The
+     * stream does not split, so {@code parallel()} does not fetch pages ahead either. Each
      * following request is {@code request} with the PDP's {@code next_token}, as the specification
      * requires; a request that already carries a token starts at that page.
      *
