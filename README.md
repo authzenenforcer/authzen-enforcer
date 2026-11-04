@@ -122,7 +122,8 @@ lazy `Stream`: a page is fetched only once the results before it are consumed, s
 sending requests after the page that holds the tenth result. The `...Async` variants return a
 `java.util.concurrent.Flow.Publisher` that fetches pages as its subscriber asks for results; Reactor
 adapts it with `JdkFlowAdapter.flowPublisherToFlux(publisher)` and Mutiny with
-`Multi.createFrom().publisher(publisher)`.
+`Multi.createFrom().publisher(publisher)`. Cancelling stops the search, but a page request that is
+already sent runs until the PDP answers or the request timeout passes.
 
 ```java
 try (Stream<Resource> accounts = client.searchAllResources(request)) {

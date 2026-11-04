@@ -242,6 +242,10 @@ public interface AuthZenClient {
      * {@link #searchAllSubjects(SubjectSearchRequest)}; they reach {@code onError} as an
      * {@link AuthZenException}.
      *
+     * <p>Cancelling the subscription stops the search: no further page is requested and nothing
+     * more is signalled. A page request that is already sent is not aborted; it runs until the PDP
+     * answers or the request timeout passes, and its answer is dropped.
+     *
      * <p>The publisher follows the Reactive Streams rules of {@link Flow}. Reactive libraries adapt
      * it directly, for example Reactor with {@code JdkFlowAdapter.flowPublisherToFlux(publisher)}
      * and Mutiny with {@code Multi.createFrom().publisher(publisher)}.
