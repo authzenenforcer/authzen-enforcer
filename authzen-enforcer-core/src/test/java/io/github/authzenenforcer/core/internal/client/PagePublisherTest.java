@@ -105,6 +105,17 @@ class PagePublisherTest {
     }
 
     @Test
+    void completesWithoutFurtherDemandAfterTheLastResult() {
+        Flow.Subscription subscription = subscribe(PaginationOptions.defaults());
+
+        subscription.request(2);
+        answer(0, page("", "a", "b"));
+
+        assertEquals(List.of("a", "b"), subscriber.items);
+        assertTrue(subscriber.completed);
+    }
+
+    @Test
     void completesAnEmptySearch() {
         subscribe(PaginationOptions.defaults()).request(1);
 

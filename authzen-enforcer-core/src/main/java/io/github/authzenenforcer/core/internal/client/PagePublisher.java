@@ -120,7 +120,14 @@ final class PagePublisher<R, T> implements Flow.Publisher<T> {
                         fetching = false;
                         page = cursor.accept(response).iterator();
                     }
-                    if (fetching || requested.get() == 0) {
+                    if (fetching) {
+                        return true;
+                    }
+                    // Completing needs no demand (rules 1.4 and 1.5)
+                    if (!page.hasNext() && !cursor.hasMorePages()) {
+                        return end(subscriber::onComplete);
+                    }
+                    if (requested.get() == 0) {
                         return true;
                     }
                     if (page.hasNext()) {
@@ -132,8 +139,6 @@ final class PagePublisher<R, T> implements Flow.Publisher<T> {
                         if (!deliver(result)) {
                             return false;
                         }
-                    } else if (!cursor.hasMorePages()) {
-                        return end(subscriber::onComplete);
                     } else {
                         fetching = true;
                         fetch.apply(cursor.nextRequest()).whenComplete((next, e) -> {
