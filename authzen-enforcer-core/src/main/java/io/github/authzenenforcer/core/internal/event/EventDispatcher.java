@@ -25,10 +25,15 @@ import java.util.function.LongSupplier;
 /**
  * Hands events to the listeners of a client without ever blocking or failing the publisher.
  *
- * <p>Each listener has a bounded FIFO queue that is drained by at most one task at a time on the
- * executor, so that a listener gets its events in order and one at a time. Low-priority events
- * are dropped once a queue is 80% full, all events once it is full; drops are counted and logged
- * at most once a minute.
+ * <p>Each listener has a FIFO queue that is drained by at most one task at a time on the executor,
+ * so that a listener gets its events in order and one at a time. A queue is bounded both in events
+ * and in the approximate bytes they retain, mostly PDP response bodies. Low-priority events are
+ * dropped once a queue reaches 80% of either bound, all events once an event would exceed one;
+ * drops are counted and logged at most once a minute.
+ *
+ * <p>A publisher never runs an integrator's executor: with one, the drain task is handed to it
+ * from an internal daemon thread, so that an executor that runs tasks inline or blocks can delay
+ * neither a caller nor the HTTP client's threads.
  *
  * <p>Instances are thread-safe.
  */
@@ -39,6 +44,9 @@ public final class EventDispatcher {
 
     /** Events a drain task delivers before it makes way for the queues of other listeners. */
     static final int BATCH = 64;
+
+    /** Bytes counted for every event on top of the bodies it retains. */
+    public static final long EVENT_OVERHEAD_BYTES = 512;
 
     private static final System.Logger LOGGER = System.getLogger(EventDispatcher.class.getName());
     private static final long WARNING_INTERVAL_NANOS = Duration.ofMinutes(1).toNanos();
@@ -56,10 +64,11 @@ public final class EventDispatcher {
         this.clock = System::nanoTime;
     }
 
-    private EventDispatcher(List<PepListener> listeners, Executor executor, int capacity, EventContent content,
-            LongSupplier clock) {
-        Executor target = executor != null ? executor : defaultExecutor();
-        this.queues = listeners.stream().map(listener -> new ListenerQueue(listener, target, capacity)).toList();
+    private EventDispatcher(List<PepListener> listeners, Executor target, int capacity, long maxBytes,
+            EventContent content, LongSupplier clock) {
+        this.queues = listeners.stream()
+                .map(listener -> new ListenerQueue(listener, target, capacity, maxBytes))
+                .toList();
         this.content = Objects.requireNonNull(content, "content must not be null");
         this.clock = clock;
     }
@@ -71,32 +80,60 @@ public final class EventDispatcher {
      * @param executor  the executor that delivers events, or {@code null} for a single daemon thread
      *                  that ends when it has been idle for a while
      * @param capacity  how many events each listener's queue holds
+     * @param maxBytes  how many bytes the events in each listener's queue may retain, approximately
      * @param content   which values events mask
      * @return the dispatcher
      */
-    public static EventDispatcher create(List<PepListener> listeners, Executor executor, int capacity,
+    public static EventDispatcher create(List<PepListener> listeners, Executor executor, int capacity, long maxBytes,
             EventContent content) {
-        return create(listeners, executor, capacity, content, System::nanoTime);
+        return create(listeners, executor, capacity, maxBytes, content, System::nanoTime);
     }
 
-    static EventDispatcher create(List<PepListener> listeners, Executor executor, int capacity,
+    static EventDispatcher create(List<PepListener> listeners, Executor executor, int capacity, long maxBytes,
             EventContent content, LongSupplier clock) {
         if (listeners.isEmpty()) {
             return NONE;
         }
-        return new EventDispatcher(List.copyOf(listeners), executor, capacity, content, clock);
+        return direct(listeners, executor != null ? handedOff(executor) : daemonThread("authzen-enforcer-events"),
+                capacity, maxBytes, content, clock);
     }
 
-    private static Executor defaultExecutor() {
+    // Lets tests in this package run drain tasks by hand, without the hand-off thread
+    static EventDispatcher direct(List<PepListener> listeners, Executor target, int capacity, long maxBytes,
+            EventContent content, LongSupplier clock) {
+        if (listeners.isEmpty()) {
+            return NONE;
+        }
+        return new EventDispatcher(List.copyOf(listeners), target, capacity, maxBytes, content, clock);
+    }
+
+    private static Executor daemonThread(String name) {
         ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 1, 30, TimeUnit.SECONDS, new LinkedBlockingQueue<>(),
                 task -> {
-                    Thread thread = new Thread(task, "authzen-enforcer-events");
+                    Thread thread = new Thread(task, name);
                     thread.setDaemon(true);
                     return thread;
                 });
         // The client has no close method, so the thread must not outlive its work
         executor.allowCoreThreadTimeOut(true);
         return executor;
+    }
+
+    // An integrator's executor may run the task inline or block in execute(), so it is only ever
+    // called from this thread. Its queue holds at most one task per listener
+    private static Executor handedOff(Executor executor) {
+        Executor handOff = daemonThread("authzen-enforcer-events-handoff");
+        return task -> handOff.execute(() -> {
+            try {
+                executor.execute(task);
+            } catch (RuntimeException e) {
+                LOGGER.log(Level.WARNING, "The listener executor rejected a delivery; the events wait for the next one",
+                        e);
+                if (task instanceof ListenerQueue queue) {
+                    queue.rejected();
+                }
+            }
+        });
     }
 
     /**
@@ -121,9 +158,10 @@ public final class EventDispatcher {
      * Publishes a completed call.
      *
      * @param event the event
+     * @param bytes the size of the bodies the event retains, such as the PDP response body
      */
-    public void publish(CallCompleted<?, ?> event) {
-        publish(listener -> listener.onCallCompleted(event), false);
+    public void publish(CallCompleted<?, ?> event, long bytes) {
+        publish(listener -> listener.onCallCompleted(event), false, bytes);
     }
 
     /**
@@ -132,7 +170,7 @@ public final class EventDispatcher {
      * @param event the event
      */
     public void publish(AttemptCompleted event) {
-        publish(listener -> listener.onAttemptCompleted(event), true);
+        publish(listener -> listener.onAttemptCompleted(event), true, 0);
     }
 
     /**
@@ -141,24 +179,26 @@ public final class EventDispatcher {
      * @param event the event
      */
     public void publish(BreakerTransition event) {
-        publish(listener -> listener.onBreakerTransition(event), false);
+        publish(listener -> listener.onBreakerTransition(event), false, 0);
     }
 
     /**
      * Publishes a metadata refresh; a successful one is dropped first when a queue fills up.
      *
      * @param event the event
+     * @param bytes the size of the metadata document the event retains
      */
-    public void publish(MetadataRefresh event) {
+    public void publish(MetadataRefresh event, long bytes) {
         boolean low = event.getResult() == MetadataRefresh.Result.FRESH
                 || event.getResult() == MetadataRefresh.Result.DEFAULT_PATHS;
-        publish(listener -> listener.onMetadataRefresh(event), low);
+        publish(listener -> listener.onMetadataRefresh(event), low, bytes);
     }
 
-    private void publish(Consumer<PepListener> delivery, boolean low) {
+    private void publish(Consumer<PepListener> delivery, boolean low, long bytes) {
+        long weight = EVENT_OVERHEAD_BYTES + Math.max(0, bytes);
         for (ListenerQueue queue : queues) {
             try {
-                if (!queue.offer(delivery, low)) {
+                if (!queue.offer(delivery, low, weight)) {
                     onDropped();
                 }
             } catch (RuntimeException e) {
@@ -169,7 +209,7 @@ public final class EventDispatcher {
     }
 
     /**
-     * Returns how many events were dropped because a listener's queue was full.
+     * Returns how many events were dropped because a listener's queue had no room for them.
      *
      * @return the number of dropped deliveries, counted per listener
      */
@@ -194,6 +234,10 @@ public final class EventDispatcher {
         }
     }
 
+    /** An event waiting for a listener, with the bytes it retains. */
+    private record Entry(Consumer<PepListener> delivery, long weight) {
+    }
+
     /** The queue of one listener, drained by at most one task at a time. */
     static final class ListenerQueue implements Runnable {
 
@@ -201,29 +245,56 @@ public final class EventDispatcher {
         private final Executor executor;
         private final int capacity;
         private final int lowCapacity;
-        private final ConcurrentLinkedQueue<Consumer<PepListener>> queue = new ConcurrentLinkedQueue<>();
+        private final long maxBytes;
+        private final long lowMaxBytes;
+        private final ConcurrentLinkedQueue<Entry> queue = new ConcurrentLinkedQueue<>();
         private final AtomicInteger size = new AtomicInteger();
+        private final AtomicLong bytes = new AtomicLong();
         private final AtomicBoolean scheduled = new AtomicBoolean();
 
-        ListenerQueue(PepListener listener, Executor executor, int capacity) {
+        ListenerQueue(PepListener listener, Executor executor, int capacity, long maxBytes) {
             this.listener = Objects.requireNonNull(listener, "listener must not be null");
             this.executor = Objects.requireNonNull(executor, "executor must not be null");
             this.capacity = capacity;
             this.lowCapacity = capacity * 4 / 5;
+            this.maxBytes = maxBytes;
+            this.lowMaxBytes = maxBytes / 5 * 4;
         }
 
         /** Queues an event, or returns {@code false} if the queue has no room for it. */
-        boolean offer(Consumer<PepListener> delivery, boolean low) {
-            int limit = low ? lowCapacity : capacity;
+        boolean offer(Consumer<PepListener> delivery, boolean low, long weight) {
+            if (!reserve(size, 1, low ? lowCapacity : capacity)) {
+                return false;
+            }
+            if (!reserve(bytes, weight, low ? lowMaxBytes : maxBytes)) {
+                size.decrementAndGet();
+                return false;
+            }
+            queue.add(new Entry(delivery, weight));
+            schedule();
+            return true;
+        }
+
+        private static boolean reserve(AtomicInteger counter, int amount, int limit) {
             int current;
             do {
-                current = size.get();
-                if (current >= limit) {
+                current = counter.get();
+                if (current + amount > limit) {
                     return false;
                 }
-            } while (!size.compareAndSet(current, current + 1));
-            queue.add(delivery);
-            schedule();
+            } while (!counter.compareAndSet(current, current + amount));
+            return true;
+        }
+
+        private static boolean reserve(AtomicLong counter, long amount, long limit) {
+            long current;
+            do {
+                current = counter.get();
+                // amount and limit are far below Long.MAX_VALUE, so the sum cannot overflow
+                if (current + amount > limit) {
+                    return false;
+                }
+            } while (!counter.compareAndSet(current, current + amount));
             return true;
         }
 
@@ -235,21 +306,27 @@ public final class EventDispatcher {
                 executor.execute(this);
             } catch (RuntimeException e) {
                 // The queued events stay; the next event tries again
-                scheduled.set(false);
+                rejected();
                 throw e;
             }
+        }
+
+        /** Called when the executor did not take the drain task. */
+        void rejected() {
+            scheduled.set(false);
         }
 
         @Override
         public void run() {
             try {
                 for (int i = 0; i < BATCH; i++) {
-                    Consumer<PepListener> delivery = queue.poll();
-                    if (delivery == null) {
+                    Entry entry = queue.poll();
+                    if (entry == null) {
                         return;
                     }
                     size.decrementAndGet();
-                    deliver(delivery);
+                    bytes.addAndGet(-entry.weight());
+                    deliver(entry.delivery());
                 }
             } finally {
                 scheduled.set(false);

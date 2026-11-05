@@ -404,6 +404,15 @@ public interface AuthZenClient {
         /** Largest accepted listener queue capacity. */
         public static final int MAX_LISTENER_QUEUE_CAPACITY = 1 << 20;
 
+        /** Default number of bytes the events in each listener's queue may retain. */
+        public static final long DEFAULT_LISTENER_QUEUE_MAX_BYTES = 64L << 20;
+
+        /** Smallest accepted byte budget of a listener queue, twice the largest PDP response. */
+        public static final long MIN_LISTENER_QUEUE_MAX_BYTES = 16L << 20;
+
+        /** Largest accepted byte budget of a listener queue. */
+        public static final long MAX_LISTENER_QUEUE_MAX_BYTES = 4L << 30;
+
         private URI pdpUrl;
         private URI evaluationEndpoint;
         private URI evaluationsEndpoint;
@@ -424,6 +433,7 @@ public interface AuthZenClient {
         private final List<PepListener> listeners = new ArrayList<>();
         private Executor listenerExecutor;
         private int listenerQueueCapacity = DEFAULT_LISTENER_QUEUE_CAPACITY;
+        private long listenerQueueMaxBytes = DEFAULT_LISTENER_QUEUE_MAX_BYTES;
         private EventContent eventContent = EventContent.defaults();
 
         private Builder() {
@@ -716,9 +726,11 @@ public interface AuthZenClient {
          * thread delivers them, which ends when it has been idle for a while. On Java 21 or later,
          * {@code Executors.newVirtualThreadPerTaskExecutor()} delivers them on virtual threads.
          *
-         * <p>Each listener runs on at most one task at a time, whatever the executor. An executor
-         * that rejects a task delays the events until the next one is published; one that runs
-         * tasks on the calling thread delays the caller's further work, though not its result.
+         * <p>Each listener runs on at most one task at a time, whatever the executor. The client
+         * hands tasks to the executor from an internal daemon thread, never from a caller or an
+         * HTTP client thread, so an executor that runs tasks inline or blocks in {@code execute}
+         * delays only the events. An executor that rejects a task delays the events until the next
+         * one is published.
          *
          * @param executor the executor
          * @return this builder
@@ -743,6 +755,26 @@ public interface AuthZenClient {
                         + MIN_LISTENER_QUEUE_CAPACITY + " and " + MAX_LISTENER_QUEUE_CAPACITY);
             }
             this.listenerQueueCapacity = capacity;
+            return this;
+        }
+
+        /**
+         * Sets how many bytes the events in each listener's queue may retain, approximately.
+         * Defaults to {@link #DEFAULT_LISTENER_QUEUE_MAX_BYTES}. An event counts the size of the
+         * request and PDP response bodies it carries, plus a small fixed amount; the model objects
+         * on the heap take a few times more. From 80% on, low-priority events are dropped, and an
+         * event that would exceed the budget is dropped; see {@link PepListener}.
+         *
+         * @param maxBytes between {@link #MIN_LISTENER_QUEUE_MAX_BYTES} and
+         *                 {@link #MAX_LISTENER_QUEUE_MAX_BYTES}
+         * @return this builder
+         */
+        public Builder listenerQueueMaxBytes(long maxBytes) {
+            if (maxBytes < MIN_LISTENER_QUEUE_MAX_BYTES || maxBytes > MAX_LISTENER_QUEUE_MAX_BYTES) {
+                throw new IllegalArgumentException("listenerQueueMaxBytes must be between "
+                        + MIN_LISTENER_QUEUE_MAX_BYTES + " and " + MAX_LISTENER_QUEUE_MAX_BYTES);
+            }
+            this.listenerQueueMaxBytes = maxBytes;
             return this;
         }
 
@@ -788,7 +820,8 @@ public interface AuthZenClient {
                     searchSubjectEndpoint, searchResourceEndpoint, searchActionEndpoint);
             return new DefaultAuthZenClient(pdpUrl, overrides, credentials, jsonCodec, client, requestTimeout,
                     maxRetries, discovery ? discoveryOptions : null, circuitBreaker, pagination, clock,
-                    EventDispatcher.create(listeners, listenerExecutor, listenerQueueCapacity, eventContent));
+                    EventDispatcher.create(listeners, listenerExecutor, listenerQueueCapacity,
+                            listenerQueueMaxBytes, eventContent));
         }
 
         private static Duration requirePositive(Duration duration, String name) {

@@ -102,6 +102,7 @@ public final class PdpTransport {
         if (json == null) {
             return CompletableFuture.failedFuture(new AuthZenException("JSON codec returned no text for the request"));
         }
+        trace.requestBytes(json.length());
         return send(new Call(endpoint, false, json, System.nanoTime(), trace), 0, false);
     }
 
@@ -171,6 +172,8 @@ public final class PdpTransport {
                     if (attempt != null) {
                         attempt.status(response.statusCode());
                     }
+                    byte[] body = response.body();
+                    call.trace.responseBytes(body != null ? body.length : 0);
                     return onResponse(call, retries, refreshed, exchange, credential, response, attempt);
                 })
                 .thenCompose(Function.identity());

@@ -213,7 +213,8 @@ class MetadataResolverRefreshTest {
                 refreshes.add(event);
             }
         };
-        EventDispatcher events = EventDispatcher.create(List.of(listener), Runnable::run, 64, EventContent.defaults());
+        EventDispatcher events = EventDispatcher.create(List.of(listener), Runnable::run, 64, 64L << 20,
+                EventContent.defaults());
         MetadataResolver resolver = new MetadataResolver(transport(), identifier, OPTIONS, false, nanos::get,
                 NO_BREAKER, events);
         PdpMetadata first = resolver.metadata().join().orElseThrow();

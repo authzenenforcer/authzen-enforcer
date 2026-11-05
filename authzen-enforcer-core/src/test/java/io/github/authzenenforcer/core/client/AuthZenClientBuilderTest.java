@@ -72,6 +72,10 @@ class AuthZenClientBuilderTest {
     void rejectsListenerQueueCapacitiesOutOfRange() {
         assertThrows(IllegalArgumentException.class, () -> AuthZenClient.builder().listenerQueueCapacity(15));
         assertThrows(IllegalArgumentException.class, () -> AuthZenClient.builder().listenerQueueCapacity((1 << 20) + 1));
+        assertThrows(IllegalArgumentException.class,
+                () -> AuthZenClient.builder().listenerQueueMaxBytes((16L << 20) - 1));
+        assertThrows(IllegalArgumentException.class,
+                () -> AuthZenClient.builder().listenerQueueMaxBytes((4L << 30) + 1));
         assertThrows(NullPointerException.class, () -> AuthZenClient.builder().listener(null));
         assertThrows(NullPointerException.class, () -> AuthZenClient.builder().listenerExecutor(null));
         assertThrows(NullPointerException.class, () -> AuthZenClient.builder().eventContent(null));

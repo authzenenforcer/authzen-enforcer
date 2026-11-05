@@ -35,6 +35,9 @@ public final class CallTrace {
     private final AtomicInteger attempts = new AtomicInteger();
     private final List<AttemptCompleted> completed = new CopyOnWriteArrayList<>();
     private volatile URI endpoint;
+    // The sizes of what the published event retains; the exchanges of a call run one after the other
+    private volatile long requestBytes;
+    private volatile long responseBytes;
 
     private CallTrace(EventDispatcher dispatcher, Operation<?, ?> operation) {
         this.dispatcher = dispatcher;
@@ -71,6 +74,29 @@ public final class CallTrace {
      */
     public void endpoint(URI endpoint) {
         this.endpoint = endpoint;
+    }
+
+    /**
+     * Records the size of the request body, which the published event retains as a model object.
+     *
+     * @param bytes the size, in UTF-16 code units of the JSON text
+     */
+    public void requestBytes(long bytes) {
+        if (isActive()) {
+            this.requestBytes = bytes;
+        }
+    }
+
+    /**
+     * Records the size of the response body of the latest exchange, which the published event
+     * retains as a model object.
+     *
+     * @param bytes the size of the body
+     */
+    public void responseBytes(long bytes) {
+        if (isActive()) {
+            this.responseBytes = bytes;
+        }
     }
 
     /**
@@ -119,7 +145,7 @@ public final class CallTrace {
             } else {
                 event.response(response);
             }
-            dispatcher.publish(event.build());
+            dispatcher.publish(event.build(), failure != null ? requestBytes : requestBytes + responseBytes);
         } catch (RuntimeException e) {
             LOGGER.log(Level.WARNING, "Publishing a call to the PEP listeners failed", e);
         }
@@ -136,7 +162,7 @@ public final class CallTrace {
         }
         try {
             publishAttempts();
-            dispatcher.publish(refresh.time(Instant.now()).build());
+            dispatcher.publish(refresh.time(Instant.now()).build(), responseBytes);
         } catch (RuntimeException e) {
             LOGGER.log(Level.WARNING, "Publishing a metadata refresh to the PEP listeners failed", e);
         }

@@ -364,6 +364,76 @@ class AuthZenClientListenerTest {
     }
 
     @Test
+    void anInlineExecutorDelaysNoSynchronouslyFailedCall() {
+        CountDownLatch release = new CountDownLatch(1);
+        PepListener blocked = new PepListener() {
+            @Override
+            public void onCallCompleted(CallCompleted<?, ?> event) {
+                try {
+                    release.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        };
+        pdp.respond(json(500, ""));
+        AuthZenClient client = AuthZenClient.builder()
+                .pdpUrl(pdp.url())
+                .discovery(false)
+                .maxRetries(0)
+                .circuitBreaker(CircuitBreakerOptions.builder().failureThreshold(1).build())
+                .listener(blocked)
+                .listenerExecutor(Runnable::run)
+                .build();
+
+        try {
+            // The second call fails before it starts, while the breaker is open, so its result is
+            // complete on the calling thread
+            assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+                assertThrows(PdpCommunicationException.class, () -> client.evaluate(REQUEST));
+                assertThrows(PdpCommunicationException.class, () -> client.evaluate(REQUEST));
+            });
+        } finally {
+            release.countDown();
+        }
+    }
+
+    @Test
+    void dropsCallsBeyondTheByteBudgetOfASlowListener() throws InterruptedException {
+        String context = "x".repeat(5 << 20);
+        pdp.respond(json(200, "{\"decision\": true, \"context\": {\"pad\": \"" + context + "\"}}"));
+        CountDownLatch release = new CountDownLatch(1);
+        List<CallCompleted<?, ?>> calls = new CopyOnWriteArrayList<>();
+        PepListener slow = new PepListener() {
+            @Override
+            public void onCallCompleted(CallCompleted<?, ?> event) {
+                try {
+                    release.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                calls.add(event);
+            }
+        };
+        AuthZenClient client = AuthZenClient.builder()
+                .pdpUrl(pdp.url())
+                .discovery(false)
+                .listener(slow)
+                .listenerQueueMaxBytes(AuthZenClient.Builder.MIN_LISTENER_QUEUE_MAX_BYTES)
+                .build();
+
+        // The first event is taken by the blocked listener; 16 MiB hold three more of 5 MiB each
+        for (int i = 0; i < 6; i++) {
+            assertTrue(client.evaluate(REQUEST).getDecision());
+        }
+        release.countDown();
+
+        awaitCondition(() -> calls.size() >= 3);
+        Thread.sleep(200);
+        assertTrue(calls.size() < 6, () -> calls.size() + " calls delivered");
+    }
+
+    @Test
     void aFailingListenerChangesNoDecisionAndGetsLaterEvents() {
         List<Object> seen = new CopyOnWriteArrayList<>();
         PepListener failing = new PepListener() {

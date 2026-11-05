@@ -259,8 +259,12 @@ AuthZenClient client = AuthZenClient.builder()
 - A listener can neither change nor delay a decision. Events are delivered after the caller has
   its result, on a separate thread, one at a time and in order. Use `listenerExecutor(...)` to
   pick the executor, for example `Executors.newVirtualThreadPerTaskExecutor()` on Java 21 or later.
-- Each listener has its own bounded queue (1024 events by default). A listener that cannot keep up
-  loses events rather than holding memory: first `AttemptCompleted` events, from 80% on.
+  The client never calls that executor from a caller's thread, so even one that runs tasks inline
+  cannot slow a caller down.
+- Each listener has its own queue, bounded both in events (1024 by default) and in the bytes they
+  retain, mostly PDP response bodies (64 MiB by default, `listenerQueueMaxBytes(...)`). A listener
+  that cannot keep up loses events rather than holding memory: first `AttemptCompleted` events,
+  from 80% on.
 - Personal data is masked by default, as in `toString()`: the subject id and the values of all
   properties and of the context become `***`. `eventContent(EventContent.defaults().include(...))`
   shows more, and `exclude(...)` masks more. Credentials and tokens are never part of an event.

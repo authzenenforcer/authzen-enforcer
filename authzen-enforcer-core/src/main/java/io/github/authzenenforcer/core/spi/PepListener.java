@@ -20,10 +20,12 @@ import java.util.Objects;
  *       never on the calling thread.</li>
  *   <li>Each listener gets its events one at a time and in order: the {@link AttemptCompleted}
  *       events of a call come before its {@link CallCompleted}.</li>
- *   <li>Each listener has its own bounded queue. When it fills up, events are dropped rather than
- *       held: from 80% on, {@link AttemptCompleted} and successful {@link MetadataRefresh} events;
- *       when it is full, every event. A listener that needs every event, such as an audit trail,
- *       should hand them off quickly, for example to its own durable queue.</li>
+ *   <li>Each listener has its own queue, bounded both in events and in the bytes they retain
+ *       (mostly PDP response bodies), so a slow listener cannot make the client hold unbounded
+ *       memory. When it fills up, events are dropped rather than held: from 80% of either bound
+ *       on, {@link AttemptCompleted} and successful {@link MetadataRefresh} events; when an event
+ *       would exceed a bound, that event. A listener that needs every event, such as an audit
+ *       trail, should hand them off quickly, for example to its own durable queue.</li>
  *   <li>An exception from a listener is logged and does not stop the delivery of later events.</li>
  * </ul>
  *

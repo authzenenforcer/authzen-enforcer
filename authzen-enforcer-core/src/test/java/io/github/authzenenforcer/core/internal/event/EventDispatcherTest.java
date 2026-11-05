@@ -33,6 +33,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.jupiter.api.Test;
 
@@ -40,6 +41,7 @@ class EventDispatcherTest {
 
     private static final URI ENDPOINT = URI.create("https://pdp.example.com/access/v1/evaluation");
     private static final int CAPACITY = 20;
+    private static final long MAX_BYTES = 1L << 30;
 
     /** Runs tasks only when told, so that tests decide when queues drain. */
     private static final class ManualExecutor implements Executor {
@@ -93,7 +95,8 @@ class EventDispatcherTest {
     private final Recorder recorder = new Recorder();
 
     private EventDispatcher dispatcher(PepListener... listeners) {
-        return EventDispatcher.create(List.of(listeners), executor, CAPACITY, EventContent.defaults());
+        return EventDispatcher.direct(List.of(listeners), executor, CAPACITY, MAX_BYTES, EventContent.defaults(),
+                System::nanoTime);
     }
 
     private static AttemptCompleted attempt(String requestId) {
@@ -147,7 +150,7 @@ class EventDispatcherTest {
 
     @Test
     void withoutListenersIsInactive() {
-        EventDispatcher none = EventDispatcher.create(List.of(), null, CAPACITY, EventContent.defaults());
+        EventDispatcher none = EventDispatcher.create(List.of(), null, CAPACITY, MAX_BYTES, EventContent.defaults());
 
         assertSame(EventDispatcher.NONE, none);
         assertFalse(none.isActive());
@@ -160,7 +163,7 @@ class EventDispatcherTest {
 
         dispatcher.publish(attempt("a"));
         dispatcher.publish(attempt("b"));
-        dispatcher.publish(call());
+        dispatcher.publish(call(), 0);
         assertTrue(recorder.seen.isEmpty());
 
         executor.runAll();
@@ -184,9 +187,10 @@ class EventDispatcherTest {
 
     @Test
     void makesWayForOtherListenersAfterABatch() {
-        EventDispatcher dispatcher = EventDispatcher.create(List.of(recorder), executor, 1000, EventContent.defaults());
+        EventDispatcher dispatcher = EventDispatcher.direct(List.of(recorder), executor, 1000, MAX_BYTES, EventContent.defaults(),
+                System::nanoTime);
         for (int i = 0; i < EventDispatcher.BATCH + 1; i++) {
-            dispatcher.publish(call());
+            dispatcher.publish(call(), 0);
         }
 
         executor.tasks.poll().run();
@@ -206,11 +210,11 @@ class EventDispatcherTest {
         }
 
         dispatcher.publish(attempt("dropped"));
-        dispatcher.publish(refresh(MetadataRefresh.Result.FRESH));
-        dispatcher.publish(refresh(MetadataRefresh.Result.DEFAULT_PATHS));
-        dispatcher.publish(refresh(MetadataRefresh.Result.FAILED));
+        dispatcher.publish(refresh(MetadataRefresh.Result.FRESH), 0);
+        dispatcher.publish(refresh(MetadataRefresh.Result.DEFAULT_PATHS), 0);
+        dispatcher.publish(refresh(MetadataRefresh.Result.FAILED), 0);
         dispatcher.publish(transition());
-        dispatcher.publish(call());
+        dispatcher.publish(call(), 0);
 
         assertEquals(3, dispatcher.dropped());
         executor.runAll();
@@ -223,10 +227,10 @@ class EventDispatcherTest {
     void dropsEveryEventWhenFull() {
         EventDispatcher dispatcher = dispatcher(recorder);
         for (int i = 0; i < CAPACITY; i++) {
-            dispatcher.publish(call());
+            dispatcher.publish(call(), 0);
         }
 
-        dispatcher.publish(call());
+        dispatcher.publish(call(), 0);
         dispatcher.publish(transition());
 
         assertEquals(2, dispatcher.dropped());
@@ -237,6 +241,93 @@ class EventDispatcherTest {
         dispatcher.publish(transition());
         executor.runAll();
         assertEquals("breaker", recorder.seen.get(CAPACITY));
+    }
+
+    @Test
+    void dropsAnEventThatWouldExceedTheByteBudget() {
+        long budget = 10 * EventDispatcher.EVENT_OVERHEAD_BYTES;
+        EventDispatcher dispatcher = EventDispatcher.direct(List.of(recorder), executor, CAPACITY, budget,
+                EventContent.defaults(), System::nanoTime);
+
+        // Each call counts six overheads, so the second one does not fit, while a small event does
+        dispatcher.publish(call(), 5 * EventDispatcher.EVENT_OVERHEAD_BYTES);
+        dispatcher.publish(call(), 5 * EventDispatcher.EVENT_OVERHEAD_BYTES);
+        dispatcher.publish(transition());
+
+        assertEquals(1, dispatcher.dropped());
+        executor.runAll();
+        assertEquals(List.of("call", "breaker"), recorder.seen);
+
+        // Delivered events give their bytes back
+        dispatcher.publish(call(), 5 * EventDispatcher.EVENT_OVERHEAD_BYTES);
+        executor.runAll();
+        assertEquals(List.of("call", "breaker", "call"), recorder.seen);
+    }
+
+    @Test
+    void dropsLowPriorityEventsFromEightyPercentOfTheByteBudget() {
+        long budget = 10 * EventDispatcher.EVENT_OVERHEAD_BYTES;
+        EventDispatcher dispatcher = EventDispatcher.direct(List.of(recorder), executor, CAPACITY, budget,
+                EventContent.defaults(), System::nanoTime);
+        dispatcher.publish(call(), 7 * EventDispatcher.EVENT_OVERHEAD_BYTES);
+
+        dispatcher.publish(attempt("dropped"));
+        dispatcher.publish(transition());
+
+        assertEquals(1, dispatcher.dropped());
+        executor.runAll();
+        assertEquals(List.of("call", "breaker"), recorder.seen);
+    }
+
+    @Test
+    void neverRunsAnIntegratorExecutorOnThePublishingThread() throws InterruptedException {
+        List<String> threads = new CopyOnWriteArrayList<>();
+        CountDownLatch delivered = new CountDownLatch(1);
+        PepListener listener = new PepListener() {
+            @Override
+            public void onCallCompleted(CallCompleted<?, ?> event) {
+                threads.add(Thread.currentThread().getName());
+                delivered.countDown();
+            }
+        };
+        // Runs every task inline, on the thread that calls execute
+        EventDispatcher dispatcher = EventDispatcher.create(List.of(listener), Runnable::run, CAPACITY, MAX_BYTES,
+                EventContent.defaults());
+
+        dispatcher.publish(call(), 0);
+
+        assertTrue(delivered.await(5, TimeUnit.SECONDS));
+        assertEquals(List.of("authzen-enforcer-events-handoff"), threads);
+    }
+
+    @Test
+    void keepsEventsAHandedOffExecutorRejected() throws InterruptedException {
+        CountDownLatch delivered = new CountDownLatch(2);
+        PepListener listener = new PepListener() {
+            @Override
+            public void onAttemptCompleted(AttemptCompleted event) {
+                delivered.countDown();
+            }
+        };
+        AtomicBoolean reject = new AtomicBoolean(true);
+        Executor executor = task -> {
+            if (reject.getAndSet(false)) {
+                throw new RejectedExecutionException("rejected");
+            }
+            task.run();
+        };
+        EventDispatcher dispatcher = EventDispatcher.create(List.of(listener), executor, CAPACITY, MAX_BYTES,
+                EventContent.defaults());
+
+        dispatcher.publish(attempt("a"));
+        // The rejection happens on the hand-off thread; wait until the queue can be scheduled again
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (delivered.getCount() == 2 && System.nanoTime() - deadline < 0) {
+            dispatcher.publish(attempt("b"));
+            Thread.sleep(10);
+        }
+
+        assertTrue(delivered.await(5, TimeUnit.SECONDS));
     }
 
     @Test
@@ -302,9 +393,9 @@ class EventDispatcherTest {
                 delivered.countDown();
             }
         };
-        EventDispatcher dispatcher = EventDispatcher.create(List.of(listener), null, CAPACITY, EventContent.defaults());
+        EventDispatcher dispatcher = EventDispatcher.create(List.of(listener), null, CAPACITY, MAX_BYTES, EventContent.defaults());
 
-        dispatcher.publish(call());
+        dispatcher.publish(call(), 0);
 
         assertTrue(delivered.await(5, TimeUnit.SECONDS));
         assertTrue(threads.get(0).isDaemon());
