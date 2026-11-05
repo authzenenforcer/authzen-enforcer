@@ -2,9 +2,12 @@ package io.github.authzenenforcer.core.internal.client;
 
 import io.github.authzenenforcer.core.PdpCommunicationException;
 import io.github.authzenenforcer.core.client.CircuitBreakerOptions;
+import io.github.authzenenforcer.core.event.BreakerTransition;
+import io.github.authzenenforcer.core.internal.event.EventDispatcher;
 
 import java.lang.System.Logger.Level;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Objects;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.DoubleSupplier;
@@ -22,7 +25,8 @@ import java.util.function.DoubleSupplier;
  * <p>Callers pass the time, so that a failing clock is handled where the caller can fail its own
  * request, and they run the returned log action after completing their futures, so that a slow or
  * failing logger can neither leave anyone waiting nor change a result. Messages are built when
- * the log action runs, never under the lock.
+ * the log action runs, never under the lock; the action also publishes the transition to the
+ * listeners.
  *
  * <p>Instances are thread-safe.
  */
@@ -39,6 +43,8 @@ final class CircuitBreaker {
     private enum State { CLOSED, OPEN, HALF_OPEN }
 
     private final String name;
+    private final BreakerTransition.Breaker kind;
+    private final EventDispatcher events;
     private final boolean enabled;
     private final int threshold;
     private final long openNanos;
@@ -63,7 +69,23 @@ final class CircuitBreaker {
      * @param random  uniform values in {@code [0, 1)} for the jitter
      */
     CircuitBreaker(String name, CircuitBreakerOptions options, DoubleSupplier random) {
+        this(name, BreakerTransition.Breaker.AUTHORIZATION_API, options, random, EventDispatcher.NONE);
+    }
+
+    /**
+     * Creates a breaker that publishes its transitions.
+     *
+     * @param name    what the breaker protects, for messages, such as {@code "PDP metadata discovery"}
+     * @param kind    what the breaker protects, for events
+     * @param options the options; disabled options let every call through
+     * @param random  uniform values in {@code [0, 1)} for the jitter
+     * @param events  where transitions are published
+     */
+    CircuitBreaker(String name, BreakerTransition.Breaker kind, CircuitBreakerOptions options, DoubleSupplier random,
+            EventDispatcher events) {
         this.name = Objects.requireNonNull(name, "name must not be null");
+        this.kind = Objects.requireNonNull(kind, "kind must not be null");
+        this.events = Objects.requireNonNull(events, "events must not be null");
         this.enabled = options.isEnabled();
         this.threshold = options.getFailureThreshold();
         this.openNanos = options.getOpenDuration().toNanos();
@@ -119,14 +141,19 @@ final class CircuitBreaker {
             if (permit.generation() != generation) {
                 return NO_LOG;
             }
-            boolean wasOpen = state != State.CLOSED;
+            State previous = state;
             state = State.CLOSED;
             failures = 0;
             opens = 0;
             probing = false;
             lastFailure = null;
-            return wasOpen ? () -> LOGGER.log(Level.INFO, name + " recovered; the circuit breaker is closed again")
-                    : NO_LOG;
+            if (previous == State.CLOSED) {
+                return NO_LOG;
+            }
+            return () -> {
+                publish(transition(previous, BreakerTransition.State.CLOSED));
+                LOGGER.log(Level.INFO, name + " recovered; the circuit breaker is closed again");
+            };
         } finally {
             lock.unlock();
         }
@@ -181,6 +208,7 @@ final class CircuitBreaker {
 
     // Called with the lock held
     private Runnable open(long now) {
+        State previous = state;
         opens++;
         long nominal = openNanos;
         for (int i = 1; i < opens && nominal < maxOpenNanos; i++) {
@@ -197,10 +225,29 @@ final class CircuitBreaker {
         // The message is built when the log action runs, outside the lock
         boolean first = opens == 1;
         Throwable failure = lastFailure;
-        return () -> LOGGER.log(Level.WARNING, () -> name + " failed "
-                + (first ? threshold + " times in a row" : "again after recovery probe")
-                + "; the circuit breaker is open for " + Duration.ofNanos(duration).toMillis() + " ms: "
-                + describe(failure));
+        return () -> {
+            // Published first: a failing logger must not cost the listeners the event
+            publish(transition(previous, BreakerTransition.State.OPEN)
+                    .openDuration(Duration.ofNanos(duration))
+                    .failure(failure));
+            LOGGER.log(Level.WARNING, () -> name + " failed "
+                    + (first ? threshold + " times in a row" : "again after recovery probe")
+                    + "; the circuit breaker is open for " + Duration.ofNanos(duration).toMillis() + " ms: "
+                    + describe(failure));
+        };
+    }
+
+    private BreakerTransition.Builder transition(State from, BreakerTransition.State to) {
+        return BreakerTransition.builder()
+                .breaker(kind)
+                .from(BreakerTransition.State.valueOf(from.name()))
+                .to(to);
+    }
+
+    private void publish(BreakerTransition.Builder transition) {
+        if (events.isActive()) {
+            events.publish(transition.time(Instant.now()).build());
+        }
     }
 
     private PdpCommunicationException rejection(String detail) {

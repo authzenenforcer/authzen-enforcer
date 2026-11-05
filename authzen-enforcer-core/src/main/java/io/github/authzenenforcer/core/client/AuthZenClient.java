@@ -2,6 +2,8 @@ package io.github.authzenenforcer.core.client;
 
 import io.github.authzenenforcer.core.AuthZenException;
 import io.github.authzenenforcer.core.auth.CredentialProvider;
+import io.github.authzenenforcer.core.event.EventContent;
+import io.github.authzenenforcer.core.internal.event.EventDispatcher;
 import io.github.authzenenforcer.core.internal.client.DefaultAuthZenClient;
 import io.github.authzenenforcer.core.internal.client.EndpointOverrides;
 import io.github.authzenenforcer.core.model.Action;
@@ -17,13 +19,17 @@ import io.github.authzenenforcer.core.model.SearchResponse;
 import io.github.authzenenforcer.core.model.Subject;
 import io.github.authzenenforcer.core.model.SubjectSearchRequest;
 import io.github.authzenenforcer.core.spi.JsonCodec;
+import io.github.authzenenforcer.core.spi.PepListener;
 
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Flow;
 import java.util.function.LongSupplier;
 import java.util.stream.Stream;
@@ -389,6 +395,15 @@ public interface AuthZenClient {
         /** Highest accepted number of retries. */
         public static final int MAX_RETRIES_LIMIT = 10;
 
+        /** Default number of events each listener's queue holds. */
+        public static final int DEFAULT_LISTENER_QUEUE_CAPACITY = 1024;
+
+        /** Smallest accepted listener queue capacity. */
+        public static final int MIN_LISTENER_QUEUE_CAPACITY = 16;
+
+        /** Largest accepted listener queue capacity. */
+        public static final int MAX_LISTENER_QUEUE_CAPACITY = 1 << 20;
+
         private URI pdpUrl;
         private URI evaluationEndpoint;
         private URI evaluationsEndpoint;
@@ -406,6 +421,10 @@ public interface AuthZenClient {
         private CircuitBreakerOptions circuitBreaker = CircuitBreakerOptions.defaults();
         private PaginationOptions pagination = PaginationOptions.defaults();
         private LongSupplier clock = System::nanoTime;
+        private final List<PepListener> listeners = new ArrayList<>();
+        private Executor listenerExecutor;
+        private int listenerQueueCapacity = DEFAULT_LISTENER_QUEUE_CAPACITY;
+        private EventContent eventContent = EventContent.defaults();
 
         private Builder() {
         }
@@ -681,6 +700,66 @@ public interface AuthZenClient {
         }
 
         /**
+         * Adds a listener for metrics, tracing or audit trails. Listeners get events in the order
+         * they were added, each on its own queue; see {@link PepListener} for the guarantees.
+         *
+         * @param listener the listener
+         * @return this builder
+         */
+        public Builder listener(PepListener listener) {
+            listeners.add(Objects.requireNonNull(listener, "listener must not be null"));
+            return this;
+        }
+
+        /**
+         * Sets the executor that delivers events to the listeners. By default a single daemon
+         * thread delivers them, which ends when it has been idle for a while. On Java 21 or later,
+         * {@code Executors.newVirtualThreadPerTaskExecutor()} delivers them on virtual threads.
+         *
+         * <p>Each listener runs on at most one task at a time, whatever the executor. An executor
+         * that rejects a task delays the events until the next one is published; one that runs
+         * tasks on the calling thread delays the caller's further work, though not its result.
+         *
+         * @param executor the executor
+         * @return this builder
+         */
+        public Builder listenerExecutor(Executor executor) {
+            this.listenerExecutor = Objects.requireNonNull(executor, "executor must not be null");
+            return this;
+        }
+
+        /**
+         * Sets how many events each listener's queue holds. Defaults to
+         * {@link #DEFAULT_LISTENER_QUEUE_CAPACITY}. From 80% on, low-priority events are dropped;
+         * see {@link PepListener}.
+         *
+         * @param capacity between {@link #MIN_LISTENER_QUEUE_CAPACITY} and
+         *                 {@link #MAX_LISTENER_QUEUE_CAPACITY}
+         * @return this builder
+         */
+        public Builder listenerQueueCapacity(int capacity) {
+            if (capacity < MIN_LISTENER_QUEUE_CAPACITY || capacity > MAX_LISTENER_QUEUE_CAPACITY) {
+                throw new IllegalArgumentException("listenerQueueCapacity must be between "
+                        + MIN_LISTENER_QUEUE_CAPACITY + " and " + MAX_LISTENER_QUEUE_CAPACITY);
+            }
+            this.listenerQueueCapacity = capacity;
+            return this;
+        }
+
+        /**
+         * Sets which values of requests and responses the listeners see masked. Defaults to
+         * {@link EventContent#defaults()}, which masks personal data the way the
+         * {@code toString()} of the model types does.
+         *
+         * @param content the content
+         * @return this builder
+         */
+        public Builder eventContent(EventContent content) {
+            this.eventContent = Objects.requireNonNull(content, "content must not be null");
+            return this;
+        }
+
+        /**
          * Builds the client.
          *
          * @return the client
@@ -708,7 +787,8 @@ public interface AuthZenClient {
             EndpointOverrides overrides = new EndpointOverrides(evaluationEndpoint, evaluationsEndpoint,
                     searchSubjectEndpoint, searchResourceEndpoint, searchActionEndpoint);
             return new DefaultAuthZenClient(pdpUrl, overrides, credentials, jsonCodec, client, requestTimeout,
-                    maxRetries, discovery ? discoveryOptions : null, circuitBreaker, pagination, clock);
+                    maxRetries, discovery ? discoveryOptions : null, circuitBreaker, pagination, clock,
+                    EventDispatcher.create(listeners, listenerExecutor, listenerQueueCapacity, eventContent));
         }
 
         private static Duration requirePositive(Duration duration, String name) {
