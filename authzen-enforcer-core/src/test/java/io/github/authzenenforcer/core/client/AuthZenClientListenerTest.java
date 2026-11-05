@@ -146,16 +146,19 @@ class AuthZenClientListenerTest {
 
         assertTrue(client.evaluate(REQUEST).getDecision());
 
-        List<Object> events = recorder.await(4);
-        assertEquals(4, events.size());
-        AttemptCompleted metadataAttempt = assertInstanceOf(AttemptCompleted.class, events.get(0));
-        assertEquals(Operation.METADATA, metadataAttempt.getOperation());
+        // The metadata request and the evaluation are separate calls, each with its events in order
+        List<Object> all = recorder.await(4);
+        assertEquals(4, all.size());
+        List<Object> metadataEvents = all.stream().filter(event -> event instanceof MetadataRefresh
+                || event instanceof AttemptCompleted a && a.getOperation() == Operation.METADATA).toList();
+        List<Object> events = all.stream().filter(event -> !metadataEvents.contains(event)).toList();
+        AttemptCompleted metadataAttempt = assertInstanceOf(AttemptCompleted.class, metadataEvents.get(0));
         assertEquals("GET", metadataAttempt.getMethod());
         assertEquals(404, metadataAttempt.getStatus().getAsInt());
-        MetadataRefresh refresh = assertInstanceOf(MetadataRefresh.class, events.get(1));
+        MetadataRefresh refresh = assertInstanceOf(MetadataRefresh.class, metadataEvents.get(1));
         assertEquals(MetadataRefresh.Result.DEFAULT_PATHS, refresh.getResult());
 
-        AttemptCompleted attempt = assertInstanceOf(AttemptCompleted.class, events.get(2));
+        AttemptCompleted attempt = assertInstanceOf(AttemptCompleted.class, events.get(0));
         assertEquals(Operation.EVALUATION, attempt.getOperation());
         assertEquals("POST", attempt.getMethod());
         assertEquals(1, attempt.getAttempt());
@@ -164,7 +167,7 @@ class AuthZenClientListenerTest {
         assertEquals(pdp.requests().get(0).header("X-Request-ID"), attempt.getRequestId());
         assertEquals(pdp.url().resolve("/access/v1/evaluation"), attempt.getEndpoint());
 
-        CallCompleted<EvaluationRequest, EvaluationResponse> call = evaluation(events.get(3));
+        CallCompleted<EvaluationRequest, EvaluationResponse> call = evaluation(events.get(1));
         assertEquals(Outcome.PERMIT, call.getOutcome());
         assertEquals(List.of(attempt.getRequestId()), call.getRequestIds());
         assertEquals(attempt.getEndpoint(), call.getEndpoint().orElseThrow());
@@ -288,11 +291,11 @@ class AuthZenClientListenerTest {
         assertEquals(BreakerTransition.State.CLOSED, transition.getFrom());
         assertEquals(BreakerTransition.State.OPEN, transition.getTo());
         assertTrue(transition.getOpenDuration().isPresent());
+        // Only the events of one call are ordered; the second call may be reported first
         List<CallCompleted> calls = recorder.of(CallCompleted.class);
         assertEquals(2, calls.size());
-        assertEquals(1, calls.get(0).getAttempts());
-        assertEquals(0, calls.get(1).getAttempts());
-        assertEquals(Outcome.FAILED, calls.get(1).getOutcome());
+        assertEquals(List.of(0, 1), calls.stream().map(CallCompleted::getAttempts).sorted().toList());
+        assertTrue(calls.stream().allMatch(call -> call.getOutcome() == Outcome.FAILED));
         assertEquals(1, pdp.requests().size());
     }
 
