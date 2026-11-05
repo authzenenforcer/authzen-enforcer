@@ -117,6 +117,16 @@ public final class EventContent {
         return group != null && rules.getOrDefault(group + WILDCARD, false);
     }
 
+    // For names from requests and responses, which may be any string, even an empty one or one
+    // that only a rule for another name could match; such a name follows the group's wildcard
+    boolean isMasked(String group, String name) {
+        Boolean exact = name.isEmpty() || name.equals(WILDCARD) ? null : rules.get(group + name);
+        if (exact != null) {
+            return exact;
+        }
+        return rules.getOrDefault(group + WILDCARD, false);
+    }
+
     // Returns the group prefix of a property or context path, or null for an id
     private static String check(String path) {
         Objects.requireNonNull(path, "path must not be null");

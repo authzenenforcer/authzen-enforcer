@@ -133,6 +133,19 @@ class CallCompletedTest {
     }
 
     @Test
+    void masksNamesThatNoPathCanName() {
+        Context odd = Context.builder().put("", "a").put("*", "b").put("x.y", "c").build();
+        CallCompleted<EvaluationRequest, EvaluationResponse> event =
+                builder(Operation.EVALUATION, EvaluationRequest.of(ALICE, READ, ACCOUNT))
+                        .response(EvaluationResponse.of(true, odd))
+                        .content(EventContent.defaults().include("context.x.y"))
+                        .build();
+
+        assertEquals(Map.of("", MASK, "*", MASK, "x.y", "c"),
+                event.getResponse().orElseThrow().getContext().orElseThrow().asMap());
+    }
+
+    @Test
     void readsTheTypesOfItsOwnOperationOnly() {
         CallCompleted<?, ?> event = builder(Operation.EVALUATION, EvaluationRequest.of(ALICE, READ, ACCOUNT))
                 .response(EvaluationResponse.of(true)).build();

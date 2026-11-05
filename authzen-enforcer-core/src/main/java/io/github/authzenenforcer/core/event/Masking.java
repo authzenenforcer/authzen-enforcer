@@ -72,7 +72,7 @@ final class Masking {
 
     private static Map<String, Object> values(Map<String, Object> values, String group, EventContent content) {
         Map<String, Object> masked = new LinkedHashMap<>();
-        values.forEach((name, value) -> masked.put(name, content.isMasked(group + name) ? EventContent.MASK : value));
+        values.forEach((name, value) -> masked.put(name, content.isMasked(group, name) ? EventContent.MASK : value));
         return masked;
     }
 
