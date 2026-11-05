@@ -26,7 +26,10 @@ import java.util.Objects;
  *       on, {@link AttemptCompleted} and successful {@link MetadataRefresh} events; when an event
  *       would exceed a bound, that event. A listener that needs every event, such as an audit
  *       trail, should hand them off quickly, for example to its own durable queue.</li>
- *   <li>An exception from a listener is logged and does not stop the delivery of later events.</li>
+ *   <li>An exception from a listener is logged and does not stop the delivery of later events.
+ *       So are a {@link LinkageError}, an {@link AssertionError} and a
+ *       {@link StackOverflowError}; other errors, such as an {@link OutOfMemoryError}, end the
+ *       delivery task and reach the executor.</li>
  * </ul>
  *
  * <p>All methods do nothing by default, so a listener implements the ones it needs.
@@ -69,7 +72,7 @@ public interface PepListener {
 
     /**
      * Combines listeners into one that calls each of them in order. An exception from one is
-     * logged, and the others are still called.
+     * logged, and the others are still called; so are the errors listed above.
      *
      * @param listeners the listeners
      * @return the combined listener
@@ -101,7 +104,7 @@ public interface PepListener {
             private void call(PepListener listener, Runnable delivery) {
                 try {
                     delivery.run();
-                } catch (RuntimeException e) {
+                } catch (RuntimeException | LinkageError | AssertionError | StackOverflowError e) {
                     System.getLogger(PepListener.class.getName()).log(Level.WARNING,
                             "PEP listener " + listener.getClass().getName() + " failed", e);
                 }

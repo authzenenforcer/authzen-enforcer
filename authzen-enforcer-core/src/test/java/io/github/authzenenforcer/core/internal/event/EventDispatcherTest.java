@@ -348,14 +348,41 @@ class EventDispatcherTest {
     }
 
     @Test
-    void keepsDeliveringAfterAnErrorFromAListener() {
+    void containsErrorsThatAFaultyListenerCauses() {
+        List<String> seen = new ArrayList<>();
+        PepListener failing = new PepListener() {
+            @Override
+            public void onAttemptCompleted(AttemptCompleted event) {
+                seen.add(event.getRequestId());
+                switch (event.getRequestId()) {
+                    case "a" -> throw new AssertionError("listener error");
+                    case "b" -> throw new NoClassDefFoundError("listener error");
+                    case "c" -> throw new StackOverflowError();
+                    default -> { }
+                }
+            }
+        };
+        EventDispatcher dispatcher = dispatcher(failing, PepListener.composite(failing, recorder));
+        for (String id : List.of("a", "b", "c", "d")) {
+            dispatcher.publish(attempt(id));
+        }
+
+        executor.runAll();
+
+        // The listener's own queue drains first, then the composite's
+        assertEquals(List.of("a", "b", "c", "d", "a", "b", "c", "d"), seen);
+        assertEquals(List.of("a", "b", "c", "d"), recorder.seen);
+    }
+
+    @Test
+    void keepsDeliveringAfterAnErrorItDoesNotContain() {
         List<String> seen = new ArrayList<>();
         PepListener failing = new PepListener() {
             @Override
             public void onAttemptCompleted(AttemptCompleted event) {
                 seen.add(event.getRequestId());
                 if (seen.size() == 1) {
-                    throw new AssertionError("listener error");
+                    throw new OutOfMemoryError("listener error");
                 }
             }
         };
@@ -363,7 +390,7 @@ class EventDispatcherTest {
         dispatcher.publish(attempt("a"));
         dispatcher.publish(attempt("b"));
 
-        assertThrows(AssertionError.class, () -> executor.tasks.poll().run());
+        assertThrows(OutOfMemoryError.class, () -> executor.tasks.poll().run());
         executor.runAll();
 
         assertEquals(List.of("a", "b"), seen);

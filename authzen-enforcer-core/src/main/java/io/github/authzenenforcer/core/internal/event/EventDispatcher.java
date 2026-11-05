@@ -345,10 +345,12 @@ public final class EventDispatcher {
             }
         }
 
+        // Errors that a faulty listener causes are contained as well, so that they reach the log
+        // instead of ending the delivery thread; other errors, such as running out of memory, are not
         private void deliver(Consumer<PepListener> delivery) {
             try {
                 delivery.accept(listener);
-            } catch (RuntimeException e) {
+            } catch (RuntimeException | LinkageError | AssertionError | StackOverflowError e) {
                 LOGGER.log(Level.WARNING, "PEP listener " + listener.getClass().getName() + " failed", e);
             }
         }
