@@ -6,10 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.authzenenforcer.core.AuthZenException;
 import io.github.authzenenforcer.core.PdpCommunicationException;
 import io.github.authzenenforcer.core.auth.AccessCredential;
 import io.github.authzenenforcer.core.auth.CredentialProvider;
@@ -28,12 +30,14 @@ import io.github.authzenenforcer.core.model.Resource;
 import io.github.authzenenforcer.core.model.SearchResponse;
 import io.github.authzenenforcer.core.model.Subject;
 import io.github.authzenenforcer.core.model.SubjectSearchRequest;
+import io.github.authzenenforcer.core.spi.JsonCodec;
 import io.github.authzenenforcer.core.spi.PepListener;
 
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -431,6 +435,42 @@ class AuthZenClientListenerTest {
         awaitCondition(() -> calls.size() >= 3);
         Thread.sleep(200);
         assertTrue(calls.size() < 6, () -> calls.size() + " calls delivered");
+    }
+
+    /** The default codec, except that reading a response fails with an Error, as a buggy codec might. */
+    private static final JsonCodec BROKEN_READER = new JsonCodec() {
+        @Override
+        public String write(Object value) {
+            return JsonCodec.defaultCodec().write(value);
+        }
+
+        @Override
+        public Object read(String json) {
+            throw new AssertionError("codec bug");
+        }
+    };
+
+    @Test
+    void givesTheCallerAndTheListenersTheSameExceptionForAnUnexpectedFailure() {
+        AuthZenClient client = builder().discovery(false).jsonCodec(BROKEN_READER).build();
+
+        AuthZenException thrown = assertThrows(AuthZenException.class, () -> client.evaluate(REQUEST));
+
+        assertEquals("Evaluation failed unexpectedly", thrown.getMessage());
+        assertInstanceOf(AssertionError.class, thrown.getCause());
+        CallCompleted<EvaluationRequest, EvaluationResponse> call = evaluation(recorder.await(2).get(1));
+        assertSame(thrown, call.getFailure().orElseThrow());
+    }
+
+    @Test
+    void failsAsynchronousCallsWithAnAuthZenExceptionForAnUnexpectedFailure() {
+        AuthZenClient client = builder().discovery(false).jsonCodec(BROKEN_READER).build();
+
+        CompletionException thrown = assertThrows(CompletionException.class,
+                () -> client.evaluateAsync(REQUEST).toCompletableFuture().join());
+
+        AuthZenException cause = assertInstanceOf(AuthZenException.class, thrown.getCause());
+        assertInstanceOf(AssertionError.class, cause.getCause());
     }
 
     @Test
