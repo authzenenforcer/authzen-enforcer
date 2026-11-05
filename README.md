@@ -267,7 +267,9 @@ AuthZenClient client = AuthZenClient.builder()
   from 80% on.
 - Personal data is masked by default, as in `toString()`: the subject id and the values of all
   properties and of the context become `***`. `eventContent(EventContent.defaults().include(...))`
-  shows more, and `exclude(...)` masks more. Credentials and tokens are never part of an event.
+  shows more, and `exclude(...)` masks more. Batch options and page details (such as page tokens)
+  always stay visible, so keep personal data out of them. Credentials and tokens are never part
+  of an event.
 
 ### Trying it locally
 

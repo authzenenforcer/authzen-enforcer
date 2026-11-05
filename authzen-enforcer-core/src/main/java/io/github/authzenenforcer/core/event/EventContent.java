@@ -11,9 +11,9 @@ import java.util.TreeMap;
  * sees in {@link CallCompleted} events, and which it sees masked.
  *
  * <p>A masked value is replaced by {@link #MASK}; its name stays visible, as in the
- * {@code toString()} of the model types. {@link #defaults()} masks the same values as
- * {@code toString()}: the subject id and the values of all properties and of the context. Paths
- * name the values:
+ * {@code toString()} of the model types. {@link #defaults()} masks the personal data that
+ * {@code toString()} masks: the subject id and the values of all properties and of the context.
+ * Paths name the values:
  * <ul>
  *   <li>{@code subject.id}, {@code resource.id}</li>
  *   <li>{@code subject.properties.<name>}, {@code resource.properties.<name>},
@@ -32,8 +32,10 @@ import java.util.TreeMap;
  *         .exclude("resource.id");                // stricter than the default
  * }</pre>
  *
- * <p>Types, action names, decisions and page details are always visible. Credentials, tokens and
- * DPoP proofs are never part of an event, whatever the content says.
+ * <p>Types, action names, decisions, the options of a batch evaluation, and page details (tokens,
+ * limits, counts and page properties) are always visible, although {@code toString()} masks the
+ * option values, page tokens and page properties. Keep personal data out of them. Credentials,
+ * tokens and DPoP proofs are never part of an event, whatever the content says.
  *
  * <p>Instances are immutable and thread-safe.
  */
@@ -62,8 +64,8 @@ public final class EventContent {
     }
 
     /**
-     * Returns the default content, which masks what the {@code toString()} of the model types
-     * masks: {@code subject.id}, {@code subject.properties.*}, {@code resource.properties.*},
+     * Returns the default content, which masks the personal data that the {@code toString()} of
+     * the model types masks: {@code subject.id}, {@code subject.properties.*}, {@code resource.properties.*},
      * {@code action.properties.*} and {@code context.*}.
      *
      * @return the default content
