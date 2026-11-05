@@ -383,6 +383,37 @@ class EventDispatcherTest {
     }
 
     @Test
+    void aBlockedListenerHoldsUpNoOtherByDefault() throws InterruptedException {
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch delivered = new CountDownLatch(1);
+        PepListener blocked = new PepListener() {
+            @Override
+            public void onCallCompleted(CallCompleted<?, ?> event) {
+                try {
+                    release.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        };
+        PepListener other = new PepListener() {
+            @Override
+            public void onCallCompleted(CallCompleted<?, ?> event) {
+                delivered.countDown();
+            }
+        };
+        EventDispatcher dispatcher = EventDispatcher.create(List.of(blocked, other), null, CAPACITY, MAX_BYTES,
+                EventContent.defaults());
+
+        try {
+            dispatcher.publish(call(), 0);
+            assertTrue(delivered.await(5, TimeUnit.SECONDS));
+        } finally {
+            release.countDown();
+        }
+    }
+
+    @Test
     void usesADaemonThreadByDefault() throws InterruptedException {
         List<Thread> threads = new CopyOnWriteArrayList<>();
         CountDownLatch delivered = new CountDownLatch(1);

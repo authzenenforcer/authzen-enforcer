@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 /**
  * Hands events to the listeners of a client without ever blocking or failing the publisher.
@@ -64,10 +65,10 @@ public final class EventDispatcher {
         this.clock = System::nanoTime;
     }
 
-    private EventDispatcher(List<PepListener> listeners, Executor target, int capacity, long maxBytes,
+    private EventDispatcher(List<PepListener> listeners, Supplier<Executor> targets, int capacity, long maxBytes,
             EventContent content, LongSupplier clock) {
         this.queues = listeners.stream()
-                .map(listener -> new ListenerQueue(listener, target, capacity, maxBytes))
+                .map(listener -> new ListenerQueue(listener, targets.get(), capacity, maxBytes))
                 .toList();
         this.content = Objects.requireNonNull(content, "content must not be null");
         this.clock = clock;
@@ -77,8 +78,8 @@ public final class EventDispatcher {
      * Creates a dispatcher.
      *
      * @param listeners the listeners; none gives {@link #NONE}
-     * @param executor  the executor that delivers events, or {@code null} for a single daemon thread
-     *                  that ends when it has been idle for a while
+     * @param executor  the executor that delivers events, or {@code null} for a daemon thread per
+     *                  listener that ends when it has been idle for a while
      * @param capacity  how many events each listener's queue holds
      * @param maxBytes  how many bytes the events in each listener's queue may retain, approximately
      * @param content   which values events mask
@@ -94,8 +95,11 @@ public final class EventDispatcher {
         if (listeners.isEmpty()) {
             return NONE;
         }
-        return direct(listeners, executor != null ? handedOff(executor) : daemonThread("authzen-enforcer-events"),
-                capacity, maxBytes, content, clock);
+        Executor handedOff = executor != null ? handedOff(executor) : null;
+        // By default every listener has its own thread, so that one that blocks stalls no other
+        Supplier<Executor> targets = handedOff != null ? () -> handedOff
+                : () -> daemonThread("authzen-enforcer-events");
+        return new EventDispatcher(List.copyOf(listeners), targets, capacity, maxBytes, content, clock);
     }
 
     // Lets tests in this package run drain tasks by hand, without the hand-off thread
@@ -104,7 +108,7 @@ public final class EventDispatcher {
         if (listeners.isEmpty()) {
             return NONE;
         }
-        return new EventDispatcher(List.copyOf(listeners), target, capacity, maxBytes, content, clock);
+        return new EventDispatcher(List.copyOf(listeners), () -> target, capacity, maxBytes, content, clock);
     }
 
     private static Executor daemonThread(String name) {

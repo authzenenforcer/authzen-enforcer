@@ -722,8 +722,9 @@ public interface AuthZenClient {
         }
 
         /**
-         * Sets the executor that delivers events to the listeners. By default a single daemon
-         * thread delivers them, which ends when it has been idle for a while. On Java 21 or later,
+         * Sets the executor that delivers events to the listeners. By default each listener has
+         * its own daemon thread, which ends when it has been idle for a while, so that a listener
+         * that blocks holds up no other. On Java 21 or later,
          * {@code Executors.newVirtualThreadPerTaskExecutor()} delivers them on virtual threads.
          *
          * <p>Each listener runs on at most one task at a time, whatever the executor. The client
