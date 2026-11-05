@@ -205,7 +205,7 @@ public final class EventDispatcher {
         for (ListenerQueue queue : queues) {
             try {
                 if (!queue.offer(delivery, low, weight)) {
-                    onDropped();
+                    onDropped(queue);
                 }
             } catch (RuntimeException e) {
                 // A publisher must never fail; this only guards against a broken executor
@@ -223,11 +223,11 @@ public final class EventDispatcher {
         return dropped.get();
     }
 
-    private void onDropped() {
+    private void onDropped(ListenerQueue queue) {
         long count = dropped.incrementAndGet();
         if (dropWarnings.allow()) {
-            LOGGER.log(Level.WARNING, "A PEP listener cannot keep up; " + count
-                    + " events dropped so far. Listeners should hand events off quickly");
+            LOGGER.log(Level.WARNING, "PEP listener " + queue.listenerName() + " cannot keep up; " + count
+                    + " events dropped so far for all listeners. Listeners should hand events off quickly");
         }
     }
 
@@ -342,6 +342,10 @@ public final class EventDispatcher {
                 rejected();
                 throw e;
             }
+        }
+
+        String listenerName() {
+            return listener.getClass().getName();
         }
 
         /** Called when the executor did not take the drain task. */

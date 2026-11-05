@@ -232,10 +232,14 @@ class EventDispatcherTest {
             dispatcher.publish(call(), 0);
         }
 
+        TestLoggerFinder.clearRecords();
         dispatcher.publish(call(), 0);
         dispatcher.publish(transition());
 
         assertEquals(2, dispatcher.dropped());
+        assertTrue(TestLoggerFinder.records().stream()
+                .anyMatch(r -> r.contains("PEP listener " + Recorder.class.getName() + " cannot keep up")),
+                TestLoggerFinder.records()::toString);
         executor.runAll();
         assertEquals(CAPACITY, recorder.seen.size());
 
