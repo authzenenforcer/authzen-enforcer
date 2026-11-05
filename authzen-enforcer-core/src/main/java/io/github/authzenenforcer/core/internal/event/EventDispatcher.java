@@ -296,7 +296,14 @@ public final class EventDispatcher {
                 size.decrementAndGet();
                 return false;
             }
-            queue.add(new Entry(delivery, weight));
+            try {
+                queue.add(new Entry(delivery, weight));
+            } catch (RuntimeException | Error e) {
+                // Give the room back, so that a failed add cannot fill the queue for good
+                size.decrementAndGet();
+                bytes.addAndGet(-weight);
+                throw e;
+            }
             schedule();
             return true;
         }
