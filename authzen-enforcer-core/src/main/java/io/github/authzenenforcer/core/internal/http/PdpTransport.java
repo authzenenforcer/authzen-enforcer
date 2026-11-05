@@ -6,6 +6,8 @@ import io.github.authzenenforcer.core.PdpCommunicationException;
 import io.github.authzenenforcer.core.PdpProtocolException;
 import io.github.authzenenforcer.core.auth.AccessCredential;
 import io.github.authzenenforcer.core.auth.CredentialProvider;
+import io.github.authzenenforcer.core.event.AttemptCompleted;
+import io.github.authzenenforcer.core.internal.event.CallTrace;
 import io.github.authzenenforcer.core.internal.json.JsonParser;
 import io.github.authzenenforcer.core.spi.JsonCodec;
 
@@ -23,6 +25,7 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -85,10 +88,11 @@ public final class PdpTransport {
      *
      * @param endpoint the endpoint URL
      * @param body     the request body as a JSON tree
+     * @param trace    records every HTTP exchange
      * @return a future completed with the parsed response, or exceptionally with an
      *         {@link AuthZenException}
      */
-    public CompletableFuture<Object> post(URI endpoint, Object body) {
+    public CompletableFuture<Object> post(URI endpoint, Object body, CallTrace trace) {
         String json;
         try {
             json = codec.write(body);
@@ -98,11 +102,12 @@ public final class PdpTransport {
         if (json == null) {
             return CompletableFuture.failedFuture(new AuthZenException("JSON codec returned no text for the request"));
         }
-        return send(new Call(endpoint, false, json, System.nanoTime()), 0, false);
+        trace.requestBytes(json.length());
+        return send(new Call(endpoint, false, json, System.nanoTime(), trace), 0, false);
     }
 
     /**
-     * A document fetched with {@link #get(URI)}.
+     * A document fetched with {@link #get(URI, CallTrace)}.
      *
      * @param body    the parsed document, empty if the PDP answered {@code 404}
      * @param headers the response headers, for example for caching directives
@@ -114,10 +119,12 @@ public final class PdpTransport {
      * Gets a JSON document without presenting credentials, as for the PDP metadata.
      *
      * @param endpoint the document URL
+     * @param trace    records every HTTP exchange
      * @return a future completed with the document, or exceptionally with an {@link AuthZenException}
      */
-    public CompletableFuture<Document> get(URI endpoint) {
-        return send(new Call(endpoint, true, null, System.nanoTime()), 0, false).thenApply(Document.class::cast);
+    public CompletableFuture<Document> get(URI endpoint, CallTrace trace) {
+        return send(new Call(endpoint, true, null, System.nanoTime(), trace), 0, false)
+                .thenApply(Document.class::cast);
     }
 
     private CompletableFuture<Object> send(Call call, int retries, boolean refreshed) {
@@ -131,6 +138,7 @@ public final class PdpTransport {
         } catch (AuthZenException e) {
             return CompletableFuture.failedFuture(e);
         }
+        Instant startTime = call.trace.isActive() ? Instant.now() : null;
         long start = System.nanoTime();
         CompletableFuture<HttpResponse<byte[]>> pending = httpClient.sendAsync(request,
                 new LimitedBodyHandler(MAX_RESPONSE_BYTES));
@@ -145,36 +153,49 @@ public final class PdpTransport {
         });
         return bounded
                 .handle((response, error) -> {
-                    long elapsedMillis = Duration.ofNanos(System.nanoTime() - start).toMillis();
+                    Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
+                    AttemptCompleted.Builder attempt = call.trace.isActive()
+                            ? exchange.attempt(startTime, elapsed)
+                            : null;
                     if (error != null) {
                         Throwable cause = unwrap(error);
                         LOGGER.log(Level.DEBUG, () -> "PDP request " + exchange.requestId + " to " + exchange.endpoint
-                                + " failed after " + elapsedMillis + " ms: " + cause);
-                        return retryPolicy.afterError(retries, call.elapsed(), cause)
-                                .map(delay -> retry(call, retries, refreshed, delay, exchange, cause.toString()))
+                                + " failed after " + elapsed.toMillis() + " ms: " + cause);
+                        Optional<Duration> delay = retryPolicy.afterError(retries, call.elapsed(), cause);
+                        record(call, attempt, builder -> builder.failure(cause), delay);
+                        return delay
+                                .map(wait -> retry(call, retries, refreshed, wait, exchange, cause.toString()))
                                 .orElseGet(() -> CompletableFuture.failedFuture(transportFailure(exchange, cause)));
                     }
                     LOGGER.log(Level.DEBUG, () -> "PDP request " + exchange.requestId + " to " + exchange.endpoint
-                            + " returned HTTP " + response.statusCode() + " in " + elapsedMillis + " ms");
-                    return onResponse(call, retries, refreshed, exchange, credential, response);
+                            + " returned HTTP " + response.statusCode() + " in " + elapsed.toMillis() + " ms");
+                    if (attempt != null) {
+                        attempt.status(response.statusCode());
+                    }
+                    byte[] body = response.body();
+                    call.trace.responseBytes(body != null ? body.length : 0);
+                    return onResponse(call, retries, refreshed, exchange, credential, response, attempt);
                 })
                 .thenCompose(Function.identity());
     }
 
     private CompletableFuture<Object> onResponse(Call call, int retries, boolean refreshed, Exchange exchange,
-            AccessCredential credential, HttpResponse<byte[]> response) {
+            AccessCredential credential, HttpResponse<byte[]> response, AttemptCompleted.Builder attempt) {
         if (response.statusCode() == 401 && credential != null && !refreshed) {
             LOGGER.log(Level.DEBUG, () -> "PDP request " + exchange.requestId
                     + " was rejected with HTTP 401; refreshing the credential and retrying once");
             try {
                 credentials.invalidate(credential);
             } catch (RuntimeException e) {
+                record(call, attempt, builder -> builder, Optional.empty());
                 return CompletableFuture.failedFuture(
                         new AuthZenException("Credential provider failed to invalidate the credential", e));
             }
+            record(call, attempt, AttemptCompleted.Builder::refreshCredential, Optional.empty());
             return send(call, retries, true);
         }
         Optional<Duration> delay = retryPolicy.afterResponse(retries, call.elapsed(), response);
+        record(call, attempt, builder -> builder, delay);
         if (delay.isPresent()) {
             return retry(call, retries, refreshed, delay.get(), exchange, "HTTP " + response.statusCode());
         }
@@ -183,6 +204,17 @@ public final class PdpTransport {
         } catch (AuthZenException e) {
             return CompletableFuture.failedFuture(e);
         }
+    }
+
+    // Recorded before the next exchange starts, so that the trace keeps the order of the exchanges
+    private static void record(Call call, AttemptCompleted.Builder attempt,
+            Function<AttemptCompleted.Builder, AttemptCompleted.Builder> outcome, Optional<Duration> delay) {
+        if (attempt == null) {
+            return;
+        }
+        AttemptCompleted.Builder completed = outcome.apply(attempt);
+        delay.ifPresent(completed::retry);
+        call.trace.attempt(completed);
     }
 
     private CompletableFuture<Object> retry(Call call, int retries, boolean refreshed, Duration delay,
@@ -296,7 +328,7 @@ public final class PdpTransport {
     }
 
     /** One logical request, which may take several HTTP exchanges: a GET, or a POST of {@code json}. */
-    private record Call(URI endpoint, boolean get, String json, long startNanos) {
+    private record Call(URI endpoint, boolean get, String json, long startNanos, CallTrace trace) {
 
         Duration elapsed() {
             return Duration.ofNanos(System.nanoTime() - startNanos);
@@ -338,6 +370,15 @@ public final class PdpTransport {
                 builder.header("Authorization", "Bearer " + bearer.getToken());
             }
             return builder.build();
+        }
+
+        AttemptCompleted.Builder attempt(Instant startTime, Duration duration) {
+            return AttemptCompleted.builder()
+                    .endpoint(endpoint)
+                    .method(get ? "GET" : "POST")
+                    .requestId(requestId)
+                    .startTime(startTime)
+                    .duration(duration);
         }
 
         String suffix() {

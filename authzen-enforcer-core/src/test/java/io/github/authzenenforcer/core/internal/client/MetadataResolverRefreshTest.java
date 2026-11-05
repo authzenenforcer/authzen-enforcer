@@ -10,9 +10,13 @@ import io.github.authzenenforcer.core.PdpCommunicationException;
 import io.github.authzenenforcer.core.PdpProtocolException;
 import io.github.authzenenforcer.core.client.CircuitBreakerOptions;
 import io.github.authzenenforcer.core.client.DiscoveryOptions;
+import io.github.authzenenforcer.core.event.EventContent;
+import io.github.authzenenforcer.core.event.MetadataRefresh;
+import io.github.authzenenforcer.core.internal.event.EventDispatcher;
 import io.github.authzenenforcer.core.internal.http.PdpTransport;
 import io.github.authzenenforcer.core.model.PdpMetadata;
 import io.github.authzenenforcer.core.spi.JsonCodec;
+import io.github.authzenenforcer.core.spi.PepListener;
 
 import com.sun.net.httpserver.HttpServer;
 
@@ -197,6 +201,35 @@ class MetadataResolverRefreshTest {
         advance(TTL.plus(MAX_STALE).minusNanos(1));
 
         assertEquals(Optional.of(first), resolver.metadata().join());
+    }
+
+    @Test
+    void reportsTheUseOfThePreviousMetadata() {
+        statuses.addAll(List.of(200, 503));
+        List<MetadataRefresh> refreshes = new CopyOnWriteArrayList<>();
+        PepListener listener = new PepListener() {
+            @Override
+            public void onMetadataRefresh(MetadataRefresh event) {
+                refreshes.add(event);
+            }
+        };
+        EventDispatcher events = EventDispatcher.create(List.of(listener), Runnable::run, 64, 64L << 20,
+                EventContent.defaults());
+        MetadataResolver resolver = new MetadataResolver(transport(), identifier, OPTIONS, false, nanos::get,
+                NO_BREAKER, events);
+        PdpMetadata first = resolver.metadata().join().orElseThrow();
+
+        advance(TTL);
+        resolver.metadata().join();
+
+        long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        while (refreshes.size() < 2 && System.nanoTime() - deadline < 0) {
+            Thread.onSpinWait();
+        }
+        assertEquals(List.of(MetadataRefresh.Result.FRESH, MetadataRefresh.Result.STALE),
+                refreshes.stream().map(MetadataRefresh::getResult).toList());
+        assertEquals(first, refreshes.get(1).getMetadata().orElseThrow());
+        assertTrue(refreshes.get(1).getFailure().orElseThrow() instanceof PdpCommunicationException);
     }
 
     @Test

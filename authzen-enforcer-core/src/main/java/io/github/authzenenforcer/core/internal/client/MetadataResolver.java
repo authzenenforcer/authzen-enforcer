@@ -4,6 +4,10 @@ import io.github.authzenenforcer.core.AuthZenException;
 import io.github.authzenenforcer.core.PdpCommunicationException;
 import io.github.authzenenforcer.core.PdpProtocolException;
 import io.github.authzenenforcer.core.client.DiscoveryOptions;
+import io.github.authzenenforcer.core.event.MetadataRefresh;
+import io.github.authzenenforcer.core.event.Operation;
+import io.github.authzenenforcer.core.internal.event.CallTrace;
+import io.github.authzenenforcer.core.internal.event.EventDispatcher;
 import io.github.authzenenforcer.core.internal.http.PdpTransport;
 import io.github.authzenenforcer.core.internal.text.LogText;
 import io.github.authzenenforcer.core.internal.wire.WireFormat;
@@ -67,6 +71,7 @@ final class MetadataResolver {
     private final boolean sendsCredentials;
     private final LongSupplier clock;
     private final CircuitBreaker breaker;
+    private final EventDispatcher events;
     // Not synchronized: on Java 21 to 23 a virtual thread waiting for a monitor pins its carrier
     private final ReentrantLock lock = new ReentrantLock();
 
@@ -89,6 +94,23 @@ final class MetadataResolver {
      */
     MetadataResolver(PdpTransport transport, URI identifier, DiscoveryOptions options, boolean sendsCredentials,
             LongSupplier clock, CircuitBreaker breaker) {
+        this(transport, identifier, options, sendsCredentials, clock, breaker, EventDispatcher.NONE);
+    }
+
+    /**
+     * Creates a resolver that reports its fetches.
+     *
+     * @param transport        the transport
+     * @param identifier       the PDP identifier, without terminating slashes
+     * @param options          how results are cached
+     * @param sendsCredentials whether requests to the endpoints carry credentials
+     * @param clock            a monotonic clock in nanoseconds, such as {@link System#nanoTime()}
+     * @param breaker          the breaker that suspends fetches after repeated failures, on the same clock
+     * @param events           where fetches are reported
+     */
+    MetadataResolver(PdpTransport transport, URI identifier, DiscoveryOptions options, boolean sendsCredentials,
+            LongSupplier clock, CircuitBreaker breaker, EventDispatcher events) {
+        this.events = Objects.requireNonNull(events, "events must not be null");
         this.transport = Objects.requireNonNull(transport, "transport must not be null");
         this.identifier = Objects.requireNonNull(identifier, "identifier must not be null");
         this.location = Urls.wellKnown(identifier, WELL_KNOWN_PATH);
@@ -147,13 +169,14 @@ final class MetadataResolver {
             lock.unlock();
         }
         // Started outside the lock, since the transport may complete synchronously
+        CallTrace trace = CallTrace.start(events, Operation.METADATA);
         CompletableFuture<Fetched> fetched;
         try {
-            fetched = transport.get(location).thenApply(this::accept);
+            fetched = transport.get(location, trace).thenApply(this::accept);
         } catch (RuntimeException e) {
             fetched = CompletableFuture.failedFuture(e);
         }
-        fetched.whenComplete((document, error) -> settle(result, document, error));
+        fetched.whenComplete((document, error) -> settle(result, document, error, trace));
         return result.copy();
     }
 
@@ -236,7 +259,8 @@ final class MetadataResolver {
         }
     }
 
-    private void settle(CompletableFuture<Optional<PdpMetadata>> result, Fetched fetched, Throwable error) {
+    private void settle(CompletableFuture<Optional<PdpMetadata>> result, Fetched fetched, Throwable error,
+            CallTrace trace) {
         long now;
         try {
             now = now();
@@ -252,6 +276,7 @@ final class MetadataResolver {
             }
             breaker.released(permit);
             result.completeExceptionally(e);
+            trace.refreshed(failed(e));
             return;
         }
         // Only read when failure stays null, and both branches that leave it null assign it
@@ -311,6 +336,7 @@ final class MetadataResolver {
         if (failure != null) {
             result.completeExceptionally(failure);
             breakerLog.run();
+            trace.refreshed(failed(failure));
             if (droppedStale) {
                 LOGGER.log(Level.WARNING, "PDP metadata from " + location + " expired more than maxStale ago and "
                         + "could not be refreshed; requests fail until a refresh succeeds: " + failure.getMessage());
@@ -324,12 +350,27 @@ final class MetadataResolver {
         }
         result.complete(value);
         breakerLog.run();
+        trace.refreshed(refreshed(value, keptPrevious ? unwrap(error) : null));
         if (keptPrevious) {
             LOGGER.log(Level.WARNING, "Refreshing the PDP metadata from " + location
                     + " failed; keeping the previous result: " + unwrap(error).getMessage());
         } else if (previous == null || !value.equals(previous.metadata)) {
             logChange(value);
         }
+    }
+
+    private MetadataRefresh.Builder failed(AuthZenException failure) {
+        return MetadataRefresh.builder().location(location).result(MetadataRefresh.Result.FAILED).failure(failure);
+    }
+
+    // A kept previous result is only ever kept after a communication failure
+    private MetadataRefresh.Builder refreshed(Optional<PdpMetadata> value, Throwable staleCause) {
+        MetadataRefresh.Builder refresh = MetadataRefresh.builder().location(location);
+        value.ifPresent(refresh::metadata);
+        if (staleCause != null) {
+            return refresh.result(MetadataRefresh.Result.STALE).failure((AuthZenException) staleCause);
+        }
+        return refresh.result(value.isPresent() ? MetadataRefresh.Result.FRESH : MetadataRefresh.Result.DEFAULT_PATHS);
     }
 
     /** Reads the clock; a failing clock fails the request instead of leaving it pending. */

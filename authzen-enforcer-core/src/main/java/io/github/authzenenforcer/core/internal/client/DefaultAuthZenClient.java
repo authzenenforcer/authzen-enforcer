@@ -9,6 +9,10 @@ import io.github.authzenenforcer.core.client.AuthZenClient;
 import io.github.authzenenforcer.core.client.CircuitBreakerOptions;
 import io.github.authzenenforcer.core.client.DiscoveryOptions;
 import io.github.authzenenforcer.core.client.PaginationOptions;
+import io.github.authzenenforcer.core.event.BreakerTransition;
+import io.github.authzenenforcer.core.event.Operation;
+import io.github.authzenenforcer.core.internal.event.CallTrace;
+import io.github.authzenenforcer.core.internal.event.EventDispatcher;
 import io.github.authzenenforcer.core.internal.http.PdpTransport;
 import io.github.authzenenforcer.core.internal.wire.WireFormat;
 import io.github.authzenenforcer.core.model.Action;
@@ -87,6 +91,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     private final Search<ResourceSearchRequest, Resource> resourceSearches;
     private final Search<ActionSearchRequest, Action> actionSearches;
     private final LongSupplier clock;
+    private final EventDispatcher events;
 
     /**
      * An API of the PDP and where to find it.
@@ -136,11 +141,12 @@ public final class DefaultAuthZenClient implements AuthZenClient {
      * @param pagination     the limits for searches over all pages
      * @param clock          a monotonic clock in nanoseconds for the metadata cache and the
      *                       breakers, such as {@link System#nanoTime()}
+     * @param events         where events for the listeners go
      */
     public DefaultAuthZenClient(URI pdpUrl, EndpointOverrides overrides, CredentialProvider credentials,
             JsonCodec codec, HttpClient httpClient, Duration requestTimeout, int maxRetries,
             DiscoveryOptions discovery, CircuitBreakerOptions circuitBreaker, PaginationOptions pagination,
-            LongSupplier clock) {
+            LongSupplier clock, EventDispatcher events) {
         URI identifier = Urls.withoutTrailingSlashes(Urls.check(pdpUrl, "pdpUrl"));
         Objects.requireNonNull(overrides, "overrides must not be null");
         this.evaluationApi = new Api("Access Evaluation", checked(overrides.evaluation(), "evaluationEndpoint"),
@@ -168,12 +174,15 @@ public final class DefaultAuthZenClient implements AuthZenClient {
         this.actionSearches = new Search<>(ACTION_SEARCH, this::actionSearch, ActionSearchRequest::getPage,
                 ActionSearchRequest::withPageToken);
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
+        this.events = Objects.requireNonNull(events, "events must not be null");
         // Only jitters the circuit breaker's open interval; nothing security-sensitive depends on it
         DoubleSupplier random = () -> ThreadLocalRandom.current().nextDouble(); // NOSONAR java:S2245
-        this.breaker = new CircuitBreaker("PDP authorization API", circuitBreaker, random);
+        this.breaker = new CircuitBreaker("PDP authorization API", BreakerTransition.Breaker.AUTHORIZATION_API,
+                circuitBreaker, random, events);
         this.metadata = discovery != null
                 ? new MetadataResolver(transport, identifier, discovery, credentials != null, clock,
-                        new CircuitBreaker("PDP metadata discovery", circuitBreaker, random))
+                        new CircuitBreaker("PDP metadata discovery", BreakerTransition.Breaker.METADATA_DISCOVERY,
+                                circuitBreaker, random, events), events)
                 : null;
         if (credentials != null) {
             // An endpoint that is not overridden may be a default path below the PDP URL
@@ -203,21 +212,34 @@ public final class DefaultAuthZenClient implements AuthZenClient {
 
     private CompletableFuture<EvaluationResponse> evaluation(EvaluationRequest request) {
         Objects.requireNonNull(request, "request must not be null");
-        return call(evaluationApi, WireFormat.evaluationRequest(request), WireFormat::evaluationResponse);
+        return call(Operation.EVALUATION, request, evaluationApi, WireFormat.evaluationRequest(request),
+                WireFormat::evaluationResponse);
     }
 
-    private <T> CompletableFuture<T> call(Api api, Map<String, Object> body, Function<Object, T> reader) {
+    private <Q, R> CompletableFuture<R> call(Operation<Q, R> operation, Q request, Api api, Map<String, Object> body,
+            Function<Object, R> reader) {
         BreakerLog log = new BreakerLog();
-        CompletableFuture<T> result = endpoint(api)
-                .thenCompose(endpoint -> post(endpoint, body, log))
+        CallTrace trace = CallTrace.start(events, operation);
+        CompletableFuture<R> result = endpoint(api)
+                .thenCompose(endpoint -> {
+                    trace.endpoint(endpoint);
+                    return post(endpoint, body, log, trace);
+                })
                 .thenApply(reader);
-        // A separate stage after the caller's future: a slow or failing logger can neither delay
-        // nor change the result
-        result.whenComplete((ignored, error) -> log.run());
+        // A separate stage after the caller's future: a slow or failing logger or listener can
+        // neither delay nor change the result
+        result.whenComplete((response, error) -> {
+            try {
+                log.run();
+            } finally {
+                trace.completed(operation, request, response,
+                        error != null ? asAuthZenException(error, operation.getName()) : null);
+            }
+        });
         return result;
     }
 
-    private CompletableFuture<Object> post(URI endpoint, Map<String, Object> body, BreakerLog log) {
+    private CompletableFuture<Object> post(URI endpoint, Map<String, Object> body, BreakerLog log, CallTrace trace) {
         CircuitBreaker.Permit permit;
         try {
             permit = breaker.acquire(now());
@@ -226,7 +248,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
         }
         CompletableFuture<Object> response;
         try {
-            response = transport.post(endpoint, body);
+            response = transport.post(endpoint, body, trace);
         } catch (RuntimeException e) {
             breaker.released(permit);
             return CompletableFuture.failedFuture(e);
@@ -301,7 +323,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
 
     private CompletableFuture<EvaluationsResponse> batch(EvaluationsRequest request) {
         Objects.requireNonNull(request, "request must not be null");
-        return call(evaluationsApi, WireFormat.evaluationsRequest(request),
+        return call(Operation.EVALUATIONS, request, evaluationsApi, WireFormat.evaluationsRequest(request),
                 json -> WireFormat.evaluationsResponse(json, request));
     }
 
@@ -317,7 +339,8 @@ public final class DefaultAuthZenClient implements AuthZenClient {
 
     private CompletableFuture<SearchResponse<Subject>> subjectSearch(SubjectSearchRequest request) {
         Objects.requireNonNull(request, "request must not be null");
-        return call(searchSubjectApi, WireFormat.subjectSearchRequest(request), WireFormat::subjectSearchResponse);
+        return call(Operation.SUBJECT_SEARCH, request, searchSubjectApi, WireFormat.subjectSearchRequest(request),
+                WireFormat::subjectSearchResponse);
     }
 
     @Override
@@ -332,7 +355,8 @@ public final class DefaultAuthZenClient implements AuthZenClient {
 
     private CompletableFuture<SearchResponse<Resource>> resourceSearch(ResourceSearchRequest request) {
         Objects.requireNonNull(request, "request must not be null");
-        return call(searchResourceApi, WireFormat.resourceSearchRequest(request), WireFormat::resourceSearchResponse);
+        return call(Operation.RESOURCE_SEARCH, request, searchResourceApi, WireFormat.resourceSearchRequest(request),
+                WireFormat::resourceSearchResponse);
     }
 
     @Override
@@ -347,7 +371,8 @@ public final class DefaultAuthZenClient implements AuthZenClient {
 
     private CompletableFuture<SearchResponse<Action>> actionSearch(ActionSearchRequest request) {
         Objects.requireNonNull(request, "request must not be null");
-        return call(searchActionApi, WireFormat.actionSearchRequest(request), WireFormat::actionSearchResponse);
+        return call(Operation.ACTION_SEARCH, request, searchActionApi, WireFormat.actionSearchRequest(request),
+                WireFormat::actionSearchResponse);
     }
 
     @Override
