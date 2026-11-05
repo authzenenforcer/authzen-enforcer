@@ -55,14 +55,12 @@ public final class EventDispatcher {
     private final List<ListenerQueue> queues;
     private final EventContent content;
     private final AtomicLong dropped = new AtomicLong();
-    private final AtomicLong lastWarning = new AtomicLong();
-    private final AtomicBoolean warned = new AtomicBoolean();
-    private final LongSupplier clock;
+    private final Throttle dropWarnings;
 
     private EventDispatcher() {
         this.queues = List.of();
         this.content = EventContent.defaults();
-        this.clock = System::nanoTime;
+        this.dropWarnings = new Throttle(System::nanoTime);
     }
 
     private EventDispatcher(List<PepListener> listeners, Supplier<Executor> targets, int capacity, long maxBytes,
@@ -71,7 +69,7 @@ public final class EventDispatcher {
                 .map(listener -> new ListenerQueue(listener, targets.get(), capacity, maxBytes))
                 .toList();
         this.content = Objects.requireNonNull(content, "content must not be null");
-        this.clock = clock;
+        this.dropWarnings = new Throttle(clock);
     }
 
     /**
@@ -95,7 +93,7 @@ public final class EventDispatcher {
         if (listeners.isEmpty()) {
             return NONE;
         }
-        Executor handedOff = executor != null ? handedOff(executor) : null;
+        Executor handedOff = executor != null ? handedOff(executor, new Throttle(clock)) : null;
         // By default every listener has its own thread, so that one that blocks stalls no other
         Supplier<Executor> targets = handedOff != null ? () -> handedOff
                 : () -> daemonThread("authzen-enforcer-events");
@@ -125,16 +123,20 @@ public final class EventDispatcher {
 
     // An integrator's executor may run the task inline or block in execute(), so it is only ever
     // called from this thread. Its queue holds at most one task per listener
-    private static Executor handedOff(Executor executor) {
+    static Executor handedOff(Executor executor, Throttle warnings) {
         Executor handOff = daemonThread("authzen-enforcer-events-handoff");
         return task -> handOff.execute(() -> {
             try {
                 executor.execute(task);
             } catch (RuntimeException e) {
-                LOGGER.log(Level.WARNING, "The listener executor rejected a delivery; the events wait for the next one",
-                        e);
                 if (task instanceof ListenerQueue queue) {
                     queue.rejected();
+                }
+                // An executor that was shut down rejects every task, which must not flood the log
+                long rejections = warnings.count();
+                if (warnings.allow()) {
+                    LOGGER.log(Level.WARNING, "The listener executor " + executor.getClass().getName()
+                            + " rejected a delivery (" + rejections + " so far); the events wait in the queue", e);
                 }
             }
         });
@@ -223,18 +225,38 @@ public final class EventDispatcher {
 
     private void onDropped() {
         long count = dropped.incrementAndGet();
-        long now = clock.getAsLong();
-        boolean warn;
-        if (warned.compareAndSet(false, true)) {
-            lastWarning.set(now);
-            warn = true;
-        } else {
-            long last = lastWarning.get();
-            warn = now - last >= WARNING_INTERVAL_NANOS && lastWarning.compareAndSet(last, now);
-        }
-        if (warn) {
+        if (dropWarnings.allow()) {
             LOGGER.log(Level.WARNING, "A PEP listener cannot keep up; " + count
                     + " events dropped so far. Listeners should hand events off quickly");
+        }
+    }
+
+    /** Lets a warning through the first time and then at most once a minute, and counts the occasions. */
+    static final class Throttle {
+
+        private final LongSupplier clock;
+        private final AtomicLong occasions = new AtomicLong();
+        private final AtomicLong last = new AtomicLong();
+        private final AtomicBoolean warned = new AtomicBoolean();
+
+        Throttle(LongSupplier clock) {
+            this.clock = clock;
+        }
+
+        /** Counts an occasion and returns how many there were. */
+        long count() {
+            return occasions.incrementAndGet();
+        }
+
+        /** Tells whether a warning may be logged now. */
+        boolean allow() {
+            long now = clock.getAsLong();
+            if (warned.compareAndSet(false, true)) {
+                last.set(now);
+                return true;
+            }
+            long previous = last.get();
+            return now - previous >= WARNING_INTERVAL_NANOS && last.compareAndSet(previous, now);
         }
     }
 
