@@ -32,6 +32,14 @@ import java.util.Objects;
  *       delivery task and reach the executor.</li>
  * </ul>
  *
+ * <p>Failures in events ({@link CallCompleted#getFailure()}, {@link AttemptCompleted#getFailure()},
+ * {@link BreakerTransition#getFailure()}, {@link MetadataRefresh#getFailure()}) keep their whole
+ * cause chain. Causes may come from integrator code, such as a
+ * {@link io.github.authzenenforcer.core.auth.CredentialProvider}, whose messages the SDK cannot
+ * vouch for, and the readers of metrics, traces and logs are usually a wider audience than the
+ * caller. Export failures by class name, as the events' {@code toString()} does, unless their
+ * messages are known to be safe.
+ *
  * <p>All methods do nothing by default, so a listener implements the ones it needs.
  *
  * <p>Implementations must be thread-safe if they are registered with more than one client.

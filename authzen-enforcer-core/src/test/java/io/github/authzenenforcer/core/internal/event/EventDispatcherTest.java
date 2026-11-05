@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.authzenenforcer.core.PdpCommunicationException;
 import io.github.authzenenforcer.core.event.AttemptCompleted;
+import io.github.authzenenforcer.core.internal.client.TestLoggerFinder;
 import io.github.authzenenforcer.core.event.BreakerTransition;
 import io.github.authzenenforcer.core.event.CallCompleted;
 import io.github.authzenenforcer.core.event.EventContent;
@@ -34,6 +35,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 
@@ -230,10 +232,14 @@ class EventDispatcherTest {
             dispatcher.publish(call(), 0);
         }
 
+        TestLoggerFinder.clearRecords();
         dispatcher.publish(call(), 0);
         dispatcher.publish(transition());
 
         assertEquals(2, dispatcher.dropped());
+        assertTrue(TestLoggerFinder.records().stream()
+                .anyMatch(r -> r.contains("PEP listener " + Recorder.class.getName() + " cannot keep up")),
+                TestLoggerFinder.records()::toString);
         executor.runAll();
         assertEquals(CAPACITY, recorder.seen.size());
 
@@ -328,6 +334,29 @@ class EventDispatcherTest {
         }
 
         assertTrue(delivered.await(5, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void warnsAboutARejectingExecutorOnceAMinute() throws InterruptedException {
+        TestLoggerFinder.clearRecords();
+        AtomicInteger rejections = new AtomicInteger();
+        Executor shutDown = task -> {
+            rejections.incrementAndGet();
+            throw new RejectedExecutionException("shut down");
+        };
+        Executor target = EventDispatcher.handedOff(shutDown, new EventDispatcher.Throttle(() -> 0));
+        EventDispatcher dispatcher = EventDispatcher.direct(List.of(recorder), target, CAPACITY, MAX_BYTES,
+                EventContent.defaults(), System::nanoTime);
+
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (rejections.get() < 5 && System.nanoTime() - deadline < 0) {
+            dispatcher.publish(transition());
+            Thread.sleep(5);
+        }
+
+        assertTrue(rejections.get() >= 5);
+        assertEquals(1, TestLoggerFinder.records().stream().filter(r -> r.contains("rejected a delivery")).count(),
+                TestLoggerFinder.records()::toString);
     }
 
     @Test

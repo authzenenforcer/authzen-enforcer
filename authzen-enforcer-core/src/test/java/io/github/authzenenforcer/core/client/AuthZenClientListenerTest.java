@@ -6,10 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.authzenenforcer.core.AuthZenException;
 import io.github.authzenenforcer.core.PdpCommunicationException;
 import io.github.authzenenforcer.core.auth.AccessCredential;
 import io.github.authzenenforcer.core.auth.CredentialProvider;
@@ -28,12 +30,14 @@ import io.github.authzenenforcer.core.model.Resource;
 import io.github.authzenenforcer.core.model.SearchResponse;
 import io.github.authzenenforcer.core.model.Subject;
 import io.github.authzenenforcer.core.model.SubjectSearchRequest;
+import io.github.authzenenforcer.core.spi.JsonCodec;
 import io.github.authzenenforcer.core.spi.PepListener;
 
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -142,16 +146,19 @@ class AuthZenClientListenerTest {
 
         assertTrue(client.evaluate(REQUEST).getDecision());
 
-        List<Object> events = recorder.await(4);
-        assertEquals(4, events.size());
-        AttemptCompleted metadataAttempt = assertInstanceOf(AttemptCompleted.class, events.get(0));
-        assertEquals(Operation.METADATA, metadataAttempt.getOperation());
+        // The metadata request and the evaluation are separate calls, each with its events in order
+        List<Object> all = recorder.await(4);
+        assertEquals(4, all.size());
+        List<Object> metadataEvents = all.stream().filter(event -> event instanceof MetadataRefresh
+                || event instanceof AttemptCompleted a && a.getOperation() == Operation.METADATA).toList();
+        List<Object> events = all.stream().filter(event -> !metadataEvents.contains(event)).toList();
+        AttemptCompleted metadataAttempt = assertInstanceOf(AttemptCompleted.class, metadataEvents.get(0));
         assertEquals("GET", metadataAttempt.getMethod());
         assertEquals(404, metadataAttempt.getStatus().getAsInt());
-        MetadataRefresh refresh = assertInstanceOf(MetadataRefresh.class, events.get(1));
+        MetadataRefresh refresh = assertInstanceOf(MetadataRefresh.class, metadataEvents.get(1));
         assertEquals(MetadataRefresh.Result.DEFAULT_PATHS, refresh.getResult());
 
-        AttemptCompleted attempt = assertInstanceOf(AttemptCompleted.class, events.get(2));
+        AttemptCompleted attempt = assertInstanceOf(AttemptCompleted.class, events.get(0));
         assertEquals(Operation.EVALUATION, attempt.getOperation());
         assertEquals("POST", attempt.getMethod());
         assertEquals(1, attempt.getAttempt());
@@ -160,7 +167,7 @@ class AuthZenClientListenerTest {
         assertEquals(pdp.requests().get(0).header("X-Request-ID"), attempt.getRequestId());
         assertEquals(pdp.url().resolve("/access/v1/evaluation"), attempt.getEndpoint());
 
-        CallCompleted<EvaluationRequest, EvaluationResponse> call = evaluation(events.get(3));
+        CallCompleted<EvaluationRequest, EvaluationResponse> call = evaluation(events.get(1));
         assertEquals(Outcome.PERMIT, call.getOutcome());
         assertEquals(List.of(attempt.getRequestId()), call.getRequestIds());
         assertEquals(attempt.getEndpoint(), call.getEndpoint().orElseThrow());
@@ -284,11 +291,11 @@ class AuthZenClientListenerTest {
         assertEquals(BreakerTransition.State.CLOSED, transition.getFrom());
         assertEquals(BreakerTransition.State.OPEN, transition.getTo());
         assertTrue(transition.getOpenDuration().isPresent());
+        // Only the events of one call are ordered; the second call may be reported first
         List<CallCompleted> calls = recorder.of(CallCompleted.class);
         assertEquals(2, calls.size());
-        assertEquals(1, calls.get(0).getAttempts());
-        assertEquals(0, calls.get(1).getAttempts());
-        assertEquals(Outcome.FAILED, calls.get(1).getOutcome());
+        assertEquals(List.of(0, 1), calls.stream().map(CallCompleted::getAttempts).sorted().toList());
+        assertTrue(calls.stream().allMatch(call -> call.getOutcome() == Outcome.FAILED));
         assertEquals(1, pdp.requests().size());
     }
 
@@ -431,6 +438,42 @@ class AuthZenClientListenerTest {
         awaitCondition(() -> calls.size() >= 3);
         Thread.sleep(200);
         assertTrue(calls.size() < 6, () -> calls.size() + " calls delivered");
+    }
+
+    /** The default codec, except that reading a response fails with an Error, as a buggy codec might. */
+    private static final JsonCodec BROKEN_READER = new JsonCodec() {
+        @Override
+        public String write(Object value) {
+            return JsonCodec.defaultCodec().write(value);
+        }
+
+        @Override
+        public Object read(String json) {
+            throw new AssertionError("codec bug");
+        }
+    };
+
+    @Test
+    void givesTheCallerAndTheListenersTheSameExceptionForAnUnexpectedFailure() {
+        AuthZenClient client = builder().discovery(false).jsonCodec(BROKEN_READER).build();
+
+        AuthZenException thrown = assertThrows(AuthZenException.class, () -> client.evaluate(REQUEST));
+
+        assertEquals("Evaluation failed unexpectedly", thrown.getMessage());
+        assertInstanceOf(AssertionError.class, thrown.getCause());
+        CallCompleted<EvaluationRequest, EvaluationResponse> call = evaluation(recorder.await(2).get(1));
+        assertSame(thrown, call.getFailure().orElseThrow());
+    }
+
+    @Test
+    void failsAsynchronousCallsWithAnAuthZenExceptionForAnUnexpectedFailure() {
+        AuthZenClient client = builder().discovery(false).jsonCodec(BROKEN_READER).build();
+
+        CompletionException thrown = assertThrows(CompletionException.class,
+                () -> client.evaluateAsync(REQUEST).toCompletableFuture().join());
+
+        AuthZenException cause = assertInstanceOf(AuthZenException.class, thrown.getCause());
+        assertInstanceOf(AssertionError.class, cause.getCause());
     }
 
     @Test

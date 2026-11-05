@@ -78,6 +78,14 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     private static final String RESOURCE_SEARCH = "Resource search";
     private static final String ACTION_SEARCH = "Action search";
 
+    /** What callers read in the message of an unexpected failure, such as "Evaluation failed unexpectedly". */
+    private static final Map<Operation<?, ?>, String> DESCRIPTIONS = Map.of(
+            Operation.EVALUATION, "Evaluation",
+            Operation.EVALUATIONS, "Evaluations",
+            Operation.SUBJECT_SEARCH, SUBJECT_SEARCH,
+            Operation.RESOURCE_SEARCH, RESOURCE_SEARCH,
+            Operation.ACTION_SEARCH, ACTION_SEARCH);
+
     private final Api evaluationApi;
     private final Api evaluationsApi;
     private final Api searchSubjectApi;
@@ -220,12 +228,22 @@ public final class DefaultAuthZenClient implements AuthZenClient {
             Function<Object, R> reader) {
         BreakerLog log = new BreakerLog();
         CallTrace trace = CallTrace.start(events, operation);
-        CompletableFuture<R> result = endpoint(api)
+        CompletableFuture<R> result = new CompletableFuture<>();
+        endpoint(api)
                 .thenCompose(endpoint -> {
                     trace.endpoint(endpoint);
                     return post(endpoint, body, log, trace);
                 })
-                .thenApply(reader);
+                .thenApply(reader)
+                // Every failure becomes an AuthZenException once, so that sync and async callers
+                // and the listeners all get the same exception
+                .whenComplete((response, error) -> {
+                    if (error != null) {
+                        result.completeExceptionally(asAuthZenException(error, DESCRIPTIONS.get(operation)));
+                    } else {
+                        result.complete(response);
+                    }
+                });
         // A separate stage after the caller's future: a slow or failing logger or listener can
         // neither delay nor change the result
         result.whenComplete((response, error) -> {
@@ -233,7 +251,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
                 log.run();
             } finally {
                 trace.completed(operation, request, response,
-                        error != null ? asAuthZenException(error, operation.getName()) : null);
+                        error != null ? asAuthZenException(error, DESCRIPTIONS.get(operation)) : null);
             }
         });
         return result;
