@@ -148,6 +148,11 @@ public final class PdpTransport {
             request = exchange.request(credential, traced != null ? traced.context() : null);
         } catch (AuthZenException e) {
             return CompletableFuture.failedFuture(e);
+        } catch (RuntimeException e) {
+            // Not expected, since every value is validated; failing here keeps every path the same
+            // instead of relying on how each caller handles an exception thrown at it
+            return CompletableFuture.failedFuture(
+                    new AuthZenException("Preparing the PDP request failed" + exchange.suffix(), e));
         }
         Instant startTime = call.trace.isActive() ? Instant.now() : null;
         long start = System.nanoTime();
