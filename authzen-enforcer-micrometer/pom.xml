@@ -22,11 +22,13 @@
             <artifactId>authzen-enforcer-core</artifactId>
             <version>${project.version}</version>
         </dependency>
-        <!-- Compiled against the oldest supported line (Spring Boot 3.0); applications may use any newer one -->
+        <!-- Compiled against the oldest supported line (Spring Boot 3.0). Provided, so that the
+             application's own Micrometer version is used and none is imposed on it -->
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-core</artifactId>
             <version>${micrometer.version}</version>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
