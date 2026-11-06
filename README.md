@@ -305,6 +305,38 @@ from an earlier one with the same name. The
 module does not bring Micrometer along: it uses the `micrometer-core` of your application, 1.10 or
 newer, which a registry such as `micrometer-registry-prometheus` already provides.
 
+### Tracing with OpenTelemetry
+
+`authzen-enforcer-opentelemetry` records every call as a span and every HTTP exchange with the
+PDP, retries included, as a child span, and sends the exchange's W3C trace context to the PDP in
+`traceparent` and `tracestate`, so the PDP's own spans join the trace:
+
+```java
+AuthZenClient client = AuthZenClient.builder()
+        .pdpUrl("https://pdp.example.com")
+        .tracer(OpenTelemetryTracing.builder(openTelemetry).build())
+        .build();
+```
+
+```
+GET /documents/42                    (your server span)
+└─ authzen evaluation   INTERNAL     authzen.outcome=deny
+   ├─ POST              CLIENT       http.response.status_code=503
+   │  └─ (PDP span)
+   └─ POST              CLIENT       http.response.status_code=200, http.request.resend_count=1
+      └─ (PDP span)
+```
+
+- Spans are started on the request path, which takes microseconds, and ended from the events on
+  a listener thread. A failing tracer only means no trace headers; it never fails or changes a
+  call.
+- Only `traceparent` and `tracestate` are sent, never baggage. The metadata request is not traced.
+- Spans carry no subject, resource id, property or context values, and no exception messages.
+  `authzen.resource.type` and `authzen.action.name` can be turned off in the builder.
+- `PepTracer` is the SPI behind it, for other tracing systems. Every listener can read the spans
+  from `CallCompleted.getCallSpan()`, for example to put the trace id in an audit record.
+- The module uses the `opentelemetry-api` of your application, 1.19 or newer.
+
 ### Trying it locally
 
 There is no release yet. To use the SDK in another project, install it into your local Maven
@@ -336,6 +368,7 @@ public Document getDocument(@PathVariable String id) { ... }
 | `authzen-enforcer-spring-boot-starter` | 17+ | Planned | Spring Boot 3 auto-configuration and `@CheckPermission` |
 | `authzen-enforcer-quarkus` | 17+ | Planned | Quarkus 3 extension |
 | `authzen-enforcer-micrometer` | 17+ | In development | Micrometer metrics for the client |
+| `authzen-enforcer-opentelemetry` | 17+ | In development | OpenTelemetry tracing for the client |
 | `authzen-enforcer-bom` | – | In development | Version alignment |
 
 Group ID: `io.github.authzenenforcer`

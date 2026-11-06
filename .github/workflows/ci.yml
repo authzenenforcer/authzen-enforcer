@@ -48,6 +48,28 @@ jobs:
       - name: Test with the latest Micrometer
         run: mvn -B -ntp -pl authzen-enforcer-micrometer -am verify -Dmicrometer.version=${{ steps.micrometer.outputs.version }}
 
+  opentelemetry-latest:
+    # The module compiles against the oldest supported OpenTelemetry; this checks the newest release
+    name: OpenTelemetry (latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+      - name: Find the latest OpenTelemetry release
+        id: opentelemetry
+        run: |
+          version=$(curl -fsS https://repo.maven.apache.org/maven2/io/opentelemetry/opentelemetry-api/maven-metadata.xml \
+            | grep -oE '<version>[0-9]+\.[0-9]+\.[0-9]+</version>' | sed -E 's/<\/?version>//g' | sort -V | tail -n 1)
+          test -n "$version"
+          echo "OpenTelemetry $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Test with the latest OpenTelemetry
+        run: mvn -B -ntp -pl authzen-enforcer-opentelemetry -am verify -Dopentelemetry.version=${{ steps.opentelemetry.outputs.version }}
+
   interop:
     name: Interop (Keycloak)
     runs-on: ubuntu-latest
