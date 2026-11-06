@@ -26,7 +26,10 @@ import io.github.authzenenforcer.core.event.TraceContext;
  * and {@link io.github.authzenenforcer.core.event.AttemptCompleted#getExchangeSpan()}, which every
  * listener can read, for example to put the trace id in an audit record. A span whose event was
  * dropped because the tracer could not keep up is not ended by that event; a tracer should end the
- * exchange spans of a call that are still open when the call ends.
+ * exchange spans of a call that are still open when the call ends. If the
+ * {@link io.github.authzenenforcer.core.event.CallCompleted} of a call is dropped as well, its spans
+ * stay open; {@link io.github.authzenenforcer.core.client.AuthZenClient#listenerDrops()} counts
+ * such drops.
  *
  * <p>Implementations must be thread-safe.
  *

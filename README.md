@@ -332,7 +332,10 @@ GET /documents/42                    (your server span)
   call.
 - Only `traceparent` and `tracestate` are sent, never baggage. The metadata request is not traced.
 - Spans carry no subject, resource id, property or context values, and no exception messages.
-  `authzen.resource.type` and `authzen.action.name` can be turned off in the builder.
+  `authzen.resource.type` and `authzen.action.name` can be turned off in the builder. `url.full`
+  shows the PDP endpoint with its path, so keep secrets out of the PDP URL.
+- A span whose events were dropped because the tracer could not keep up is not exported;
+  `client.listenerDrops()` counts such drops.
 - `PepTracer` is the SPI behind it, for other tracing systems. Every listener can read the spans
   from `CallCompleted.getCallSpan()`, for example to put the trace id in an audit record.
 - The module uses the `opentelemetry-api` of your application, 1.19 or newer.

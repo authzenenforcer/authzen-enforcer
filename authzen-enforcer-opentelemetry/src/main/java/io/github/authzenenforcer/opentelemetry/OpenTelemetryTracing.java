@@ -67,14 +67,19 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *       status {@code ERROR} and {@code error.type}.</li>
  * </ul>
  * No span carries a subject, a resource id, property or context values, or a message of an
- * exception.
+ * exception. {@code url.full} and {@code server.address} show the PDP endpoint, path included (for
+ * example a tenant or realm segment), but never user info or a query, which the client rejects; do
+ * not put secrets in the PDP's path.
  *
  * <p>The trace context is always sent in the W3C format, whatever propagators the application
  * configured, since the PDP is asked for {@code traceparent}. A {@code tracestate} that
  * {@link TraceContext} does not accept, such as a long one inherited from an upstream request, is
  * left out, and only {@code traceparent} is sent. Spans are started on the request
  * path, which takes microseconds, and ended from the events on the listener thread, at the times
- * the events report. An exchange span whose event was dropped is ended with its call.
+ * the events report. An exchange span whose event was dropped is ended with its call. If the
+ * call's own event is dropped too, because the tracer's queue was full, the spans of that call are
+ * never ended and do not reach the exporter; {@code AuthZenClient.listenerDrops()} counts such
+ * drops.
  *
  * <p>Instances are thread-safe; one instance can serve several clients.
  */
