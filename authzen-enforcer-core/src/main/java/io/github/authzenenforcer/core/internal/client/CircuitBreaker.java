@@ -105,6 +105,8 @@ final class CircuitBreaker {
         if (!enabled) {
             return UNLIMITED;
         }
+        Permit permit;
+        boolean halfOpened = false;
         lock.lock();
         try {
             if (state == State.OPEN) {
@@ -113,18 +115,25 @@ final class CircuitBreaker {
                 }
                 state = State.HALF_OPEN;
                 probing = false;
+                halfOpened = true;
             }
             if (state == State.HALF_OPEN) {
                 if (probing) {
                     throw rejection("a probe is in progress");
                 }
                 probing = true;
-                return new Permit(generation, true);
+                permit = new Permit(generation, true);
+            } else {
+                permit = new Permit(generation, false);
             }
-            return new Permit(generation, false);
         } finally {
             lock.unlock();
         }
+        // Published outside the lock; publishing never blocks or fails
+        if (halfOpened) {
+            publish(transition(State.OPEN, BreakerTransition.State.HALF_OPEN));
+        }
+        return permit;
     }
 
     /**

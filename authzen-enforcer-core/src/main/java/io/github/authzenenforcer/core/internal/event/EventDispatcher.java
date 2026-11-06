@@ -4,12 +4,16 @@ import io.github.authzenenforcer.core.event.AttemptCompleted;
 import io.github.authzenenforcer.core.event.BreakerTransition;
 import io.github.authzenenforcer.core.event.CallCompleted;
 import io.github.authzenenforcer.core.event.EventContent;
+import io.github.authzenenforcer.core.event.ListenerDrops;
+import io.github.authzenenforcer.core.event.ListenerDrops.EventType;
 import io.github.authzenenforcer.core.event.MetadataRefresh;
 import io.github.authzenenforcer.core.spi.PepListener;
 
 import java.lang.System.Logger.Level;
 import java.time.Duration;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executor;
@@ -19,6 +23,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -167,7 +172,7 @@ public final class EventDispatcher {
      * @param bytes the size of the bodies the event retains, such as the PDP response body
      */
     public void publish(CallCompleted<?, ?> event, long bytes) {
-        publish(listener -> listener.onCallCompleted(event), false, bytes);
+        publish(EventType.CALL_COMPLETED, listener -> listener.onCallCompleted(event), false, bytes);
     }
 
     /**
@@ -176,7 +181,7 @@ public final class EventDispatcher {
      * @param event the event
      */
     public void publish(AttemptCompleted event) {
-        publish(listener -> listener.onAttemptCompleted(event), true, 0);
+        publish(EventType.ATTEMPT_COMPLETED, listener -> listener.onAttemptCompleted(event), true, 0);
     }
 
     /**
@@ -185,7 +190,7 @@ public final class EventDispatcher {
      * @param event the event
      */
     public void publish(BreakerTransition event) {
-        publish(listener -> listener.onBreakerTransition(event), false, 0);
+        publish(EventType.BREAKER_TRANSITION, listener -> listener.onBreakerTransition(event), false, 0);
     }
 
     /**
@@ -197,15 +202,15 @@ public final class EventDispatcher {
     public void publish(MetadataRefresh event, long bytes) {
         boolean low = event.getResult() == MetadataRefresh.Result.FRESH
                 || event.getResult() == MetadataRefresh.Result.DEFAULT_PATHS;
-        publish(listener -> listener.onMetadataRefresh(event), low, bytes);
+        publish(EventType.METADATA_REFRESH, listener -> listener.onMetadataRefresh(event), low, bytes);
     }
 
-    private void publish(Consumer<PepListener> delivery, boolean low, long bytes) {
+    private void publish(EventType type, Consumer<PepListener> delivery, boolean low, long bytes) {
         long weight = EVENT_OVERHEAD_BYTES + Math.max(0, bytes);
         for (ListenerQueue queue : queues) {
             try {
                 if (!queue.offer(delivery, low, weight)) {
-                    onDropped(queue);
+                    onDropped(queue, type);
                 }
             } catch (RuntimeException e) {
                 // A publisher must never fail; this only guards against a broken executor
@@ -223,7 +228,20 @@ public final class EventDispatcher {
         return dropped.get();
     }
 
-    private void onDropped(ListenerQueue queue) {
+    /**
+     * Returns how many events each listener did not get because its queue had no room for them.
+     *
+     * @return the counts per listener and event type
+     */
+    public ListenerDrops drops() {
+        if (queues.isEmpty()) {
+            return ListenerDrops.none();
+        }
+        return ListenerDrops.of(queues.stream().map(ListenerQueue::drops).toList());
+    }
+
+    private void onDropped(ListenerQueue queue, EventType type) {
+        queue.dropped(type);
         long count = dropped.incrementAndGet();
         if (dropWarnings.allow()) {
             LOGGER.log(Level.WARNING, "PEP listener " + queue.listenerName() + " cannot keep up; " + count
@@ -277,6 +295,7 @@ public final class EventDispatcher {
         private final AtomicInteger size = new AtomicInteger();
         private final AtomicLong bytes = new AtomicLong();
         private final AtomicBoolean scheduled = new AtomicBoolean();
+        private final AtomicLongArray dropped = new AtomicLongArray(EventType.values().length);
 
         ListenerQueue(PepListener listener, Executor executor, int capacity, long maxBytes) {
             this.listener = Objects.requireNonNull(listener, "listener must not be null");
@@ -342,6 +361,19 @@ public final class EventDispatcher {
                 rejected();
                 throw e;
             }
+        }
+
+        /** Counts an event the queue had no room for. */
+        void dropped(EventType type) {
+            dropped.incrementAndGet(type.ordinal());
+        }
+
+        Map.Entry<PepListener, Map<EventType, Long>> drops() {
+            Map<EventType, Long> counts = new EnumMap<>(EventType.class);
+            for (EventType type : EventType.values()) {
+                counts.put(type, dropped.get(type.ordinal()));
+            }
+            return Map.entry(listener, counts);
         }
 
         String listenerName() {

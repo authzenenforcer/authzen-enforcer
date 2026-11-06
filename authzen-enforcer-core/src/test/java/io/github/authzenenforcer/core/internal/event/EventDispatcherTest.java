@@ -12,6 +12,8 @@ import io.github.authzenenforcer.core.internal.client.TestLoggerFinder;
 import io.github.authzenenforcer.core.event.BreakerTransition;
 import io.github.authzenenforcer.core.event.CallCompleted;
 import io.github.authzenenforcer.core.event.EventContent;
+import io.github.authzenenforcer.core.event.ListenerDrops;
+import io.github.authzenenforcer.core.event.ListenerDrops.EventType;
 import io.github.authzenenforcer.core.event.MetadataRefresh;
 import io.github.authzenenforcer.core.event.Operation;
 import io.github.authzenenforcer.core.model.Action;
@@ -223,6 +225,49 @@ class EventDispatcherTest {
         assertEquals(lowLimit + 3, recorder.seen.size());
         assertFalse(recorder.seen.contains("dropped"));
         assertEquals(List.of("FAILED", "breaker", "call"), recorder.seen.subList(lowLimit, lowLimit + 3));
+    }
+
+    @Test
+    void countsDropsPerListenerAndEventType() {
+        Recorder slow = new Recorder();
+        EventDispatcher dispatcher = dispatcher(recorder, slow);
+        int lowLimit = CAPACITY * 4 / 5;
+        for (int i = 0; i < lowLimit; i++) {
+            dispatcher.publish(attempt("a" + i));
+        }
+        dispatcher.publish(attempt("dropped"));
+        dispatcher.publish(refresh(MetadataRefresh.Result.FRESH), 0);
+
+        ListenerDrops drops = dispatcher.drops();
+        assertEquals(2, drops.getListeners().size());
+        assertSame(recorder, drops.getListeners().get(0).getListener());
+        assertSame(slow, drops.getListeners().get(1).getListener());
+        for (ListenerDrops.Listener listener : drops.getListeners()) {
+            assertEquals(1, listener.getDropped(EventType.ATTEMPT_COMPLETED));
+            assertEquals(1, listener.getDropped(EventType.METADATA_REFRESH));
+            assertEquals(0, listener.getDropped(EventType.CALL_COMPLETED));
+            assertEquals(0, listener.getDropped(EventType.BREAKER_TRANSITION));
+        }
+        assertEquals(4, drops.getTotal());
+        assertEquals(4, dispatcher.dropped());
+
+        // Only the queue that stays full keeps dropping
+        executor.tasks.poll().run();
+        for (int i = 0; i < CAPACITY - lowLimit + 1; i++) {
+            dispatcher.publish(call(), 0);
+        }
+        drops = dispatcher.drops();
+        assertEquals(0, drops.getListeners().get(0).getDropped(EventType.CALL_COMPLETED));
+        assertEquals(1, drops.getListeners().get(1).getDropped(EventType.CALL_COMPLETED));
+        assertEquals(Recorder.class.getName(), drops.getListeners().get(0).getName());
+        assertEquals(Recorder.class.getName() + "-2", drops.getListeners().get(1).getName());
+    }
+
+    @Test
+    void reportsNoListenerWithoutListeners() {
+        assertSame(ListenerDrops.none(), EventDispatcher.NONE.drops());
+        assertTrue(ListenerDrops.none().getListeners().isEmpty());
+        assertEquals(0, ListenerDrops.none().getTotal());
     }
 
     @Test

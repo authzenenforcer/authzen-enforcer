@@ -17,6 +17,7 @@ import io.github.authzenenforcer.core.auth.AccessCredential;
 import io.github.authzenenforcer.core.auth.CredentialProvider;
 import io.github.authzenenforcer.core.event.AttemptCompleted;
 import io.github.authzenenforcer.core.event.BreakerTransition;
+import io.github.authzenenforcer.core.event.ListenerDrops;
 import io.github.authzenenforcer.core.event.CallCompleted;
 import io.github.authzenenforcer.core.event.EventContent;
 import io.github.authzenenforcer.core.event.MetadataRefresh;
@@ -276,6 +277,43 @@ class AuthZenClientListenerTest {
     }
 
     @Test
+    void reportsEveryStateTheBreakerPassesThrough() throws InterruptedException {
+        pdp.respond(json(500, ""));
+        AuthZenClient client = builder().discovery(false).maxRetries(0)
+                .circuitBreaker(CircuitBreakerOptions.builder()
+                        .failureThreshold(1)
+                        .openDuration(CircuitBreakerOptions.MIN_OPEN_DURATION)
+                        .maxOpenDuration(CircuitBreakerOptions.MIN_OPEN_DURATION)
+                        .build())
+                .build();
+        assertThrows(PdpCommunicationException.class, () -> client.evaluate(REQUEST));
+
+        Thread.sleep(CircuitBreakerOptions.MIN_OPEN_DURATION.toMillis() + 50);
+        pdp.respond(json(200, "{\"decision\": true}"));
+        assertTrue(client.evaluate(REQUEST).getDecision());
+
+        awaitCondition(() -> recorder.of(BreakerTransition.class).size() >= 3);
+        // The transitions come from two calls, whose events are not ordered with each other
+        List<String> transitions = recorder.of(BreakerTransition.class).stream()
+                .map(t -> t.getFrom() + ">" + t.getTo())
+                .sorted()
+                .toList();
+        assertEquals(List.of("CLOSED>OPEN", "HALF_OPEN>CLOSED", "OPEN>HALF_OPEN"), transitions);
+        BreakerTransition halfOpen = recorder.of(BreakerTransition.class).stream()
+                .filter(t -> t.getTo() == BreakerTransition.State.HALF_OPEN)
+                .findFirst()
+                .orElseThrow();
+        assertTrue(halfOpen.getOpenDuration().isEmpty());
+    }
+
+    @Test
+    void reportsNoDropsWithoutListeners() {
+        AuthZenClient client = AuthZenClient.builder().pdpUrl(pdp.url()).discovery(false).build();
+
+        assertTrue(client.listenerDrops().getListeners().isEmpty());
+    }
+
+    @Test
     void reportsTheBreakerAndTheDenyThePdpNeverSaw() {
         pdp.respond(json(500, ""));
         AuthZenClient client = builder().discovery(false).maxRetries(0)
@@ -433,6 +471,9 @@ class AuthZenClientListenerTest {
         for (int i = 0; i < 6; i++) {
             assertTrue(client.evaluate(REQUEST).getDecision());
         }
+        // At most four calls reach the listener: the blocked one and three queued ones
+        awaitCondition(() -> client.listenerDrops().getListeners().get(0)
+                .getDropped(ListenerDrops.EventType.CALL_COMPLETED) >= 2);
         release.countDown();
 
         awaitCondition(() -> calls.size() >= 3);
