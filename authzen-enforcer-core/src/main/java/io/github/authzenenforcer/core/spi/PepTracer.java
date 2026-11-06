@@ -27,7 +27,10 @@ import io.github.authzenenforcer.core.event.TraceContext;
  * {@link #captureParent} runs once, on the thread that calls {@code searchAll*}, and every page
  * of that search, the first one included, is started with {@link #startCall(Operation, CallParent)}
  * under what it captured. If {@code captureParent} throws or returns {@code null}, the pages are
- * started with {@link #startCall(Operation)}.
+ * started with {@link #startCall(Operation)}. A tracer whose {@code startCall} reads a context of
+ * the current thread should therefore implement {@code captureParent} as well; otherwise the pages
+ * go under whatever context is current on the thread that fetches them. Every subscription of a
+ * publisher from {@code searchAll*Async} shares the parent captured when the publisher was created.
  *
  * <p>The spans are handed back in {@link io.github.authzenenforcer.core.event.CallCompleted#getCallSpan()}
  * and {@link io.github.authzenenforcer.core.event.AttemptCompleted#getExchangeSpan()}, which every
