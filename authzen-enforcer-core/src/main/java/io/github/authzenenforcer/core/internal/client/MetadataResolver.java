@@ -137,6 +137,7 @@ final class MetadataResolver {
      */
     CompletableFuture<Optional<PdpMetadata>> metadata() {
         CompletableFuture<Optional<PdpMetadata>> result;
+        CircuitBreaker.Permit permit;
         long now;
         try {
             now = now();
@@ -152,7 +153,6 @@ final class MetadataResolver {
                 // A copy, so that a caller cancelling its future does not fail the others
                 return pending.copy();
             }
-            CircuitBreaker.Permit permit;
             try {
                 permit = breaker.acquire(now);
             } catch (PdpCommunicationException suspended) {
@@ -167,6 +167,12 @@ final class MetadataResolver {
             pendingPermit = permit;
         } finally {
             lock.unlock();
+        }
+        try {
+            breaker.announce(permit);
+        } catch (Error e) {
+            abandon(result, e);
+            throw e;
         }
         // Started outside the lock, since the transport may complete synchronously
         CallTrace trace = CallTrace.start(events, Operation.METADATA);
@@ -259,6 +265,20 @@ final class MetadataResolver {
         }
     }
 
+    // Clears the fetch without changing the cache and gives the permit back, so that the next call tries again
+    private void abandon(CompletableFuture<Optional<PdpMetadata>> result, Throwable failure) {
+        CircuitBreaker.Permit permit;
+        lock.lock();
+        try {
+            pending = null;
+            permit = pendingPermit;
+        } finally {
+            lock.unlock();
+        }
+        breaker.released(permit);
+        result.completeExceptionally(failure);
+    }
+
     private void settle(CompletableFuture<Optional<PdpMetadata>> result, Fetched fetched, Throwable error,
             CallTrace trace) {
         long now;
@@ -266,16 +286,7 @@ final class MetadataResolver {
             now = now();
         } catch (AuthZenException e) {
             // Nothing changed yet; clear the fetch so that the next call tries again
-            CircuitBreaker.Permit permit;
-            lock.lock();
-            try {
-                pending = null;
-                permit = pendingPermit;
-            } finally {
-                lock.unlock();
-            }
-            breaker.released(permit);
-            result.completeExceptionally(e);
+            abandon(result, e);
             trace.refreshed(failed(e));
             return;
         }

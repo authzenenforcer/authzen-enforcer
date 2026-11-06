@@ -267,6 +267,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
         }
         CompletableFuture<Object> response;
         try {
+            breaker.announce(permit);
             response = transport.post(endpoint, body, trace);
         } catch (RuntimeException e) {
             breaker.released(permit);

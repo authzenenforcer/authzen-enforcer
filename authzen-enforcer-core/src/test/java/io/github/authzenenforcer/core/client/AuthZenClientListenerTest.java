@@ -307,6 +307,31 @@ class AuthZenClientListenerTest {
     }
 
     @Test
+    void reportsTheHalfOpenStateOfTheDiscoveryBreaker() throws InterruptedException {
+        pdp.respondToMetadata(json(500, ""));
+        AuthZenClient client = builder().maxRetries(0)
+                .circuitBreaker(CircuitBreakerOptions.builder()
+                        .failureThreshold(1)
+                        .openDuration(CircuitBreakerOptions.MIN_OPEN_DURATION)
+                        .maxOpenDuration(CircuitBreakerOptions.MIN_OPEN_DURATION)
+                        .build())
+                .build();
+        assertThrows(AuthZenException.class, client::metadata);
+
+        Thread.sleep(CircuitBreakerOptions.MIN_OPEN_DURATION.toMillis() + 50);
+        pdp.respondToMetadata(json(404, ""));
+        assertTrue(client.metadata().isEmpty());
+
+        awaitCondition(() -> recorder.of(BreakerTransition.class).size() >= 3);
+        List<String> transitions = recorder.of(BreakerTransition.class).stream()
+                .filter(t -> t.getBreaker() == BreakerTransition.Breaker.METADATA_DISCOVERY)
+                .map(t -> t.getFrom() + ">" + t.getTo())
+                .sorted()
+                .toList();
+        assertEquals(List.of("CLOSED>OPEN", "HALF_OPEN>CLOSED", "OPEN>HALF_OPEN"), transitions);
+    }
+
+    @Test
     void reportsNoDropsWithoutListeners() {
         AuthZenClient client = AuthZenClient.builder().pdpUrl(pdp.url()).discovery(false).build();
 
