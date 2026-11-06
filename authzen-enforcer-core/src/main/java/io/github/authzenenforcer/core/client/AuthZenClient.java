@@ -3,6 +3,7 @@ package io.github.authzenenforcer.core.client;
 import io.github.authzenenforcer.core.AuthZenException;
 import io.github.authzenenforcer.core.auth.CredentialProvider;
 import io.github.authzenenforcer.core.event.EventContent;
+import io.github.authzenenforcer.core.event.ListenerDrops;
 import io.github.authzenenforcer.core.internal.event.EventDispatcher;
 import io.github.authzenenforcer.core.internal.client.DefaultAuthZenClient;
 import io.github.authzenenforcer.core.internal.client.EndpointOverrides;
@@ -368,6 +369,19 @@ public interface AuthZenClient {
      * @see Builder#discovery(boolean)
      */
     CompletionStage<Optional<PdpMetadata>> metadataAsync();
+
+    /**
+     * Returns how many events each listener did not get because its queue was full, for example
+     * to expose them as metrics. The counts only grow while the client lives.
+     *
+     * <p>The default implementation reports no listener, for clients that do not deliver events.
+     *
+     * @return a snapshot of the counts per listener and event type
+     * @see Builder#listener(PepListener)
+     */
+    default ListenerDrops listenerDrops() {
+        return ListenerDrops.none();
+    }
 
     /**
      * Returns a new builder.

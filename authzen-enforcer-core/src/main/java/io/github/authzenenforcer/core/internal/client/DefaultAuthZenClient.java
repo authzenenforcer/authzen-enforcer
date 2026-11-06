@@ -10,6 +10,7 @@ import io.github.authzenenforcer.core.client.CircuitBreakerOptions;
 import io.github.authzenenforcer.core.client.DiscoveryOptions;
 import io.github.authzenenforcer.core.client.PaginationOptions;
 import io.github.authzenenforcer.core.event.BreakerTransition;
+import io.github.authzenenforcer.core.event.ListenerDrops;
 import io.github.authzenenforcer.core.event.Operation;
 import io.github.authzenenforcer.core.internal.event.CallTrace;
 import io.github.authzenenforcer.core.internal.event.EventDispatcher;
@@ -266,6 +267,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
         }
         CompletableFuture<Object> response;
         try {
+            breaker.announce(permit);
             response = transport.post(endpoint, body, trace);
         } catch (RuntimeException e) {
             breaker.released(permit);
@@ -476,6 +478,11 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     @Override
     public CompletionStage<Optional<PdpMetadata>> metadataAsync() {
         return discovered().minimalCompletionStage();
+    }
+
+    @Override
+    public ListenerDrops listenerDrops() {
+        return events.drops();
     }
 
     private CompletableFuture<Optional<PdpMetadata>> discovered() {

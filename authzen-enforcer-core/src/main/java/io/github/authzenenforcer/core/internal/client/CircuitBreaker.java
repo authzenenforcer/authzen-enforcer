@@ -32,12 +32,17 @@ import java.util.function.DoubleSupplier;
  */
 final class CircuitBreaker {
 
-    /** Admission to call the PDP. */
-    record Permit(long generation, boolean probe) {
+    /**
+     * Admission to call the PDP.
+     *
+     * @param halfOpened whether acquiring this permit turned the breaker half-open, which
+     *                   {@link #announce(Permit)} publishes
+     */
+    record Permit(long generation, boolean probe, boolean halfOpened) {
     }
 
     private static final System.Logger LOGGER = System.getLogger(CircuitBreaker.class.getName());
-    private static final Permit UNLIMITED = new Permit(-1, false);
+    private static final Permit UNLIMITED = new Permit(-1, false, false);
     private static final Runnable NO_LOG = () -> { };
 
     private enum State { CLOSED, OPEN, HALF_OPEN }
@@ -105,6 +110,8 @@ final class CircuitBreaker {
         if (!enabled) {
             return UNLIMITED;
         }
+        Permit permit;
+        boolean halfOpened = false;
         lock.lock();
         try {
             if (state == State.OPEN) {
@@ -113,17 +120,33 @@ final class CircuitBreaker {
                 }
                 state = State.HALF_OPEN;
                 probing = false;
+                halfOpened = true;
             }
             if (state == State.HALF_OPEN) {
                 if (probing) {
                     throw rejection("a probe is in progress");
                 }
                 probing = true;
-                return new Permit(generation, true);
+                permit = new Permit(generation, true, halfOpened);
+            } else {
+                permit = new Permit(generation, false, false);
             }
-            return new Permit(generation, false);
         } finally {
             lock.unlock();
+        }
+        return permit;
+    }
+
+    /**
+     * Publishes the transition to half-open if acquiring the permit caused it. Callers run it
+     * after releasing their own locks and before using the permit; if it throws an {@code Error},
+     * they must release the permit, since a lost probe would keep the breaker rejecting every call.
+     *
+     * @param permit the permit {@link #acquire(long)} returned
+     */
+    void announce(Permit permit) {
+        if (permit.halfOpened()) {
+            publish(transition(State.OPEN, BreakerTransition.State.HALF_OPEN));
         }
     }
 

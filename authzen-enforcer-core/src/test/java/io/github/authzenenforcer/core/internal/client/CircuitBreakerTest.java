@@ -1,6 +1,7 @@
 package io.github.authzenenforcer.core.internal.client;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -86,6 +87,23 @@ class CircuitBreakerTest {
 
         assertTrue(probe.probe());
         assertOpen(breaker);
+    }
+
+    @Test
+    void marksOnlyThePermitThatTurnedTheBreakerHalfOpen() {
+        CircuitBreaker breaker = breaker();
+        assertFalse(breaker.acquire(now).halfOpened());
+        fail(breaker, 3);
+        advance(OPEN);
+
+        CircuitBreaker.Permit probe = breaker.acquire(now);
+        assertTrue(probe.halfOpened());
+        breaker.released(probe);
+
+        // Still half-open: the next probe did not cause the transition
+        CircuitBreaker.Permit next = breaker.acquire(now);
+        assertTrue(next.probe());
+        assertFalse(next.halfOpened());
     }
 
     @Test

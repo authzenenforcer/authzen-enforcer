@@ -6,11 +6,12 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * A circuit breaker of the client that opened or closed.
+ * A circuit breaker of the client that changed its state.
  *
- * <p>Events report a breaker that opens after repeated failures, opens again after a failed
- * probe, or closes after a successful one. The short half-open state in which the probe runs is
- * visible as the {@link #getFrom() from} state of the next event.
+ * <p>Events report a breaker that opens after repeated failures, turns half-open when its open
+ * period has passed and the next call becomes the probe, opens again after a failed probe, or
+ * closes after a successful one. A breaker whose open period passes while no call arrives stays
+ * open until the next call, so that event comes only then.
  *
  * <p>Instances are immutable and thread-safe. The SDK creates them; the builder lets tests of a
  * listener create their own.

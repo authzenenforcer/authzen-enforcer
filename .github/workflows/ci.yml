@@ -26,6 +26,28 @@ jobs:
       - name: Build and test
         run: mvn -B -ntp verify
 
+  micrometer-latest:
+    # The module compiles against the oldest supported Micrometer; this checks the newest release
+    name: Micrometer (latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+      - name: Find the latest Micrometer release
+        id: micrometer
+        run: |
+          version=$(curl -fsS https://repo.maven.apache.org/maven2/io/micrometer/micrometer-core/maven-metadata.xml \
+            | grep -oE '<version>[0-9]+\.[0-9]+\.[0-9]+</version>' | sed -E 's/<\/?version>//g' | sort -V | tail -n 1)
+          test -n "$version"
+          echo "Micrometer $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Test with the latest Micrometer
+        run: mvn -B -ntp -pl authzen-enforcer-micrometer -am verify -Dmicrometer.version=${{ steps.micrometer.outputs.version }}
+
   interop:
     name: Interop (Keycloak)
     runs-on: ubuntu-latest

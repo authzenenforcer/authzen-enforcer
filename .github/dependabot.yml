@@ -8,6 +8,10 @@ updates:
       # One PR for all Maven updates, so the version properties in pom.xml do not conflict
       maven:
         patterns: ["*"]
+    ignore:
+      # Integrations compile against the oldest supported line; only patch updates apply
+      - dependency-name: "io.micrometer:*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
