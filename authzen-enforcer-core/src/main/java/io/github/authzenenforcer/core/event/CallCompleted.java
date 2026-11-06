@@ -1,6 +1,7 @@
 package io.github.authzenenforcer.core.event;
 
 import io.github.authzenenforcer.core.AuthZenException;
+import io.github.authzenenforcer.core.spi.PepTracer;
 
 import java.net.URI;
 import java.time.Duration;
@@ -38,6 +39,7 @@ public final class CallCompleted<Q, R> {
     private final Instant startTime;
     private final Duration duration;
     private final EventContent content;
+    private final PepTracer.CallSpan callSpan;
     // Masked on first use, on the thread of the listener; computing it twice is harmless
     private volatile Q maskedRequest;
     private volatile R maskedResponse;
@@ -55,6 +57,7 @@ public final class CallCompleted<Q, R> {
         this.startTime = Objects.requireNonNull(builder.startTime, "startTime is required");
         this.duration = Objects.requireNonNull(builder.duration, "duration is required");
         this.content = builder.content;
+        this.callSpan = builder.callSpan;
     }
 
     /**
@@ -190,6 +193,16 @@ public final class CallCompleted<Q, R> {
         return duration;
     }
 
+    /**
+     * Returns the span the {@link PepTracer} started for the call, for example to correlate an
+     * audit record with the trace through {@code getTraceContext().getTraceId()}.
+     *
+     * @return the span, or empty if the call was not traced
+     */
+    public Optional<PepTracer.CallSpan> getCallSpan() {
+        return Optional.ofNullable(callSpan);
+    }
+
     @Override
     public String toString() {
         return "CallCompleted{operation=" + operation + ", outcome=" + getOutcome() + ", attempts=" + getAttempts()
@@ -214,6 +227,7 @@ public final class CallCompleted<Q, R> {
         private Instant startTime;
         private Duration duration;
         private EventContent content = EventContent.defaults();
+        private PepTracer.CallSpan callSpan;
 
         private Builder(Operation<Q, R> operation) {
             this.operation = operation;
@@ -304,6 +318,17 @@ public final class CallCompleted<Q, R> {
          */
         public Builder<Q, R> content(EventContent content) {
             this.content = Objects.requireNonNull(content, "content must not be null");
+            return this;
+        }
+
+        /**
+         * Sets the span the tracer started for the call.
+         *
+         * @param callSpan the span
+         * @return this builder
+         */
+        public Builder<Q, R> callSpan(PepTracer.CallSpan callSpan) {
+            this.callSpan = Objects.requireNonNull(callSpan, "callSpan must not be null");
             return this;
         }
 

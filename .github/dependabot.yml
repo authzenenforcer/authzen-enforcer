@@ -12,6 +12,8 @@ updates:
       # Integrations compile against the oldest supported line; only patch updates apply
       - dependency-name: "io.micrometer:*"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "io.opentelemetry:*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
   - package-ecosystem: github-actions
     directory: /
     schedule:

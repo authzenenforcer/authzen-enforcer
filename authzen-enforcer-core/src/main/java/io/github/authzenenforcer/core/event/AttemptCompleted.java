@@ -1,5 +1,7 @@
 package io.github.authzenenforcer.core.event;
 
+import io.github.authzenenforcer.core.spi.PepTracer;
+
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
@@ -43,6 +45,7 @@ public final class AttemptCompleted {
     private final Duration duration;
     private final Next next;
     private final Duration retryDelay;
+    private final PepTracer.ExchangeSpan exchangeSpan;
 
     private AttemptCompleted(Builder builder) {
         this.operation = Objects.requireNonNull(builder.operation, "operation is required");
@@ -65,6 +68,7 @@ public final class AttemptCompleted {
         }
         this.next = builder.next;
         this.retryDelay = builder.retryDelay;
+        this.exchangeSpan = builder.exchangeSpan;
     }
 
     /**
@@ -176,6 +180,16 @@ public final class AttemptCompleted {
         return Optional.ofNullable(retryDelay);
     }
 
+    /**
+     * Returns the span the {@link PepTracer} started for the exchange; its trace context is what
+     * the client sent to the PDP.
+     *
+     * @return the span, or empty if the exchange was not traced
+     */
+    public Optional<PepTracer.ExchangeSpan> getExchangeSpan() {
+        return Optional.ofNullable(exchangeSpan);
+    }
+
     @Override
     public String toString() {
         return "AttemptCompleted{operation=" + operation + ", requestId=" + requestId + ", attempt=" + attempt
@@ -200,6 +214,7 @@ public final class AttemptCompleted {
         private Duration duration;
         private Next next = Next.NONE;
         private Duration retryDelay;
+        private PepTracer.ExchangeSpan exchangeSpan;
 
         private Builder() {
         }
@@ -323,6 +338,17 @@ public final class AttemptCompleted {
         public Builder refreshCredential() {
             this.next = Next.REFRESH_CREDENTIAL;
             this.retryDelay = null;
+            return this;
+        }
+
+        /**
+         * Sets the span the tracer started for the exchange.
+         *
+         * @param exchangeSpan the span
+         * @return this builder
+         */
+        public Builder exchangeSpan(PepTracer.ExchangeSpan exchangeSpan) {
+            this.exchangeSpan = Objects.requireNonNull(exchangeSpan, "exchangeSpan must not be null");
             return this;
         }
 

@@ -3,8 +3,10 @@ package io.github.authzenenforcer.core.internal.event;
 import io.github.authzenenforcer.core.AuthZenException;
 import io.github.authzenenforcer.core.event.AttemptCompleted;
 import io.github.authzenenforcer.core.event.CallCompleted;
+import io.github.authzenenforcer.core.event.ExchangeStart;
 import io.github.authzenenforcer.core.event.MetadataRefresh;
 import io.github.authzenenforcer.core.event.Operation;
+import io.github.authzenenforcer.core.spi.PepTracer;
 
 import java.lang.System.Logger.Level;
 import java.net.URI;
@@ -33,6 +35,9 @@ public final class CallTrace {
     private final Instant startTime;
     private final long startNanos;
     private final AtomicInteger attempts = new AtomicInteger();
+    private final AtomicInteger exchanges = new AtomicInteger();
+    // The metadata request is shared by the callers that wait for it, so it is never traced
+    private final PepTracer.CallSpan callSpan;
     private final List<AttemptCompleted> completed = new CopyOnWriteArrayList<>();
     private volatile URI endpoint;
     // The sizes of what the published event retains; the exchanges of a call run one after the other
@@ -45,6 +50,7 @@ public final class CallTrace {
         boolean active = dispatcher.isActive();
         this.startTime = active ? Instant.now() : Instant.EPOCH;
         this.startNanos = active ? System.nanoTime() : 0;
+        this.callSpan = active && operation != Operation.METADATA ? dispatcher.tracer().startCall(operation) : null;
     }
 
     /**
@@ -65,6 +71,29 @@ public final class CallTrace {
      */
     public boolean isActive() {
         return dispatcher.isActive();
+    }
+
+    /**
+     * Starts the span of an HTTP exchange of a traced call, right before it is sent.
+     *
+     * @param method    the HTTP method
+     * @param endpoint  the URI
+     * @param requestId the {@code X-Request-ID} of the exchange
+     * @return the span and the trace context that goes to the PDP, or {@code null} for no trace
+     *         headers
+     */
+    public TracerHook.TracedExchange startExchange(String method, URI endpoint, String requestId) {
+        if (callSpan == null) {
+            return null;
+        }
+        ExchangeStart exchange = ExchangeStart.builder()
+                .operation(operation)
+                .method(method)
+                .endpoint(endpoint)
+                .attempt(exchanges.incrementAndGet())
+                .requestId(requestId)
+                .build();
+        return dispatcher.tracer().startExchange(callSpan, exchange);
     }
 
     /**
@@ -139,6 +168,9 @@ public final class CallTrace {
                     .startTime(startTime)
                     .duration(duration)
                     .content(dispatcher.content());
+            if (callSpan != null) {
+                event.callSpan(callSpan);
+            }
             completed.forEach(attempt -> event.requestId(attempt.getRequestId()));
             if (failure != null) {
                 event.failure(failure);

@@ -21,6 +21,7 @@ import io.github.authzenenforcer.core.model.Subject;
 import io.github.authzenenforcer.core.model.SubjectSearchRequest;
 import io.github.authzenenforcer.core.spi.JsonCodec;
 import io.github.authzenenforcer.core.spi.PepListener;
+import io.github.authzenenforcer.core.spi.PepTracer;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -445,6 +446,7 @@ public interface AuthZenClient {
         private PaginationOptions pagination = PaginationOptions.defaults();
         private LongSupplier clock = System::nanoTime;
         private final List<PepListener> listeners = new ArrayList<>();
+        private PepTracer tracer;
         private Executor listenerExecutor;
         private int listenerQueueCapacity = DEFAULT_LISTENER_QUEUE_CAPACITY;
         private long listenerQueueMaxBytes = DEFAULT_LISTENER_QUEUE_MAX_BYTES;
@@ -736,6 +738,21 @@ public interface AuthZenClient {
         }
 
         /**
+         * Sets the tracer for distributed tracing, such as OpenTelemetry. It starts spans on the
+         * request path and sends their trace context to the PDP in {@code traceparent} and
+         * {@code tracestate}; it is also registered as a listener, after the others, to end them,
+         * unless it was added with {@link #listener(PepListener)} already.
+         * See {@link PepTracer} for the guarantees. A later call replaces an earlier one.
+         *
+         * @param tracer the tracer
+         * @return this builder
+         */
+        public Builder tracer(PepTracer tracer) {
+            this.tracer = Objects.requireNonNull(tracer, "tracer must not be null");
+            return this;
+        }
+
+        /**
          * Sets the executor that delivers events to the listeners. By default each listener has
          * its own daemon thread, which ends when it has been idle for a while, so that a listener
          * that blocks holds up no other. On Java 21 or later,
@@ -835,7 +852,7 @@ public interface AuthZenClient {
                     searchSubjectEndpoint, searchResourceEndpoint, searchActionEndpoint);
             return new DefaultAuthZenClient(pdpUrl, overrides, credentials, jsonCodec, client, requestTimeout,
                     maxRetries, discovery ? discoveryOptions : null, circuitBreaker, pagination, clock,
-                    EventDispatcher.create(listeners, listenerExecutor, listenerQueueCapacity,
+                    EventDispatcher.create(listeners, tracer, listenerExecutor, listenerQueueCapacity,
                             listenerQueueMaxBytes, eventContent));
         }
 
