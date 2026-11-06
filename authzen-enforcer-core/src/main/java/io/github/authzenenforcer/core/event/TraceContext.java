@@ -23,8 +23,8 @@ public final class TraceContext {
     /** The largest accepted {@code tracestate}, as the W3C recommendation lets vendors truncate beyond it. */
     public static final int MAX_TRACESTATE_LENGTH = 512;
 
-    private static final Pattern TRACEPARENT = Pattern.compile("00-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}");
-    private static final Pattern TRACESTATE = Pattern.compile("[\\x20-\\x7e]*");
+    private static final Pattern TRACEPARENT_FORMAT = Pattern.compile("00-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}");
+    private static final Pattern TRACESTATE_FORMAT = Pattern.compile("[\\x20-\\x7e]*");
     private static final String ZERO_TRACE_ID = "0".repeat(32);
     private static final String ZERO_PARENT_ID = "0".repeat(16);
 
@@ -46,7 +46,7 @@ public final class TraceContext {
      */
     public static TraceContext of(String traceparent, String tracestate) {
         Objects.requireNonNull(traceparent, "traceparent must not be null");
-        Matcher matcher = TRACEPARENT.matcher(traceparent);
+        Matcher matcher = TRACEPARENT_FORMAT.matcher(traceparent);
         if (!matcher.matches()) {
             throw new IllegalArgumentException("traceparent is not a W3C version 00 value");
         }
@@ -54,7 +54,7 @@ public final class TraceContext {
             throw new IllegalArgumentException("traceparent must not have an all-zero trace id or parent id");
         }
         if (tracestate != null && (tracestate.length() > MAX_TRACESTATE_LENGTH
-                || !TRACESTATE.matcher(tracestate).matches())) {
+                || !TRACESTATE_FORMAT.matcher(tracestate).matches())) {
             throw new IllegalArgumentException("tracestate must be at most " + MAX_TRACESTATE_LENGTH
                     + " printable ASCII characters");
         }
