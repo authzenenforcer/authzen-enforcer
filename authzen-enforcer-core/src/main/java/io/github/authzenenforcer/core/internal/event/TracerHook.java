@@ -93,6 +93,11 @@ public final class TracerHook {
         if (parent == null) {
             return startCall(operation);
         }
+        // A parent only comes from this hook's captureParent, so the tracer exists; checked anyway,
+        // since a failure here would also break the logging in guarded()
+        if (tracer == null) {
+            return null;
+        }
         return guarded(() -> tracer.startCall(operation, parent), "start the span of a call");
     }
 
