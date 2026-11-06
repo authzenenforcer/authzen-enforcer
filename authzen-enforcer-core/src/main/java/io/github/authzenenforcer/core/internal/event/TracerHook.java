@@ -70,6 +70,38 @@ public final class TracerHook {
     }
 
     /**
+     * Captures the trace of a search over all pages.
+     *
+     * @param operation the kind of search
+     * @return what starts every page under that trace, or {@code null}
+     */
+    public PepTracer.CallParent captureParent(Operation<?, ?> operation) {
+        if (tracer == null) {
+            return null;
+        }
+        return guarded(() -> tracer.captureParent(operation), "capture the trace of a search");
+    }
+
+    /**
+     * Starts the span of a page of a search over all pages.
+     *
+     * @param operation the kind of search
+     * @param parent    what {@link #captureParent} returned, or {@code null} to start it like any call
+     * @return the span, or {@code null} if the call is not traced
+     */
+    public PepTracer.CallSpan startCall(Operation<?, ?> operation, PepTracer.CallParent parent) {
+        if (parent == null) {
+            return startCall(operation);
+        }
+        // A parent only comes from this hook's captureParent, so the tracer exists; checked anyway,
+        // since a failure here would also break the logging in guarded()
+        if (tracer == null) {
+            return null;
+        }
+        return guarded(() -> tracer.startCall(operation, parent), "start the span of a call");
+    }
+
+    /**
      * Starts the span of an exchange and checks that it has a trace context to send.
      *
      * @param call     the span of the call

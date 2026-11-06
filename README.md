@@ -331,6 +331,8 @@ GET /documents/42                    (your server span)
   a listener thread. A failing tracer only means no trace headers; it never fails or changes a
   call.
 - Only `traceparent` and `tracestate` are sent, never baggage. The metadata request is not traced.
+- The pages of `searchAll*` are fetched later, on other threads; each page still goes under the
+  span that was current where `searchAll*` was called.
 - Spans carry no subject, resource id, property or context values, and no exception messages.
   `authzen.resource.type` and `authzen.action.name` can be turned off in the builder. `url.full`
   shows the PDP endpoint with its path, so keep secrets out of the PDP URL.

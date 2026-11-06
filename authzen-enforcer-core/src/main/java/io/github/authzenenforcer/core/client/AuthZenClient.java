@@ -258,6 +258,10 @@ public interface AuthZenClient {
      * it directly, for example Reactor with {@code JdkFlowAdapter.flowPublisherToFlux(publisher)}
      * and Mutiny with {@code Multi.createFrom().publisher(publisher)}.
      *
+     * <p>With a {@link io.github.authzenenforcer.core.spi.PepTracer}, the pages of every subscriber
+     * are traced under the trace that was current where this method was called, so a publisher
+     * handed to code that serves another request still reports its pages in the original trace.
+     *
      * @param request the request for the first page
      * @return a publisher of the subjects
      */

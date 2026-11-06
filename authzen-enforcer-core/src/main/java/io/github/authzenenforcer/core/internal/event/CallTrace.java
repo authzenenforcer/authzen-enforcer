@@ -28,7 +28,7 @@ public final class CallTrace {
     private static final System.Logger LOGGER = System.getLogger(CallTrace.class.getName());
 
     /** A trace that records nothing, for clients without listeners. */
-    public static final CallTrace NONE = new CallTrace(EventDispatcher.NONE, Operation.METADATA);
+    public static final CallTrace NONE = new CallTrace(EventDispatcher.NONE, Operation.METADATA, null);
 
     private final EventDispatcher dispatcher;
     private final Operation<?, ?> operation;
@@ -44,13 +44,15 @@ public final class CallTrace {
     private volatile long requestBytes;
     private volatile long responseBytes;
 
-    private CallTrace(EventDispatcher dispatcher, Operation<?, ?> operation) {
+    private CallTrace(EventDispatcher dispatcher, Operation<?, ?> operation, PepTracer.CallParent parent) {
         this.dispatcher = dispatcher;
         this.operation = operation;
         boolean active = dispatcher.isActive();
         this.startTime = active ? Instant.now() : Instant.EPOCH;
         this.startNanos = active ? System.nanoTime() : 0;
-        this.callSpan = active && operation != Operation.METADATA ? dispatcher.tracer().startCall(operation) : null;
+        this.callSpan = active && operation != Operation.METADATA
+                ? dispatcher.tracer().startCall(operation, parent)
+                : null;
     }
 
     /**
@@ -61,7 +63,20 @@ public final class CallTrace {
      * @return the trace, or {@link #NONE} if the dispatcher has no listeners
      */
     public static CallTrace start(EventDispatcher dispatcher, Operation<?, ?> operation) {
-        return dispatcher.isActive() ? new CallTrace(dispatcher, operation) : NONE;
+        return start(dispatcher, operation, null);
+    }
+
+    /**
+     * Starts a trace of a page of a search over all pages.
+     *
+     * @param dispatcher where the events go
+     * @param operation  the kind of call
+     * @param parent     the trace the search belongs to, or {@code null} to start it like any call
+     * @return the trace, or {@link #NONE} if the dispatcher has no listeners
+     */
+    public static CallTrace start(EventDispatcher dispatcher, Operation<?, ?> operation,
+            PepTracer.CallParent parent) {
+        return dispatcher.isActive() ? new CallTrace(dispatcher, operation, parent) : NONE;
     }
 
     /**

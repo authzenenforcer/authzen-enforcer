@@ -41,7 +41,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * }</pre>
  *
  * <p>Every call becomes an {@code INTERNAL} span named {@code authzen <operation>}, such as
- * {@code authzen evaluation}, under the span that is current on the calling thread. Every HTTP
+ * {@code authzen evaluation}, under the span that is current on the calling thread. The pages of a
+ * search over all pages ({@code searchAll*}) are fetched later, on other threads, so each of them
+ * goes under the span that was current where {@code searchAll*} was called. Every HTTP
  * exchange, retries included, becomes a {@code CLIENT} span named by its method under the call's
  * span, and its context goes to the PDP, so the PDP's server span appears under the exchange that
  * reached it:
@@ -112,8 +114,22 @@ public final class OpenTelemetryTracing implements PepTracer {
 
     @Override
     public CallSpan startCall(Operation<?, ?> operation) {
+        return start(operation, Context.current());
+    }
+
+    @Override
+    public CallParent captureParent(Operation<?, ?> operation) {
+        return new OtelCallParent(Context.current());
+    }
+
+    @Override
+    public CallSpan startCall(Operation<?, ?> operation, CallParent parent) {
+        return start(operation, parent instanceof OtelCallParent captured ? captured.context : Context.current());
+    }
+
+    private CallSpan start(Operation<?, ?> operation, Context parent) {
         Span span = tracer.spanBuilder("authzen " + operation.getName())
-                .setParent(Context.current())
+                .setParent(parent)
                 .setSpanKind(SpanKind.INTERNAL)
                 .setAttribute("authzen.operation", operation.getName())
                 .startSpan();
@@ -229,6 +245,16 @@ public final class OpenTelemetryTracing implements PepTracer {
             return endpoint.getPort();
         }
         return "http".equalsIgnoreCase(endpoint.getScheme()) ? 80 : 443;
+    }
+
+    /** The context that was current where a search over all pages was started. */
+    private static final class OtelCallParent implements CallParent {
+
+        final Context context;
+
+        OtelCallParent(Context context) {
+            this.context = context;
+        }
     }
 
     /** The span of a call, with the spans of its exchanges. */

@@ -19,15 +19,19 @@ import io.github.authzenenforcer.core.model.Action;
 import io.github.authzenenforcer.core.model.EvaluationRequest;
 import io.github.authzenenforcer.core.model.Resource;
 import io.github.authzenenforcer.core.model.Subject;
+import io.github.authzenenforcer.core.model.SubjectSearchRequest;
 import io.github.authzenenforcer.core.spi.PepTracer;
 
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -72,6 +76,9 @@ class AuthZenClientTracerTest {
         }
     }
 
+    private record Parent(Operation<?, ?> operation) implements PepTracer.CallParent {
+    }
+
     /** Hands out spans with distinct ids and records what it is told. */
     private static final class RecordingTracer implements PepTracer {
 
@@ -80,6 +87,9 @@ class AuthZenClientTracerTest {
         final List<ExchangeStart> exchanges = new CopyOnWriteArrayList<>();
         final List<Span> exchangeSpans = new CopyOnWriteArrayList<>();
         final List<Object> events = new CopyOnWriteArrayList<>();
+        final List<String> captureThreads = new CopyOnWriteArrayList<>();
+        final List<CallParent> pageParents = new CopyOnWriteArrayList<>();
+        volatile boolean failCapture;
         volatile boolean failCall;
         volatile boolean failExchange;
         volatile boolean noExchangeSpan;
@@ -92,6 +102,21 @@ class AuthZenClientTracerTest {
             }
             calls.add(operation);
             return new Span(context(ids.incrementAndGet()));
+        }
+
+        @Override
+        public CallParent captureParent(Operation<?, ?> operation) {
+            if (failCapture) {
+                throw new IllegalStateException("tracer bug");
+            }
+            captureThreads.add(Thread.currentThread().getName());
+            return new Parent(operation);
+        }
+
+        @Override
+        public CallSpan startCall(Operation<?, ?> operation, CallParent parent) {
+            pageParents.add(parent);
+            return startCall(operation);
         }
 
         @Override
@@ -243,6 +268,80 @@ class AuthZenClientTracerTest {
         tracer.await(2);
         Thread.sleep(100);
         assertEquals(2, tracer.events.size(), tracer.events::toString);
+    }
+
+    private static final SubjectSearchRequest SEARCH = SubjectSearchRequest.of("user", Action.of("can_read"),
+            Resource.of("account", "1"));
+
+    private void twoPages() {
+        pdp.respond(sequence(
+                json(200, "{\"page\": {\"next_token\": \"t2\"}, \"results\": [{\"type\": \"user\", \"id\": \"a\"}]}"),
+                json(200, "{\"page\": {\"next_token\": \"\"}, \"results\": [{\"type\": \"user\", \"id\": \"b\"}]}")));
+    }
+
+    @Test
+    void startsEveryPageUnderTheTraceCapturedWhereTheSearchWasCalled() {
+        twoPages();
+        AuthZenClient client = builder().build();
+
+        Stream<Subject> results = client.searchAllSubjects(SEARCH);
+
+        // Captured when searchAll is called, before any page is fetched
+        assertEquals(List.of(Thread.currentThread().getName()), tracer.captureThreads);
+        assertTrue(tracer.calls.isEmpty());
+        assertEquals(2, results.count());
+        assertEquals(2, tracer.pageParents.size());
+        Parent parent = assertInstanceOf(Parent.class, tracer.pageParents.get(0));
+        assertSame(parent, tracer.pageParents.get(1));
+        assertEquals(Operation.SUBJECT_SEARCH, parent.operation());
+        assertEquals(2, pdp.requests().stream().filter(r -> r.header("traceparent") != null).count());
+    }
+
+    @Test
+    void startsThePagesOfAPublisherUnderTheTraceCapturedWhereTheSearchWasCalled() throws InterruptedException {
+        twoPages();
+        Flow.Publisher<Subject> publisher = builder().build().searchAllSubjectsAsync(SEARCH);
+        assertEquals(1, tracer.captureThreads.size());
+        CountDownLatch done = new CountDownLatch(1);
+
+        // Subscribed and drained on another thread
+        Thread subscriber = new Thread(() -> publisher.subscribe(new Flow.Subscriber<>() {
+            @Override
+            public void onSubscribe(Flow.Subscription subscription) {
+                subscription.request(Long.MAX_VALUE);
+            }
+
+            @Override
+            public void onNext(Subject item) {
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                done.countDown();
+            }
+
+            @Override
+            public void onComplete() {
+                done.countDown();
+            }
+        }));
+        subscriber.start();
+
+        assertTrue(done.await(5, TimeUnit.SECONDS));
+        assertEquals(2, tracer.pageParents.size());
+        assertSame(tracer.pageParents.get(0), tracer.pageParents.get(1));
+    }
+
+    @Test
+    void startsThePagesLikeAnyCallWhenCapturingFails() {
+        twoPages();
+        tracer.failCapture = true;
+
+        assertEquals(2, builder().build().searchAllSubjects(SEARCH).count());
+
+        assertTrue(tracer.pageParents.isEmpty());
+        assertEquals(2, tracer.calls.size());
+        assertEquals(2, pdp.requests().stream().filter(r -> r.header("traceparent") != null).count());
     }
 
     @Test
