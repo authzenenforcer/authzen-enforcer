@@ -19,6 +19,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -53,7 +54,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * </table>
  *
  * <p>Tag values are lower case. {@code exception} is the simple class name of the failure, or
- * {@code none}; {@code status} is the HTTP status, or {@code none} if no response arrived. No tag
+ * {@code none}; {@code status} is the HTTP status, {@code invalid} for a status outside 100–599,
+ * or {@code none} if no response arrived. No tag
  * carries an identifier, such as a subject id, resource id or request id, so the number of time
  * series stays bounded. Timers publish no histogram unless a {@code MeterFilter} configures one.
  *
@@ -82,6 +84,8 @@ public final class MicrometerPepListener implements PepListener {
     public static final String METADATA_REFRESHES = "authzen.client.metadata.refreshes";
 
     static final String NONE = "none";
+
+    static final String INVALID = "invalid";
 
     private final MeterRegistry registry;
     private final Tags tags;
@@ -148,7 +152,7 @@ public final class MicrometerPepListener implements PepListener {
                 .description("HTTP exchanges with the PDP")
                 .tags(tags)
                 .tag("operation", event.getOperation().getName())
-                .tag("status", event.getStatus().isPresent() ? String.valueOf(event.getStatus().getAsInt()) : NONE)
+                .tag("status", status(event.getStatus()))
                 .tag("exception", exception(event.getFailure()))
                 .tag("next", lower(event.getNext()))
                 .register(registry)
@@ -187,6 +191,15 @@ public final class MicrometerPepListener implements PepListener {
             default:
                 return 2;
         }
+    }
+
+    // HTTP/2 lets a PDP send any integer as its status, which must not become a new series each time
+    static String status(OptionalInt status) {
+        if (status.isEmpty()) {
+            return NONE;
+        }
+        int code = status.getAsInt();
+        return code >= 100 && code <= 599 ? String.valueOf(code) : INVALID;
     }
 
     private static String exception(Optional<? extends Throwable> failure) {

@@ -30,6 +30,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.OptionalInt;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
@@ -165,6 +166,34 @@ class MicrometerPepListenerTest {
         assertEquals(1, registry.get(MicrometerPepListener.ATTEMPTS)
                 .tags("operation", "metadata", "status", "none", "exception", "IOException", "next", "none")
                 .timer().count());
+    }
+
+    @Test
+    void tagsStatusesOutsideTheHttpRangeAsInvalid() {
+        MicrometerPepListener listener = MicrometerPepListener.builder(registry).build();
+        // An HTTP/2 PDP can send any integer as :status
+        for (int status : new int[] {1000, 1001, 123456, -5, 99, 600}) {
+            listener.onAttemptCompleted(AttemptCompleted.builder()
+                    .operation(Operation.EVALUATION)
+                    .endpoint(ENDPOINT)
+                    .method("POST")
+                    .requestId("r" + status)
+                    .attempt(1)
+                    .status(status)
+                    .startTime(Instant.EPOCH)
+                    .duration(Duration.ofMillis(1))
+                    .build());
+        }
+
+        assertEquals(1, registry.get(MicrometerPepListener.ATTEMPTS).timers().size());
+        assertEquals(6, registry.get(MicrometerPepListener.ATTEMPTS).tag("status", "invalid").timer().count());
+    }
+
+    @Test
+    void keepsStatusesOfTheHttpRange() {
+        assertEquals("100", MicrometerPepListener.status(OptionalInt.of(100)));
+        assertEquals("599", MicrometerPepListener.status(OptionalInt.of(599)));
+        assertEquals("none", MicrometerPepListener.status(OptionalInt.empty()));
     }
 
     @Test

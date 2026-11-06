@@ -290,7 +290,7 @@ AuthZenClientMetrics.bind(client, registry, Tags.of("pdp", "main"));
 | Meter | Type | Tags |
 |---|---|---|
 | `authzen.client.calls` | timer | `operation`, `outcome` (`permit`/`deny`/`completed`/`failed`), `exception` |
-| `authzen.client.attempts` | timer | `operation`, `status`, `exception`, `next` (`none`/`retry`/`refresh_credential`) |
+| `authzen.client.attempts` | timer | `operation`, `status` (`invalid` outside 100–599), `exception`, `next` (`none`/`retry`/`refresh_credential`) |
 | `authzen.client.breaker.transitions` | counter | `breaker`, `from`, `to` |
 | `authzen.client.breaker.state` | gauge | `breaker`; 0 closed, 1 half-open, 2 open |
 | `authzen.client.metadata.refreshes` | counter | `result` |
