@@ -9,18 +9,24 @@ import io.github.authzenenforcer.core.model.EvaluationRequest;
 import io.github.authzenenforcer.core.spi.PepListener;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.noop.NoopGauge;
 
+import java.lang.ref.WeakReference;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.WeakHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * A {@link PepListener} that records the events of an
@@ -61,7 +67,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * <p>The breaker gauges start at closed, as the breakers of a new client do, so one listener
  * instance belongs to one client; clients that share a registry need distinct {@link
- * Builder#tags(Iterable) tags}. Their listeners must use the same tag keys and the same opt-in
+ * Builder#tags(Iterable) tags}, and {@link Builder#build()} rejects a second listener whose
+ * gauges would have the same tags as those of an earlier one, unless those gauges were removed from
+ * the registry first, as when a client is rebuilt. Their listeners must use the same tag keys and the same opt-in
  * tags, though: some registries, such as Prometheus, reject a meter whose tag keys differ from
  * those of an earlier meter with the same name, and the rejected metric is then missing. For
  * example, give every client a {@code pdp} tag rather than only some of them. Listener drops are
@@ -90,6 +98,12 @@ public final class MicrometerPepListener implements PepListener {
 
     static final String INVALID = "invalid";
 
+    // The breaker gauges listeners registered, per registry, so that a second listener whose gauges
+    // would silently show the first one's states is rejected. A gauge removed from the registry is
+    // replaced by a new instance on the next registration, so the identity check lets that through
+    private static final Map<MeterRegistry, Map<Meter.Id, WeakReference<Gauge>>> GAUGES = new WeakHashMap<>();
+    private static final ReentrantLock GAUGES_LOCK = new ReentrantLock();
+
     private final MeterRegistry registry;
     private final Tags tags;
     private final boolean resourceTypeTag;
@@ -105,12 +119,37 @@ public final class MicrometerPepListener implements PepListener {
         for (BreakerTransition.Breaker breaker : BreakerTransition.Breaker.values()) {
             AtomicInteger state = new AtomicInteger(stateValue(BreakerTransition.State.CLOSED));
             breakerStates.put(breaker, state);
-            Gauge.builder(BREAKER_STATE, state, AtomicInteger::get)
+            Gauge gauge = Gauge.builder(BREAKER_STATE, state, AtomicInteger::get)
                     .description("The state of a circuit breaker: 0 closed, 1 half-open, 2 open")
                     .tags(tags)
                     .tag("breaker", lower(breaker))
                     .strongReference(true)
                     .register(registry);
+            claim(registry, gauge);
+        }
+    }
+
+    // A registry returns the existing gauge for an id it already has, which reads another state
+    private static void claim(MeterRegistry registry, Gauge gauge) {
+        if (gauge instanceof NoopGauge) {
+            // Denied by a MeterFilter, so nothing is published that could be wrong
+            return;
+        }
+        boolean taken;
+        GAUGES_LOCK.lock();
+        try {
+            Map<Meter.Id, WeakReference<Gauge>> claimed = GAUGES.computeIfAbsent(registry, r -> new HashMap<>());
+            WeakReference<Gauge> previous = claimed.get(gauge.getId());
+            taken = previous != null && previous.get() == gauge;
+            if (!taken) {
+                claimed.put(gauge.getId(), new WeakReference<>(gauge));
+            }
+        } finally {
+            GAUGES_LOCK.unlock();
+        }
+        if (taken) {
+            throw new IllegalStateException("The registry already has the breaker gauges of another listener with"
+                    + " the tags " + gauge.getId().getTags() + "; give each client's listener distinct tags");
         }
     }
 
@@ -283,6 +322,8 @@ public final class MicrometerPepListener implements PepListener {
          * Builds the listener and registers its breaker gauges.
          *
          * @return the listener
+         * @throws IllegalStateException if the registry already has breaker gauges with the same
+         *                               tags from another listener
          */
         public MicrometerPepListener build() {
             return new MicrometerPepListener(this);

@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.authzenenforcer.core.AuthZenException;
 import io.github.authzenenforcer.core.PdpCommunicationException;
@@ -22,6 +24,7 @@ import io.github.authzenenforcer.core.model.Resource;
 import io.github.authzenenforcer.core.model.Subject;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Tags;
+import io.micrometer.core.instrument.config.MeterFilter;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
@@ -216,6 +219,42 @@ class MicrometerPepListenerTest {
 
     private double state(String breaker) {
         return registry.get(MicrometerPepListener.BREAKER_STATE).tag("breaker", breaker).gauge().value();
+    }
+
+    @Test
+    void rejectsASecondListenerWhoseGaugesWouldShowTheFirstOnesStates() {
+        MicrometerPepListener.builder(registry).tag("pdp", "main").build();
+
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> MicrometerPepListener.builder(registry).tag("pdp", "main").build());
+
+        assertTrue(thrown.getMessage().contains("distinct tags"), thrown::getMessage);
+        // Distinct tags, or another registry, are fine
+        MicrometerPepListener.builder(registry).tag("pdp", "backup").build();
+        MicrometerPepListener.builder(new SimpleMeterRegistry()).tag("pdp", "main").build();
+    }
+
+    @Test
+    void acceptsANewListenerOnceTheEarlierGaugesAreRemoved() {
+        MicrometerPepListener first = MicrometerPepListener.builder(registry).build();
+        registry.find(MicrometerPepListener.BREAKER_STATE).gauges().forEach(registry::remove);
+
+        MicrometerPepListener second = MicrometerPepListener.builder(registry).build();
+        second.onBreakerTransition(transition(BreakerTransition.State.CLOSED, BreakerTransition.State.OPEN));
+
+        assertEquals(2, state("authorization_api"));
+        first.onBreakerTransition(transition(BreakerTransition.State.OPEN, BreakerTransition.State.HALF_OPEN));
+        assertEquals(2, state("authorization_api"));
+    }
+
+    @Test
+    void acceptsListenersWhoseGaugesAreDenied() {
+        registry.config().meterFilter(MeterFilter.denyNameStartsWith(MicrometerPepListener.BREAKER_STATE));
+
+        MicrometerPepListener.builder(registry).build();
+        MicrometerPepListener.builder(registry).build();
+
+        assertTrue(registry.find(MicrometerPepListener.BREAKER_STATE).gauges().isEmpty());
     }
 
     @Test
