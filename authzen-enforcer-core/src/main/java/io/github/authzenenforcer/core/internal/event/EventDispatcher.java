@@ -8,9 +8,11 @@ import io.github.authzenenforcer.core.event.ListenerDrops;
 import io.github.authzenenforcer.core.event.ListenerDrops.EventType;
 import io.github.authzenenforcer.core.event.MetadataRefresh;
 import io.github.authzenenforcer.core.spi.PepListener;
+import io.github.authzenenforcer.core.spi.PepTracer;
 
 import java.lang.System.Logger.Level;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -58,21 +60,24 @@ public final class EventDispatcher {
     private static final long WARNING_INTERVAL_NANOS = Duration.ofMinutes(1).toNanos();
 
     private final List<ListenerQueue> queues;
+    private final TracerHook tracer;
     private final EventContent content;
     private final AtomicLong dropped = new AtomicLong();
     private final Throttle dropWarnings;
 
     private EventDispatcher() {
         this.queues = List.of();
+        this.tracer = TracerHook.NONE;
         this.content = EventContent.defaults();
         this.dropWarnings = new Throttle(System::nanoTime);
     }
 
-    private EventDispatcher(List<PepListener> listeners, Supplier<Executor> targets, int capacity, long maxBytes,
-            EventContent content, LongSupplier clock) {
+    private EventDispatcher(List<PepListener> listeners, TracerHook tracer, Supplier<Executor> targets, int capacity,
+            long maxBytes, EventContent content, LongSupplier clock) {
         this.queues = listeners.stream()
                 .map(listener -> new ListenerQueue(listener, targets.get(), capacity, maxBytes))
                 .toList();
+        this.tracer = tracer;
         this.content = Objects.requireNonNull(content, "content must not be null");
         this.dropWarnings = new Throttle(clock);
     }
@@ -90,11 +95,37 @@ public final class EventDispatcher {
      */
     public static EventDispatcher create(List<PepListener> listeners, Executor executor, int capacity, long maxBytes,
             EventContent content) {
-        return create(listeners, executor, capacity, maxBytes, content, System::nanoTime);
+        return create(listeners, null, executor, capacity, maxBytes, content);
+    }
+
+    /**
+     * Creates a dispatcher with a tracer, which also gets the events as the last listener.
+     *
+     * @param listeners the listeners
+     * @param tracer    the tracer, or {@code null} for none
+     * @param executor  the executor that delivers events, or {@code null} for a daemon thread per
+     *                  listener that ends when it has been idle for a while
+     * @param capacity  how many events each listener's queue holds
+     * @param maxBytes  how many bytes the events in each listener's queue may retain, approximately
+     * @param content   which values events mask
+     * @return the dispatcher
+     */
+    public static EventDispatcher create(List<PepListener> listeners, PepTracer tracer, Executor executor,
+            int capacity, long maxBytes, EventContent content) {
+        List<PepListener> all = new ArrayList<>(listeners);
+        if (tracer != null) {
+            all.add(tracer);
+        }
+        return create(all, TracerHook.of(tracer), executor, capacity, maxBytes, content, System::nanoTime);
     }
 
     static EventDispatcher create(List<PepListener> listeners, Executor executor, int capacity, long maxBytes,
             EventContent content, LongSupplier clock) {
+        return create(listeners, TracerHook.NONE, executor, capacity, maxBytes, content, clock);
+    }
+
+    private static EventDispatcher create(List<PepListener> listeners, TracerHook tracer, Executor executor,
+            int capacity, long maxBytes, EventContent content, LongSupplier clock) {
         if (listeners.isEmpty()) {
             return NONE;
         }
@@ -102,7 +133,7 @@ public final class EventDispatcher {
         // By default every listener has its own thread, so that one that blocks stalls no other
         Supplier<Executor> targets = handedOff != null ? () -> handedOff
                 : () -> daemonThread("authzen-enforcer-events");
-        return new EventDispatcher(List.copyOf(listeners), targets, capacity, maxBytes, content, clock);
+        return new EventDispatcher(List.copyOf(listeners), tracer, targets, capacity, maxBytes, content, clock);
     }
 
     // Lets tests in this package run drain tasks by hand, without the hand-off thread
@@ -111,7 +142,8 @@ public final class EventDispatcher {
         if (listeners.isEmpty()) {
             return NONE;
         }
-        return new EventDispatcher(List.copyOf(listeners), () -> target, capacity, maxBytes, content, clock);
+        return new EventDispatcher(List.copyOf(listeners), TracerHook.NONE, () -> target, capacity, maxBytes, content,
+                clock);
     }
 
     private static Executor daemonThread(String name) {
@@ -154,6 +186,15 @@ public final class EventDispatcher {
      */
     public boolean isActive() {
         return !queues.isEmpty();
+    }
+
+    /**
+     * Returns the hook that starts the spans of the tracer.
+     *
+     * @return the hook, {@link TracerHook#NONE} without a tracer
+     */
+    public TracerHook tracer() {
+        return tracer;
     }
 
     /**

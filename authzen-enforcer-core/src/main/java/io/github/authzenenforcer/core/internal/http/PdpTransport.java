@@ -7,7 +7,9 @@ import io.github.authzenenforcer.core.PdpProtocolException;
 import io.github.authzenenforcer.core.auth.AccessCredential;
 import io.github.authzenenforcer.core.auth.CredentialProvider;
 import io.github.authzenenforcer.core.event.AttemptCompleted;
+import io.github.authzenenforcer.core.event.TraceContext;
 import io.github.authzenenforcer.core.internal.event.CallTrace;
+import io.github.authzenenforcer.core.internal.event.TracerHook;
 import io.github.authzenenforcer.core.internal.json.JsonParser;
 import io.github.authzenenforcer.core.spi.JsonCodec;
 
@@ -39,9 +41,10 @@ import java.util.function.Function;
 /**
  * Sends AuthZEN requests to the PDP and turns every failure into an {@link AuthZenException}.
  *
- * <p>Per exchange it adds a fresh {@code X-Request-ID} and presents the current credential. After a
- * {@code 401} it refreshes the credential and repeats the request once; transient failures are
- * repeated as the {@link RetryPolicy} allows. It checks the echoed request id and limits the
+ * <p>Per exchange it adds a fresh {@code X-Request-ID} and, when a tracer traces the call, the
+ * trace context, and presents the current credential. After a {@code 401} it refreshes the
+ * credential and repeats the request once; transient failures are repeated as the
+ * {@link RetryPolicy} allows. It checks the echoed request id and limits the
  * response size. Redirects are never followed, so credentials cannot leak to another host.
  *
  * <p>Instances are immutable and thread-safe.
@@ -50,6 +53,12 @@ public final class PdpTransport {
 
     /** Request id header recommended by the specification. */
     public static final String REQUEST_ID_HEADER = "X-Request-ID";
+
+    /** The W3C Trace Context header with the parent span, sent when a tracer traces the call. */
+    public static final String TRACEPARENT_HEADER = "traceparent";
+
+    /** The W3C Trace Context header with vendor state, sent along with {@link #TRACEPARENT_HEADER}. */
+    public static final String TRACESTATE_HEADER = "tracestate";
 
     /** Maximum response body size in bytes, matching the parser's input limit. */
     static final int MAX_RESPONSE_BYTES = JsonParser.DEFAULT_MAX_LENGTH;
@@ -131,10 +140,12 @@ public final class PdpTransport {
         // Every HTTP exchange, including a repeated one, gets its own request id
         Exchange exchange = new Exchange(call.endpoint, call.get, call.json, UUID.randomUUID().toString());
         AccessCredential credential;
+        TracerHook.TracedExchange traced;
         HttpRequest request;
         try {
             credential = exchange.isGet() ? null : currentCredential();
-            request = exchange.request(credential);
+            traced = call.trace.startExchange(exchange.method(), exchange.endpoint, exchange.requestId);
+            request = exchange.request(credential, traced != null ? traced.context() : null);
         } catch (AuthZenException e) {
             return CompletableFuture.failedFuture(e);
         }
@@ -155,7 +166,7 @@ public final class PdpTransport {
                 .handle((response, error) -> {
                     Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
                     AttemptCompleted.Builder attempt = call.trace.isActive()
-                            ? exchange.attempt(startTime, elapsed)
+                            ? exchange.attempt(startTime, elapsed, traced)
                             : null;
                     if (error != null) {
                         Throwable cause = unwrap(error);
@@ -354,7 +365,11 @@ public final class PdpTransport {
             return get;
         }
 
-        HttpRequest request(AccessCredential credential) {
+        String method() {
+            return get ? "GET" : "POST";
+        }
+
+        HttpRequest request(AccessCredential credential, TraceContext trace) {
             HttpRequest.Builder builder = HttpRequest.newBuilder(endpoint)
                     .timeout(requestTimeout)
                     .header("Accept", JSON)
@@ -369,16 +384,21 @@ public final class PdpTransport {
             if (credential instanceof AccessCredential.Bearer bearer) {
                 builder.header("Authorization", "Bearer " + bearer.getToken());
             }
+            if (trace != null) {
+                builder.header(TRACEPARENT_HEADER, trace.getTraceparent());
+                trace.getTracestate().ifPresent(state -> builder.header(TRACESTATE_HEADER, state));
+            }
             return builder.build();
         }
 
-        AttemptCompleted.Builder attempt(Instant startTime, Duration duration) {
-            return AttemptCompleted.builder()
+        AttemptCompleted.Builder attempt(Instant startTime, Duration duration, TracerHook.TracedExchange traced) {
+            AttemptCompleted.Builder attempt = AttemptCompleted.builder()
                     .endpoint(endpoint)
-                    .method(get ? "GET" : "POST")
+                    .method(method())
                     .requestId(requestId)
                     .startTime(startTime)
                     .duration(duration);
+            return traced != null ? attempt.exchangeSpan(traced.span()) : attempt;
         }
 
         String suffix() {
