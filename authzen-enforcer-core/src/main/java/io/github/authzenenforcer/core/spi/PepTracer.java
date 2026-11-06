@@ -22,6 +22,13 @@ import io.github.authzenenforcer.core.event.TraceContext;
  * {@code tracestate} are sent, never baggage. The metadata request is not traced: it is shared by
  * the callers that wait for it.
  *
+ * <p>A search over all pages ({@code searchAll*}) fetches its pages lazily, on the thread that
+ * consumes the results or on an HTTP client thread, where the caller's trace is not current. So
+ * {@link #captureParent} runs once, on the thread that calls {@code searchAll*}, and every page
+ * of that search, the first one included, is started with {@link #startCall(Operation, CallParent)}
+ * under what it captured. If {@code captureParent} throws or returns {@code null}, the pages are
+ * started with {@link #startCall(Operation)}.
+ *
  * <p>The spans are handed back in {@link io.github.authzenenforcer.core.event.CallCompleted#getCallSpan()}
  * and {@link io.github.authzenenforcer.core.event.AttemptCompleted#getExchangeSpan()}, which every
  * listener can read, for example to put the trace id in an audit record. A span whose event was
@@ -46,6 +53,30 @@ public interface PepTracer extends PepListener {
     CallSpan startCall(Operation<?, ?> operation);
 
     /**
+     * Captures the trace a search over all pages belongs to, on the thread that calls
+     * {@code searchAll*}, before any page is fetched. The default captures nothing.
+     *
+     * @param operation the kind of search
+     * @return what {@link #startCall(Operation, CallParent)} needs to start every page under that
+     *         trace, or {@code null}
+     */
+    default CallParent captureParent(Operation<?, ?> operation) {
+        return null;
+    }
+
+    /**
+     * Starts tracing one page of a search over all pages, on whatever thread fetches it, under the
+     * trace {@link #captureParent} captured. The default ignores the parent.
+     *
+     * @param operation the kind of search
+     * @param parent    what {@code captureParent} returned for the search
+     * @return the span of the call, or {@code null} to leave the call untraced
+     */
+    default CallSpan startCall(Operation<?, ?> operation, CallParent parent) {
+        return startCall(operation);
+    }
+
+    /**
      * Starts tracing one HTTP exchange of a traced call, right before it is sent.
      *
      * @param call     the span {@link #startCall} returned for the call
@@ -54,6 +85,10 @@ public interface PepTracer extends PepListener {
      *         send none
      */
     ExchangeSpan startExchange(CallSpan call, ExchangeStart exchange);
+
+    /** The trace a search over all pages belongs to; the client only keeps it and hands it back. */
+    interface CallParent {
+    }
 
     /** The span of a call, which the client keeps and hands back. */
     interface CallSpan {

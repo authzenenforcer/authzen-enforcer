@@ -18,6 +18,7 @@ import io.github.authzenenforcer.core.model.EvaluationRequest;
 import io.github.authzenenforcer.core.model.EvaluationResponse;
 import io.github.authzenenforcer.core.model.Resource;
 import io.github.authzenenforcer.core.model.Subject;
+import io.github.authzenenforcer.core.model.SubjectSearchRequest;
 import io.github.authzenenforcer.core.spi.PepTracer;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.common.AttributeKey;
@@ -45,8 +46,11 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -81,6 +85,19 @@ class OpenTelemetryTracingTest {
             byte[] body = (first ? "" : "{\"decision\": false}").getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
             exchange.sendResponseHeaders(first ? 503 : 200, body.length == 0 ? -1 : body.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(body);
+            }
+        });
+        // Two pages: the first names a next page, the second is the last
+        AtomicInteger pages = new AtomicInteger();
+        server.createContext("/access/v1/search/subject", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            String next = pages.incrementAndGet() == 1 ? "t2" : "";
+            byte[] body = ("{\"page\": {\"next_token\": \"" + next + "\"}, \"results\": [{\"type\": \"user\", "
+                    + "\"id\": \"u" + pages.get() + "\"}]}").getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
             try (OutputStream out = exchange.getResponseBody()) {
                 out.write(body);
             }
@@ -152,6 +169,36 @@ class OpenTelemetryTracingTest {
         assertEquals(200L, exchanges.get(1).getAttributes().get(AttributeKey.longKey("http.response.status_code")));
         assertEquals(1L, exchanges.get(1).getAttributes().get(AttributeKey.longKey("http.request.resend_count")));
         assertEquals(StatusCode.UNSET, exchanges.get(1).getStatus().getStatusCode());
+    }
+
+    @Test
+    void putsEveryPageUnderTheSpanWhereTheSearchWasCalled() throws Exception {
+        AuthZenClient client = client(OpenTelemetryTracing.builder(openTelemetry).build());
+        Span handler = openTelemetry.getTracer("test").spanBuilder("GET /users").startSpan();
+        Stream<Subject> results;
+        try (Scope ignored = handler.makeCurrent()) {
+            results = client.searchAllSubjects(SubjectSearchRequest.of("user", Action.of("can_read"),
+                    Resource.of("account", "1")));
+        } finally {
+            handler.end();
+        }
+
+        // Consumed after the handler's scope closed, on a thread where nothing is current
+        ExecutorService other = Executors.newSingleThreadExecutor();
+        try {
+            assertEquals(2L, other.submit(results::count).get(5, TimeUnit.SECONDS));
+        } finally {
+            other.shutdownNow();
+        }
+
+        List<SpanData> pages = awaitSpans(5).stream()
+                .filter(span -> span.getName().equals("authzen subject_search"))
+                .toList();
+        assertEquals(2, pages.size());
+        for (SpanData page : pages) {
+            assertEquals(handler.getSpanContext().getSpanId(), page.getParentSpanId());
+            assertEquals(handler.getSpanContext().getTraceId(), page.getTraceId());
+        }
     }
 
     @Test

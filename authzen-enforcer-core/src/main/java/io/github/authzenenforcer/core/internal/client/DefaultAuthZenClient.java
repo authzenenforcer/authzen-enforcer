@@ -30,6 +30,7 @@ import io.github.authzenenforcer.core.model.SearchResponse;
 import io.github.authzenenforcer.core.model.Subject;
 import io.github.authzenenforcer.core.model.SubjectSearchRequest;
 import io.github.authzenenforcer.core.spi.JsonCodec;
+import io.github.authzenenforcer.core.spi.PepTracer;
 
 import java.lang.System.Logger.Level;
 import java.net.URI;
@@ -119,13 +120,15 @@ public final class DefaultAuthZenClient implements AuthZenClient {
      * A Search API and how to walk its pages.
      *
      * @param operation the name of the search in messages
-     * @param call      sends the request for one page
+     * @param type      the kind of search, for the tracer
+     * @param call      sends the request for one page, under the trace the search belongs to
      * @param page      the page a request asks for
      * @param withToken copies a request with another page token
      * @param <R>       the type of the request
      * @param <T>       the type of the results
      */
-    private record Search<R, T>(String operation, Function<R, CompletableFuture<SearchResponse<T>>> call,
+    private record Search<R, T>(String operation, Operation<R, SearchResponse<T>> type,
+            BiFunction<R, PepTracer.CallParent, CompletableFuture<SearchResponse<T>>> call,
             Function<R, Optional<PageRequest>> page, BiFunction<R, String, R> withToken) {
 
         PageCursor<R, T> cursor(R request, PaginationOptions options) {
@@ -176,11 +179,11 @@ public final class DefaultAuthZenClient implements AuthZenClient {
                 PdpMetadata::getSearchActionEndpoint, "search_action_endpoint");
         this.transport = new PdpTransport(httpClient, credentials, codec, requestTimeout, maxRetries);
         this.pagination = Objects.requireNonNull(pagination, "pagination must not be null");
-        this.subjectSearches = new Search<>(SUBJECT_SEARCH, this::subjectSearch, SubjectSearchRequest::getPage,
+        this.subjectSearches = new Search<>(SUBJECT_SEARCH, Operation.SUBJECT_SEARCH, this::subjectSearch, SubjectSearchRequest::getPage,
                 SubjectSearchRequest::withPageToken);
-        this.resourceSearches = new Search<>(RESOURCE_SEARCH, this::resourceSearch, ResourceSearchRequest::getPage,
+        this.resourceSearches = new Search<>(RESOURCE_SEARCH, Operation.RESOURCE_SEARCH, this::resourceSearch, ResourceSearchRequest::getPage,
                 ResourceSearchRequest::withPageToken);
-        this.actionSearches = new Search<>(ACTION_SEARCH, this::actionSearch, ActionSearchRequest::getPage,
+        this.actionSearches = new Search<>(ACTION_SEARCH, Operation.ACTION_SEARCH, this::actionSearch, ActionSearchRequest::getPage,
                 ActionSearchRequest::withPageToken);
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
         this.events = Objects.requireNonNull(events, "events must not be null");
@@ -227,8 +230,13 @@ public final class DefaultAuthZenClient implements AuthZenClient {
 
     private <Q, R> CompletableFuture<R> call(Operation<Q, R> operation, Q request, Api api, Map<String, Object> body,
             Function<Object, R> reader) {
+        return call(operation, null, request, api, body, reader);
+    }
+
+    private <Q, R> CompletableFuture<R> call(Operation<Q, R> operation, PepTracer.CallParent parent, Q request,
+            Api api, Map<String, Object> body, Function<Object, R> reader) {
         BreakerLog log = new BreakerLog();
-        CallTrace trace = CallTrace.start(events, operation);
+        CallTrace trace = CallTrace.start(events, operation, parent);
         CompletableFuture<R> result = new CompletableFuture<>();
         endpoint(api)
                 .thenCompose(endpoint -> {
@@ -358,8 +366,13 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     }
 
     private CompletableFuture<SearchResponse<Subject>> subjectSearch(SubjectSearchRequest request) {
+        return subjectSearch(request, null);
+    }
+
+    private CompletableFuture<SearchResponse<Subject>> subjectSearch(SubjectSearchRequest request,
+            PepTracer.CallParent parent) {
         Objects.requireNonNull(request, "request must not be null");
-        return call(Operation.SUBJECT_SEARCH, request, searchSubjectApi, WireFormat.subjectSearchRequest(request),
+        return call(Operation.SUBJECT_SEARCH, parent, request, searchSubjectApi, WireFormat.subjectSearchRequest(request),
                 WireFormat::subjectSearchResponse);
     }
 
@@ -374,8 +387,13 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     }
 
     private CompletableFuture<SearchResponse<Resource>> resourceSearch(ResourceSearchRequest request) {
+        return resourceSearch(request, null);
+    }
+
+    private CompletableFuture<SearchResponse<Resource>> resourceSearch(ResourceSearchRequest request,
+            PepTracer.CallParent parent) {
         Objects.requireNonNull(request, "request must not be null");
-        return call(Operation.RESOURCE_SEARCH, request, searchResourceApi, WireFormat.resourceSearchRequest(request),
+        return call(Operation.RESOURCE_SEARCH, parent, request, searchResourceApi, WireFormat.resourceSearchRequest(request),
                 WireFormat::resourceSearchResponse);
     }
 
@@ -390,8 +408,13 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     }
 
     private CompletableFuture<SearchResponse<Action>> actionSearch(ActionSearchRequest request) {
+        return actionSearch(request, null);
+    }
+
+    private CompletableFuture<SearchResponse<Action>> actionSearch(ActionSearchRequest request,
+            PepTracer.CallParent parent) {
         Objects.requireNonNull(request, "request must not be null");
-        return call(Operation.ACTION_SEARCH, request, searchActionApi, WireFormat.actionSearchRequest(request),
+        return call(Operation.ACTION_SEARCH, parent, request, searchActionApi, WireFormat.actionSearchRequest(request),
                 WireFormat::actionSearchResponse);
     }
 
@@ -456,18 +479,21 @@ public final class DefaultAuthZenClient implements AuthZenClient {
         return publisher(actionSearches, request, options);
     }
 
-    private static <R, T> Stream<T> all(Search<R, T> search, R request, PaginationOptions options) {
+    // Pages are fetched lazily, where the caller's trace is not current, so it is captured here
+    private <R, T> Stream<T> all(Search<R, T> search, R request, PaginationOptions options) {
         Objects.requireNonNull(request, "request must not be null");
         Objects.requireNonNull(options, "options must not be null");
+        PepTracer.CallParent parent = events.tracer().captureParent(search.type());
         return PageCursor.stream(search.cursor(request, options),
-                next -> await(search.call().apply(next), search.operation()));
+                next -> await(search.call().apply(next, parent), search.operation()));
     }
 
-    private static <R, T> Flow.Publisher<T> publisher(Search<R, T> search, R request, PaginationOptions options) {
+    private <R, T> Flow.Publisher<T> publisher(Search<R, T> search, R request, PaginationOptions options) {
         Objects.requireNonNull(request, "request must not be null");
         Objects.requireNonNull(options, "options must not be null");
+        PepTracer.CallParent parent = events.tracer().captureParent(search.type());
         return new PagePublisher<>(search.operation(), () -> search.cursor(request, options),
-                next -> search.call().apply(next), error -> asAuthZenException(error, search.operation()));
+                next -> search.call().apply(next, parent), error -> asAuthZenException(error, search.operation()));
     }
 
     @Override
