@@ -61,8 +61,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * <p>The breaker gauges start at closed, as the breakers of a new client do, so one listener
  * instance belongs to one client; clients that share a registry need distinct {@link
- * Builder#tags(Iterable) tags}. Listener drops are not events; {@link AuthZenClientMetrics} exposes
- * them.
+ * Builder#tags(Iterable) tags}. Their listeners must use the same tag keys and the same opt-in
+ * tags, though: some registries, such as Prometheus, reject a meter whose tag keys differ from
+ * those of an earlier meter with the same name, and the rejected metric is then missing. For
+ * example, give every client a {@code pdp} tag rather than only some of them. Listener drops are
+ * not events; {@link AuthZenClientMetrics} exposes them.
  *
  * <p>Instances are thread-safe.
  */
