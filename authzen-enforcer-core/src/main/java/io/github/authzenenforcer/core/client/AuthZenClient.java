@@ -740,7 +740,8 @@ public interface AuthZenClient {
         /**
          * Sets the tracer for distributed tracing, such as OpenTelemetry. It starts spans on the
          * request path and sends their trace context to the PDP in {@code traceparent} and
-         * {@code tracestate}; it is also registered as a listener, after the others, to end them.
+         * {@code tracestate}; it is also registered as a listener, after the others, to end them,
+         * unless it was added with {@link #listener(PepListener)} already.
          * See {@link PepTracer} for the guarantees. A later call replaces an earlier one.
          *
          * @param tracer the tracer

@@ -99,7 +99,8 @@ public final class EventDispatcher {
     }
 
     /**
-     * Creates a dispatcher with a tracer, which also gets the events as the last listener.
+     * Creates a dispatcher with a tracer, which also gets the events as the last listener, unless
+     * it was registered as a listener already, so that it never gets an event twice.
      *
      * @param listeners the listeners
      * @param tracer    the tracer, or {@code null} for none
@@ -113,7 +114,7 @@ public final class EventDispatcher {
     public static EventDispatcher create(List<PepListener> listeners, PepTracer tracer, Executor executor,
             int capacity, long maxBytes, EventContent content) {
         List<PepListener> all = new ArrayList<>(listeners);
-        if (tracer != null) {
+        if (tracer != null && all.stream().noneMatch(listener -> listener == tracer)) {
             all.add(tracer);
         }
         return create(all, TracerHook.of(tracer), executor, capacity, maxBytes, content, System::nanoTime);

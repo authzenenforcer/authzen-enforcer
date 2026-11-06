@@ -234,6 +234,18 @@ class AuthZenClientTracerTest {
     }
 
     @Test
+    void deliversEachEventOnceToATracerThatIsAlsoAListener() throws InterruptedException {
+        pdp.respond(json(200, "{\"decision\": true}"));
+
+        AuthZenClient.builder().pdpUrl(pdp.url()).discovery(false).listener(tracer).tracer(tracer).build()
+                .evaluate(REQUEST);
+
+        tracer.await(2);
+        Thread.sleep(100);
+        assertEquals(2, tracer.events.size(), tracer.events::toString);
+    }
+
+    @Test
     void usesTheLastTracer() {
         pdp.respond(json(200, "{\"decision\": true}"));
         RecordingTracer earlier = new RecordingTracer();
