@@ -22,8 +22,11 @@ import io.github.authzenenforcer.core.spi.PepTracer;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanContext;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.api.trace.TraceFlags;
+import io.opentelemetry.api.trace.TraceState;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
 import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
@@ -181,6 +184,35 @@ class OpenTelemetryTracingTest {
                 .getDecision());
 
         assertEquals(List.of("null", "null"), traceparents);
+    }
+
+    @Test
+    void sendsOnlyTheTraceparentWhenTheInheritedTracestateIsTooLong() {
+        TraceState state = TraceState.builder()
+                .put("a", "x".repeat(200))
+                .put("b", "y".repeat(200))
+                .put("c", "z".repeat(200))
+                .build();
+        Span upstream = Span.wrap(SpanContext.createFromRemoteParent("4bf92f3577b34da6a3ce929d0e0e4736",
+                "00f067aa0ba902b7", TraceFlags.getSampled(), state));
+        OpenTelemetryTracing tracing = OpenTelemetryTracing.builder(openTelemetry).build();
+
+        PepTracer.CallSpan call;
+        try (Scope ignored = upstream.makeCurrent()) {
+            call = tracing.startCall(Operation.EVALUATION);
+        }
+        PepTracer.ExchangeSpan exchange = tracing.startExchange(call, ExchangeStart.builder()
+                .operation(Operation.EVALUATION)
+                .method("POST")
+                .endpoint(ENDPOINT)
+                .attempt(1)
+                .requestId("r1")
+                .build());
+
+        assertNotNull(call);
+        assertTrue(call.getTraceContext().getTracestate().isEmpty());
+        assertTrue(exchange.getTraceContext().getTraceparent().contains("4bf92f3577b34da6a3ce929d0e0e4736"));
+        assertTrue(exchange.getTraceContext().getTracestate().isEmpty());
     }
 
     @Test

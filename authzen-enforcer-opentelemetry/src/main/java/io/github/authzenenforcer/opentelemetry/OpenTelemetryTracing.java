@@ -70,7 +70,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * exception.
  *
  * <p>The trace context is always sent in the W3C format, whatever propagators the application
- * configured, since the PDP is asked for {@code traceparent}. Spans are started on the request
+ * configured, since the PDP is asked for {@code traceparent}. A {@code tracestate} that
+ * {@link TraceContext} does not accept, such as a long one inherited from an upstream request, is
+ * left out, and only {@code traceparent} is sent. Spans are started on the request
  * path, which takes microseconds, and ended from the events on the listener thread, at the times
  * the events report. An exchange span whose event was dropped is ended with its call.
  *
@@ -205,8 +207,16 @@ public final class OpenTelemetryTracing implements PepTracer {
         Map<String, String> headers = new HashMap<>();
         W3C.inject(Context.root().with(span), headers, Map::put);
         String traceparent = headers.get("traceparent");
-        return traceparent != null ? Optional.of(TraceContext.of(traceparent, headers.get("tracestate")))
-                : Optional.empty();
+        if (traceparent == null) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(TraceContext.of(traceparent, headers.get("tracestate")));
+        } catch (IllegalArgumentException e) {
+            // A tracestate inherited from upstream may be longer than the client sends; the trace
+            // itself still reaches the PDP
+            return Optional.of(TraceContext.of(traceparent, null));
+        }
     }
 
     private static long port(URI endpoint) {
