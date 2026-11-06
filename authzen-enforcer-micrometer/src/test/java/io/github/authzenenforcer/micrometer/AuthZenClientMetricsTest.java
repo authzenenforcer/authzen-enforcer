@@ -68,6 +68,17 @@ class AuthZenClientMetricsTest {
     }
 
     @Test
+    void readsZeroWhenAClientReportsFewerListenersLater() {
+        AuthZenClientMetrics.bind(client(), registry);
+        drops.set(drops(3, 4));
+        assertEquals(4, dropped(metrics.getClass().getName(), "attempt_completed"));
+
+        drops.set(ListenerDrops.of(List.of(Map.entry(audit, Map.of()))));
+
+        assertEquals(0, dropped(metrics.getClass().getName(), "attempt_completed"));
+    }
+
+    @Test
     void bindsNothingForAClientWithoutListeners() {
         drops.set(ListenerDrops.none());
 

@@ -81,8 +81,7 @@ public final class AuthZenClientMetrics implements MeterBinder {
         for (int i = 0; i < listeners.size(); i++) {
             int index = i;
             for (ListenerDrops.EventType type : ListenerDrops.EventType.values()) {
-                FunctionCounter.builder(LISTENER_DROPPED, client,
-                                c -> c.listenerDrops().getListeners().get(index).getDropped(type))
+                FunctionCounter.builder(LISTENER_DROPPED, client, c -> dropped(c, index, type))
                         .description("Events a listener did not get because its queue was full")
                         .tags(tags)
                         .tag("listener", listeners.get(i).getName())
@@ -90,5 +89,11 @@ public final class AuthZenClientMetrics implements MeterBinder {
                         .register(registry);
             }
         }
+    }
+
+    // A client of another implementation may report fewer listeners later; a scrape must not fail
+    private static double dropped(AuthZenClient client, int index, ListenerDrops.EventType type) {
+        List<ListenerDrops.Listener> listeners = client.listenerDrops().getListeners();
+        return index < listeners.size() ? listeners.get(index).getDropped(type) : 0;
     }
 }
