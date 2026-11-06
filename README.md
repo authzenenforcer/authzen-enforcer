@@ -270,6 +270,36 @@ AuthZenClient client = AuthZenClient.builder()
   shows more, and `exclude(...)` masks more. Batch options and page details (such as page tokens)
   always stay visible, so keep personal data out of them. Credentials and tokens are never part
   of an event.
+- `client.listenerDrops()` tells how many events each listener lost, per event type.
+
+### Metrics with Micrometer
+
+`authzen-enforcer-micrometer` records the events as Micrometer meters:
+
+```java
+MicrometerPepListener metrics = MicrometerPepListener.builder(registry)
+        .tag("pdp", "main")
+        .build();
+AuthZenClient client = AuthZenClient.builder()
+        .pdpUrl("https://pdp.example.com")
+        .listener(metrics)
+        .build();
+AuthZenClientMetrics.bind(client, registry, Tags.of("pdp", "main"));
+```
+
+| Meter | Type | Tags |
+|---|---|---|
+| `authzen.client.calls` | timer | `operation`, `outcome` (`permit`/`deny`/`completed`/`failed`), `exception` |
+| `authzen.client.attempts` | timer | `operation`, `status`, `exception`, `next` (`none`/`retry`/`refresh_credential`) |
+| `authzen.client.breaker.transitions` | counter | `breaker`, `from`, `to` |
+| `authzen.client.breaker.state` | gauge | `breaker`; 0 closed, 1 half-open, 2 open |
+| `authzen.client.metadata.refreshes` | counter | `result` |
+| `authzen.client.listener.dropped` | function counter | `listener`, `event` |
+
+No tag carries an identifier such as a subject id, resource id or request id.
+`resourceTypeTag(true)` and `actionNameTag(true)` add `resource.type` and `action.name` to
+`authzen.client.calls`; turn them on only if your types and action names are few and fixed. The
+module is compiled against Micrometer 1.10 and works with newer versions.
 
 ### Trying it locally
 
@@ -301,6 +331,7 @@ public Document getDocument(@PathVariable String id) { ... }
 | `authzen-enforcer-core` | 17+ | In development | PDP client, model, Bearer. No dependencies. DPoP is planned. |
 | `authzen-enforcer-spring-boot-starter` | 17+ | Planned | Spring Boot 3 auto-configuration and `@CheckPermission` |
 | `authzen-enforcer-quarkus` | 17+ | Planned | Quarkus 3 extension |
+| `authzen-enforcer-micrometer` | 17+ | In development | Micrometer metrics for the client |
 | `authzen-enforcer-bom` | – | In development | Version alignment |
 
 Group ID: `io.github.authzenenforcer`
