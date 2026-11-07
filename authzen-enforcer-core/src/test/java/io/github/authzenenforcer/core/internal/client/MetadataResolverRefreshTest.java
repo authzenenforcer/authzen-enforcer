@@ -218,18 +218,25 @@ class MetadataResolverRefreshTest {
         MetadataResolver resolver = new MetadataResolver(transport(), identifier, OPTIONS, false, nanos::get,
                 NO_BREAKER, events);
         PdpMetadata first = resolver.metadata().join().orElseThrow();
+        // Events of different refreshes are not ordered with each other, so the second refresh
+        // starts only once the first one is reported
+        awaitRefreshes(refreshes, 1);
 
         advance(TTL);
         resolver.metadata().join();
 
-        long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
-        while (refreshes.size() < 2 && System.nanoTime() - deadline < 0) {
-            Thread.onSpinWait();
-        }
+        awaitRefreshes(refreshes, 2);
         assertEquals(List.of(MetadataRefresh.Result.FRESH, MetadataRefresh.Result.STALE),
                 refreshes.stream().map(MetadataRefresh::getResult).toList());
         assertEquals(first, refreshes.get(1).getMetadata().orElseThrow());
         assertTrue(refreshes.get(1).getFailure().orElseThrow() instanceof PdpCommunicationException);
+    }
+
+    private static void awaitRefreshes(List<MetadataRefresh> refreshes, int count) {
+        long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        while (refreshes.size() < count && System.nanoTime() - deadline < 0) {
+            Thread.onSpinWait();
+        }
     }
 
     @Test

@@ -19,7 +19,9 @@ import java.util.Objects;
  *   <li>Events are delivered after the caller's result is complete, on the listener executor,
  *       never on the calling thread.</li>
  *   <li>Each listener gets its events one at a time and in order: the {@link AttemptCompleted}
- *       events of a call come before its {@link CallCompleted}.</li>
+ *       events of a call come before its {@link CallCompleted}. Events of different calls, or of
+ *       different metadata refreshes, are not ordered with each other: an event may arrive after
+ *       one that happened later.</li>
  *   <li>Each listener has its own queue, bounded both in events and in the bytes they retain
  *       (mostly PDP response bodies), so a slow listener cannot make the client hold unbounded
  *       memory. When it fills up, events are dropped rather than held: from 80% of either bound
