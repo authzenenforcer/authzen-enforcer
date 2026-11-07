@@ -355,7 +355,9 @@ class AuthZenClientListenerTest {
         assertEquals(BreakerTransition.State.OPEN, transition.getTo());
         assertTrue(transition.getOpenDuration().isPresent());
         // Only the events of one call are ordered; the second call may be reported first
-        List<CallCompleted> calls = recorder.of(CallCompleted.class);
+        List<CallCompleted<?, ?>> calls = recorder.of(CallCompleted.class).stream()
+                .map(AuthZenClientListenerTest::call)
+                .toList();
         assertEquals(2, calls.size());
         assertEquals(List.of(0, 1), calls.stream().map(CallCompleted::getAttempts).sorted().toList());
         assertTrue(calls.stream().allMatch(call -> call.getOutcome() == Outcome.FAILED));

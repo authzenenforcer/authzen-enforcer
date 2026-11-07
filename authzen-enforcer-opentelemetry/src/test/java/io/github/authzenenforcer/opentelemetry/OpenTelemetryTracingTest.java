@@ -133,6 +133,7 @@ class OpenTelemetryTracingTest {
     }
 
     @Test
+    @SuppressWarnings("try")
     void recordsTheCallAndEachExchangeWhereThePdpCanFindThem() throws InterruptedException {
         Span parent = openTelemetry.getTracer("test").spanBuilder("GET /documents/42").startSpan();
         try (Scope ignored = parent.makeCurrent()) {
@@ -172,6 +173,7 @@ class OpenTelemetryTracingTest {
     }
 
     @Test
+    @SuppressWarnings("try")
     void putsEveryPageUnderTheSpanWhereTheSearchWasCalled() throws Exception {
         AuthZenClient client = client(OpenTelemetryTracing.builder(openTelemetry).build());
         Span handler = openTelemetry.getTracer("test").spanBuilder("GET /users").startSpan();
@@ -234,6 +236,7 @@ class OpenTelemetryTracingTest {
     }
 
     @Test
+    @SuppressWarnings("try")
     void sendsOnlyTheTraceparentWhenTheInheritedTracestateIsTooLong() {
         TraceState state = TraceState.builder()
                 .put("a", "x".repeat(200))

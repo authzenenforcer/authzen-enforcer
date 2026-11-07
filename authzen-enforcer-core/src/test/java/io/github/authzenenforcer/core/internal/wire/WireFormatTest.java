@@ -16,7 +16,6 @@ import io.github.authzenenforcer.core.model.Subject;
 import io.github.authzenenforcer.core.spi.JsonCodec;
 
 import java.net.URI;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -156,7 +155,7 @@ class WireFormatTest {
 
         // Ordering is not significant on the wire, but writing in specification order keeps output readable
         private List<String> keyOrder(Object json) {
-            return new ArrayList<>(((Map<String, ?>) json).keySet());
+            return ((Map<?, ?>) json).keySet().stream().map(String.class::cast).toList();
         }
     }
 
