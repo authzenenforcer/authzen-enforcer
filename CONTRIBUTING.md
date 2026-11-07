@@ -89,3 +89,5 @@ Access tokens, DPoP proofs and private keys must never be logged or included in 
 - Add or update tests for every behavior change.
 - Make sure `mvn verify` passes locally.
 - Document public API with Javadoc.
+- Update the pages in `docs/` when a change affects behavior they describe. They are written in
+  English.
