@@ -6,16 +6,35 @@ Java 17 or newer. The core module, `authzen-enforcer-core`, has no dependencies 
 
 ## Adding the dependency
 
-There is no release yet. To use the SDK in another project, install it into your local Maven
-repository with `mvn install` in this repository and depend on the snapshot:
+The artifacts are published to Maven Central:
 
 ```xml
 <dependency>
     <groupId>io.github.authzenenforcer</groupId>
     <artifactId>authzen-enforcer-core</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.1.0</version>
 </dependency>
 ```
+
+With more than one module, such as the core and `authzen-enforcer-micrometer`, import the BOM so
+that their versions stay aligned, and leave the versions out of the dependencies:
+
+```xml
+<dependencyManagement>
+    <dependencies>
+        <dependency>
+            <groupId>io.github.authzenenforcer</groupId>
+            <artifactId>authzen-enforcer-bom</artifactId>
+            <version>0.1.0</version>
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+    </dependencies>
+</dependencyManagement>
+```
+
+To try unreleased changes, run `mvn install` in this repository and depend on the version in its
+`pom.xml`, such as `0.2.0-SNAPSHOT`.
 
 ## The first decision
 

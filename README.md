@@ -11,7 +11,8 @@ A Java SDK that acts as a **Policy Enforcement Point (PEP)** for the
 [OpenID AuthZEN Authorization API](https://openid.net/wg/authzen/). It sends AuthZEN-compliant
 requests to a Policy Decision Point (PDP) and returns the decision to your application.
 
-> **Status:** early development. There is no release yet, and APIs may change.
+> **Status:** early development. Releases before 1.0 may change the API; see the
+> [changelog](CHANGELOG.md).
 >
 > This is an independent project. It is not affiliated with or endorsed by the OpenID Foundation.
 
@@ -23,17 +24,25 @@ requests to a Policy Decision Point (PDP) and returns the decision to your appli
 - **Full AuthZEN API surface:** Access Evaluation, Access Evaluations (batch), and the Subject,
   Resource and Action Search APIs.
 - **Bearer and DPoP (RFC 9449)** authentication towards the PDP. The SDK never contacts an
-  authorization server. You supply the token, plus the signing key for DPoP.
+  authorization server. You supply the token, plus the signing key for DPoP. Bearer is available;
+  DPoP is planned.
 - **Fail-closed by default.** Any error results in a deny.
-- **Framework integrations:** a Spring Boot starter and a Quarkus extension, both with a
-  `@CheckPermission` annotation that can infer the action and resource from the HTTP method
-  and the route.
+- **Framework integrations (planned):** a Spring Boot starter and a Quarkus extension, both with
+  a `@CheckPermission` annotation that can infer the action and resource from the HTTP method
+  and the route. Until then, the client is used directly from application code.
 
 ## Quick start
 
 The core module supports the Access Evaluation, Access Evaluations and Search APIs with Bearer
-authentication and metadata discovery. There is no release yet; see
-[Getting started](docs/getting-started.md) for using a local snapshot.
+authentication and metadata discovery.
+
+```xml
+<dependency>
+    <groupId>io.github.authzenenforcer</groupId>
+    <artifactId>authzen-enforcer-core</artifactId>
+    <version>0.1.0</version>
+</dependency>
+```
 
 ```java
 AuthZenClient client = AuthZenClient.builder()
@@ -81,12 +90,12 @@ public Document getDocument(@PathVariable String id) { ... }
 
 | Artifact | Java | Status | Description |
 |---|---|---|---|
-| `authzen-enforcer-core` | 17+ | In development | PDP client, model, Bearer. No dependencies. DPoP is planned. |
+| `authzen-enforcer-core` | 17+ | Available | PDP client, model, Bearer. No dependencies. DPoP is planned. |
 | `authzen-enforcer-spring-boot-starter` | 17+ | Planned | Spring Boot 3 auto-configuration and `@CheckPermission` |
 | `authzen-enforcer-quarkus` | 17+ | Planned | Quarkus 3 extension |
-| `authzen-enforcer-micrometer` | 17+ | In development | Micrometer metrics for the client |
-| `authzen-enforcer-opentelemetry` | 17+ | In development | OpenTelemetry tracing for the client |
-| `authzen-enforcer-bom` | – | In development | Version alignment |
+| `authzen-enforcer-micrometer` | 17+ | Available | Micrometer metrics for the client |
+| `authzen-enforcer-opentelemetry` | 17+ | Available | OpenTelemetry tracing for the client |
+| `authzen-enforcer-bom` | – | Available | Version alignment |
 
 Group ID: `io.github.authzenenforcer`
 
