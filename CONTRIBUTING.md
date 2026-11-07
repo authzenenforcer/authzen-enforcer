@@ -91,3 +91,4 @@ Access tokens, DPoP proofs and private keys must never be logged or included in 
 - Document public API with Javadoc.
 - Update the pages in `docs/` when a change affects behavior they describe. They are written in
   English.
+- Add a line under `Unreleased` in `CHANGELOG.md` for every change users notice.
