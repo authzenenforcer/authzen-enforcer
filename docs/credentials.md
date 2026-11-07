@@ -27,30 +27,59 @@ request once with a fresh credential. Concurrent requests may report the same re
 so a provider should only drop its token if `rejected` is still the current one.
 
 A provider for the client credentials grant could look like this, where `CachedToken` and
-`fetchToken()` are your own code that calls the token endpoint of your authorization server:
+`fetchToken()` are your own code that calls the token endpoint of your authorization server. Only
+one caller refreshes the token at a time; callers that need a token meanwhile wait for its result
+instead of sending token requests of their own:
 
 ```java
 final class ClientCredentialsTokens implements CredentialProvider {
 
-    private final AtomicReference<CachedToken> current = new AtomicReference<>();
+    private static final Duration EXPIRY_MARGIN = Duration.ofSeconds(30);
+
+    private final ReentrantLock refresh = new ReentrantLock();
+    private volatile CachedToken current;
 
     @Override
     public AccessCredential getCredential() {
-        CachedToken token = current.get();
-        if (token == null || token.expiresWithin(Duration.ofSeconds(30))) {
-            // Concurrent callers may fetch at the same time; the last token wins
-            token = fetchToken();
-            current.set(token);
+        CachedToken token = current;
+        if (isUsable(token)) {
+            return token.credential();
         }
-        return token.credential();
+        refresh.lock();
+        try {
+            // Another caller may have refreshed the token while this one waited
+            token = current;
+            if (!isUsable(token)) {
+                token = fetchToken();
+                current = token;
+            }
+            return token.credential();
+        } finally {
+            refresh.unlock();
+        }
     }
 
     @Override
     public void invalidate(AccessCredential rejected) {
-        current.updateAndGet(token -> token != null && token.credential() == rejected ? null : token);
+        refresh.lock();
+        try {
+            if (current != null && current.credential() == rejected) {
+                current = null;
+            }
+        } finally {
+            refresh.unlock();
+        }
+    }
+
+    private static boolean isUsable(CachedToken token) {
+        return token != null && !token.expiresWithin(EXPIRY_MARGIN);
     }
 }
 ```
+
+The waiting callers block until the token endpoint answers, so give the token request a timeout of
+its own. The example uses `ReentrantLock` rather than `synchronized`, which on Java 21 to 23 would
+pin a virtual thread to its carrier while the token request runs.
 
 Providers must be thread-safe.
 
