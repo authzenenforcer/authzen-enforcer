@@ -26,7 +26,10 @@ AuthZenClient client = AuthZenClient.builder()
 ```
 
 - A listener can neither change nor delay a decision. Events are delivered after the caller has
-  its result, on a separate thread, one at a time and in order. Use `listenerExecutor(...)` to
+  its result, on a separate thread, one at a time and in order: the attempts of a call come
+  before the call itself. Events of different calls, or of different metadata refreshes, are not
+  ordered with each other, so an event may arrive after one that happened later; use the times the
+  events carry where order matters. Use `listenerExecutor(...)` to
   pick the executor, for example `Executors.newVirtualThreadPerTaskExecutor()` on Java 21 or later.
   The client never calls that executor from a caller's thread, so even one that runs tasks inline
   cannot slow a caller down.
