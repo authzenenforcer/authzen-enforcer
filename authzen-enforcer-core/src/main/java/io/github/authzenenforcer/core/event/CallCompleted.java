@@ -34,6 +34,7 @@ public final class CallCompleted<Q, R> {
     private final Q request;
     private final R response;
     private final AuthZenException failure;
+    private final boolean cancelled;
     private final URI endpoint;
     private final List<String> requestIds;
     private final Instant startTime;
@@ -50,8 +51,12 @@ public final class CallCompleted<Q, R> {
         if ((builder.response == null) == (builder.failure == null)) {
             throw new IllegalStateException("exactly one of response and failure is required");
         }
+        if (builder.cancelled && builder.failure == null) {
+            throw new IllegalStateException("a cancelled call requires a failure");
+        }
         this.response = builder.response;
         this.failure = builder.failure;
+        this.cancelled = builder.cancelled;
         this.endpoint = builder.endpoint;
         this.requestIds = List.copyOf(builder.requestIds);
         this.startTime = Objects.requireNonNull(builder.startTime, "startTime is required");
@@ -99,11 +104,14 @@ public final class CallCompleted<Q, R> {
      * Returns how the call ended.
      *
      * @return {@link Outcome#PERMIT} or {@link Outcome#DENY} for an evaluation,
-     *         {@link Outcome#COMPLETED} for the other operations, and {@link Outcome#FAILED} if the
-     *         call failed
+     *         {@link Outcome#COMPLETED} for the other operations, {@link Outcome#CANCELLED} if the
+     *         caller cancelled the call, and {@link Outcome#FAILED} if it failed otherwise
      */
     public Outcome getOutcome() {
-        return failure != null ? Outcome.FAILED : operation.outcome(response);
+        if (failure != null) {
+            return cancelled ? Outcome.CANCELLED : Outcome.FAILED;
+        }
+        return operation.outcome(response);
     }
 
     /**
@@ -140,7 +148,8 @@ public final class CallCompleted<Q, R> {
     /**
      * Returns why the call failed.
      *
-     * @return the exception the caller received, or empty if the call succeeded
+     * @return the exception the caller received, or empty if the call succeeded; for a cancelled
+     *         call, an exception that describes the cancellation, since the caller got none
      */
     public Optional<AuthZenException> getFailure() {
         return Optional.ofNullable(failure);
@@ -222,6 +231,7 @@ public final class CallCompleted<Q, R> {
         private Q request;
         private R response;
         private AuthZenException failure;
+        private boolean cancelled;
         private URI endpoint;
         private final List<String> requestIds = new ArrayList<>();
         private Instant startTime;
@@ -322,6 +332,17 @@ public final class CallCompleted<Q, R> {
         }
 
         /**
+         * Marks the call as cancelled by its caller. A cancelled call also needs a
+         * {@link #failure(AuthZenException) failure} that describes the cancellation.
+         *
+         * @return this builder
+         */
+        public Builder<Q, R> cancelled() {
+            this.cancelled = true;
+            return this;
+        }
+
+        /**
          * Sets the span the tracer started for the call.
          *
          * @param callSpan the span
@@ -337,7 +358,8 @@ public final class CallCompleted<Q, R> {
          *
          * @return the event
          * @throws NullPointerException  if the request, start time or duration is missing
-         * @throws IllegalStateException unless exactly one of response and failure is set
+         * @throws IllegalStateException unless exactly one of response and failure is set, or if
+         *                               the call is cancelled without a failure
          */
         public CallCompleted<Q, R> build() {
             return new CallCompleted<>(this);

@@ -56,7 +56,9 @@ public interface CredentialProvider {
      * exceptionally or completes with {@code null} fails the request without sending it. The client
      * never cancels the stage, so a provider may hand the same stage to concurrent requests, for
      * example while a single token refresh is in progress; it registers at most one callback on
-     * each stage, however many requests wait for it. The default returns the result of
+     * each stage, however many requests wait for it. Hand out that stage itself: a new view of it per
+     * request, such as {@code thenApply(...)} or {@code minimalCompletionStage()}, is a new stage
+     * that gets a callback of its own. The default returns the result of
      * {@link #getCredential()} as a completed stage.
      *
      * @return a stage completed with the credential, never {@code null}

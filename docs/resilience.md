@@ -11,6 +11,13 @@ tries before giving up.
 | `connectTimeout(Duration)` | 5 seconds | Establishing a connection. |
 | `requestTimeout(Duration)` | 5 seconds | One request, from asking the credential provider for the credential until the complete response body is received. |
 
+When a request times out, whatever follows, such as retries, listeners and the continuations of
+the caller's stage, runs on the default asynchronous pool of `CompletableFuture`, not on the single
+thread the JDK shares for every timeout in the JVM: the common `ForkJoinPool`, or a new thread per
+task where the common pool has only one thread, as on machines with one or two processors. Keep
+blocking work out of such continuations, or move it to an executor of your own with
+`thenApplyAsync(..., executor)` and similar methods.
+
 To configure TLS client certificates or a proxy, pass your own `java.net.http.HttpClient` with
 `httpClient(...)`. It must not follow redirects, so that credentials cannot be sent to another host,
 and it cannot be combined with `connectTimeout(...)`: set the connect timeout on the HTTP client
@@ -68,3 +75,39 @@ AuthZenClient client = AuthZenClient.builder()
 
 `CircuitBreakerOptions.disabled()` turns the breakers off. Breaker transitions are reported to
 listeners and as metrics; see [Observability](observability.md).
+
+## Cancellation
+
+A caller that gives up stops the call. Cancelling the stage that an `...Async` method returns, or
+the future its `toCompletableFuture()` returns, aborts the HTTP exchange in progress; neither a
+retry nor a wait for a credential starts afterwards. A thread interrupted while it waits in a
+blocking method cancels its call the same way, and cancelling the subscription of a search
+publisher cancels the page request in flight.
+
+Reactive libraries cancel the stage when their subscriber cancels, for example after a timeout of
+the caller's:
+
+```java
+Mono.fromCompletionStage(client.evaluateAsync(request))
+        .timeout(Duration.ofMillis(300));
+
+Uni.createFrom().completionStage(client.evaluateAsync(request))
+        .ifNoItem().after(Duration.ofMillis(300)).fail();
+```
+
+So a PDP that is already struggling gets no further retries for callers that have left. Requests
+sent before the cancel are not undone, and the PDP may still have seen them. A cancelled call does
+not count as a PDP failure for the circuit breaker, and listeners see it with the outcome
+`CANCELLED` once it has stopped. A cancelled stage completes with a
+`java.util.concurrent.CancellationException` rather than an `AuthZenException`; treat it as a deny
+as well.
+
+A probe of a half-open breaker that its caller cancels does not settle the breaker either: the next
+request becomes the probe. If callers give up sooner than the request timeout, for example with a
+`Mono.timeout` shorter than it, each of them can start a probe in turn. The client still lets only
+one probe through at a time, but a PDP that already received an aborted request may still process
+it. Keep caller timeouts at or above the request timeout where the breaker matters, or set the
+request timeout below them.
+
+The holder of the stage cannot complete it: `complete` and similar methods throw
+`UnsupportedOperationException`, so code the stage is handed to cannot make up a decision.

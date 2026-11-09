@@ -65,6 +65,8 @@
         <opentelemetry.version>1.19.0</opentelemetry.version>
         <!-- Test dependencies -->
         <junit.version>6.1.3</junit.version>
+        <reactor.version>3.8.8</reactor.version>
+        <mutiny.version>2.9.5</mutiny.version>
         <testcontainers.version>2.0.5</testcontainers.version>
 
         <!-- Plugins -->

@@ -19,7 +19,7 @@ import java.util.function.Supplier;
  *
  * <p>Follows the Reactive Streams rules of {@link Flow}: signals are serialized, a non-positive
  * {@code request} fails the subscription, and nothing is signalled after {@code cancel}, completion
- * or an error. A request that is in flight when the subscriber cancels completes unseen.
+ * or an error. Cancelling also cancels the page request in flight, which then sends no retry.
  *
  * @param <R> the type of the search request
  * @param <T> the type of the results
@@ -63,6 +63,8 @@ final class PagePublisher<R, T> implements Flow.Publisher<T> {
         // Serializes drain(): only the caller that raises it from 0 runs the loop
         private final AtomicInteger work = new AtomicInteger();
         private volatile boolean cancelled;
+        // The page request in flight, which a cancel stops
+        private volatile CompletionStage<SearchResponse<T>> inFlight;
         private volatile Throwable failure;
         private volatile SearchResponse<T> arrived;
         // Only used inside drain()
@@ -87,6 +89,11 @@ final class PagePublisher<R, T> implements Flow.Publisher<T> {
         @Override
         public void cancel() {
             cancelled = true;
+            CompletionStage<SearchResponse<T>> request = inFlight;
+            if (request != null) {
+                // The stages of the client stop the call when the future they convert to is cancelled
+                request.toCompletableFuture().cancel(true);
+            }
         }
 
         private void drain() {
@@ -141,7 +148,14 @@ final class PagePublisher<R, T> implements Flow.Publisher<T> {
                         }
                     } else {
                         fetching = true;
-                        fetch.apply(cursor.nextRequest()).whenComplete((next, e) -> {
+                        CompletionStage<SearchResponse<T>> request = fetch.apply(cursor.nextRequest());
+                        inFlight = request;
+                        // A cancel that read the previous request before the line above is caught here
+                        if (cancelled) {
+                            request.toCompletableFuture().cancel(true);
+                        }
+                        request.whenComplete((next, e) -> {
+                            inFlight = null;
                             if (e != null) {
                                 failure = errors.apply(e);
                             } else {

@@ -44,8 +44,8 @@ try (Stream<Resource> accounts = client.searchAllResources(request)) {
 
 The `...Async` variants return a `java.util.concurrent.Flow.Publisher` that fetches pages as its
 subscriber asks for results; Reactor adapts it with `JdkFlowAdapter.flowPublisherToFlux(publisher)`
-and Mutiny with `Multi.createFrom().publisher(publisher)`. Cancelling stops the search, but a page
-request that is already sent runs until the PDP answers or the request timeout passes.
+and Mutiny with `Multi.createFrom().publisher(publisher)`. Cancelling stops the search and cancels
+the page request in flight; see [Resilience](resilience.md#cancellation).
 
 ### Limits
 

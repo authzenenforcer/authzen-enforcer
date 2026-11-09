@@ -77,9 +77,19 @@ public interface AuthZenClient {
      * decision. Call {@code toCompletableFuture()} for {@code join()} or {@code get()}; that gives
      * a separate future.
      *
+     * <p>Cancelling the stage, or the future that {@code toCompletableFuture()} returns, stops the
+     * call: the HTTP exchange in progress is aborted, and neither a retry nor a wait for a credential
+     * starts afterwards. Reactive libraries cancel it that way when their subscriber cancels, for
+     * example after a timeout of the caller's: Reactor's {@code Mono.fromCompletionStage(stage)} and
+     * {@code Mono.fromFuture(stage.toCompletableFuture())}, and Mutiny's
+     * {@code Uni.createFrom().completionStage(stage)}. The PDP may still have seen the request. The
+     * same holds for a thread that is interrupted while it waits in the blocking methods.
+     *
      * @param request the request
      * @return a stage completed with the decision, or exceptionally with an {@link AuthZenException}
-     *         (wrapped in a {@link java.util.concurrent.CompletionException} by dependent stages)
+     *         (wrapped in a {@link java.util.concurrent.CompletionException} by dependent stages);
+     *         once cancelled, it completes with a {@link java.util.concurrent.CancellationException}
+     *         instead, which callers must treat as a deny as well
      */
     CompletionStage<EvaluationResponse> evaluateAsync(EvaluationRequest request);
 
@@ -107,7 +117,9 @@ public interface AuthZenClient {
      *
      * @param request the request
      * @return a stage completed with the decisions, or exceptionally with an {@link AuthZenException};
-     *         like {@link #evaluateAsync(EvaluationRequest)}, its holder cannot complete it
+     *         like {@link #evaluateAsync(EvaluationRequest)}, its holder cannot complete it but can
+     *         cancel it, and a cancelled stage completes with a
+     *         {@link java.util.concurrent.CancellationException}
      * @see #evaluations(EvaluationsRequest)
      */
     CompletionStage<EvaluationsResponse> evaluationsAsync(EvaluationsRequest request);
@@ -143,7 +155,8 @@ public interface AuthZenClient {
      * @param request the request
      * @return a stage completed with one page of subjects, or exceptionally with an
      *         {@link AuthZenException}; like {@link #evaluateAsync(EvaluationRequest)}, its holder
-     *         cannot complete it
+     *         cannot complete it but can cancel it, and a cancelled stage completes with a
+     *         {@link java.util.concurrent.CancellationException}
      * @see #searchSubjects(SubjectSearchRequest)
      */
     CompletionStage<SearchResponse<Subject>> searchSubjectsAsync(SubjectSearchRequest request);
@@ -171,7 +184,8 @@ public interface AuthZenClient {
      * @param request the request
      * @return a stage completed with one page of resources, or exceptionally with an
      *         {@link AuthZenException}; like {@link #evaluateAsync(EvaluationRequest)}, its holder
-     *         cannot complete it
+     *         cannot complete it but can cancel it, and a cancelled stage completes with a
+     *         {@link java.util.concurrent.CancellationException}
      * @see #searchResources(ResourceSearchRequest)
      */
     CompletionStage<SearchResponse<Resource>> searchResourcesAsync(ResourceSearchRequest request);
@@ -199,7 +213,8 @@ public interface AuthZenClient {
      * @param request the request
      * @return a stage completed with one page of actions, or exceptionally with an
      *         {@link AuthZenException}; like {@link #evaluateAsync(EvaluationRequest)}, its holder
-     *         cannot complete it
+     *         cannot complete it but can cancel it, and a cancelled stage completes with a
+     *         {@link java.util.concurrent.CancellationException}
      * @see #searchActions(ActionSearchRequest)
      */
     CompletionStage<SearchResponse<Action>> searchActionsAsync(ActionSearchRequest request);
@@ -250,9 +265,9 @@ public interface AuthZenClient {
      * {@link #searchAllSubjects(SubjectSearchRequest)}; they reach {@code onError} as an
      * {@link AuthZenException}.
      *
-     * <p>Cancelling the subscription stops the search: no further page is requested and nothing
-     * more is signalled. A page request that is already sent is not aborted; it runs until the PDP
-     * answers or the request timeout passes, and its answer is dropped.
+     * <p>Cancelling the subscription stops the search: no further page is requested, the page
+     * request in flight is cancelled as by {@link #evaluateAsync(EvaluationRequest)}, and nothing
+     * more is signalled.
      *
      * <p>The publisher follows the Reactive Streams rules of {@link Flow}. Reactive libraries adapt
      * it directly, for example Reactor with {@code JdkFlowAdapter.flowPublisherToFlux(publisher)}
