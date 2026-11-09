@@ -211,10 +211,6 @@ public final class PdpTransport {
                         Throwable cause = unwrap(error);
                         LOGGER.log(Level.DEBUG, () -> "PDP request " + exchange.requestId + " to " + exchange.endpoint
                                 + " failed after " + elapsed.toMillis() + " ms: " + cause);
-                        if (call.cancellation.isCancelled()) {
-                            record(call, attempt, builder -> builder.failure(cause), Optional.empty());
-                            return CompletableFuture.<Object>failedFuture(cancelled());
-                        }
                         if (cause instanceof TimeoutException) {
                             // Completed on the JDK's single delay thread, which every timeout in the
                             // JVM shares; whatever follows, the caller's code included, runs elsewhere
@@ -238,6 +234,10 @@ public final class PdpTransport {
 
     private CompletableFuture<Object> afterError(Call call, int retries, boolean refreshed, Exchange exchange,
             AttemptCompleted.Builder attempt, Throwable cause) {
+        if (call.cancellation.isCancelled()) {
+            record(call, attempt, builder -> builder.failure(cause), Optional.empty());
+            return CompletableFuture.failedFuture(cancelled());
+        }
         Optional<Duration> delay = retryPolicy.afterError(retries, call.elapsed(), cause);
         record(call, attempt, builder -> builder.failure(cause), delay);
         return delay
@@ -321,16 +321,17 @@ public final class PdpTransport {
 
     private CompletableFuture<AccessCredential> credential(Call call, Object value, Throwable error, long deadline) {
         if (error != null) {
-            if (call.cancellation.isCancelled()) {
-                return CompletableFuture.failedFuture(cancelled());
-            }
             Throwable cause = unwrap(error);
             // A timeout of the provider's own fails like any other provider failure
             if (cause instanceof TimeoutException && System.nanoTime() - deadline >= 0) {
-                // Leaves the JDK's single delay thread, as for the timeout of an exchange
+                // Leaves the JDK's single delay thread, as for the timeout of an exchange, also if
+                // the caller cancelled meanwhile
                 return CompletableFuture.supplyAsync(() -> {
-                    throw new CompletionException(credentialTimeout());
+                    throw new CompletionException(call.cancellation.isCancelled() ? cancelled() : credentialTimeout());
                 });
+            }
+            if (call.cancellation.isCancelled()) {
+                return CompletableFuture.failedFuture(cancelled());
             }
             return CompletableFuture.failedFuture(
                     new AuthZenException("Credential provider failed to supply a credential", cause));
