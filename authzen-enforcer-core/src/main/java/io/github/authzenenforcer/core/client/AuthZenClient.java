@@ -87,7 +87,9 @@ public interface AuthZenClient {
      *
      * @param request the request
      * @return a stage completed with the decision, or exceptionally with an {@link AuthZenException}
-     *         (wrapped in a {@link java.util.concurrent.CompletionException} by dependent stages)
+     *         (wrapped in a {@link java.util.concurrent.CompletionException} by dependent stages);
+     *         once cancelled, it completes with a {@link java.util.concurrent.CancellationException}
+     *         instead, which callers must treat as a deny as well
      */
     CompletionStage<EvaluationResponse> evaluateAsync(EvaluationRequest request);
 
@@ -116,7 +118,8 @@ public interface AuthZenClient {
      * @param request the request
      * @return a stage completed with the decisions, or exceptionally with an {@link AuthZenException};
      *         like {@link #evaluateAsync(EvaluationRequest)}, its holder cannot complete it but can
-     *         cancel it
+     *         cancel it, and a cancelled stage completes with a
+     *         {@link java.util.concurrent.CancellationException}
      * @see #evaluations(EvaluationsRequest)
      */
     CompletionStage<EvaluationsResponse> evaluationsAsync(EvaluationsRequest request);
@@ -152,7 +155,8 @@ public interface AuthZenClient {
      * @param request the request
      * @return a stage completed with one page of subjects, or exceptionally with an
      *         {@link AuthZenException}; like {@link #evaluateAsync(EvaluationRequest)}, its holder
-     *         cannot complete it but can cancel it
+     *         cannot complete it but can cancel it, and a cancelled stage completes with a
+     *         {@link java.util.concurrent.CancellationException}
      * @see #searchSubjects(SubjectSearchRequest)
      */
     CompletionStage<SearchResponse<Subject>> searchSubjectsAsync(SubjectSearchRequest request);
@@ -180,7 +184,8 @@ public interface AuthZenClient {
      * @param request the request
      * @return a stage completed with one page of resources, or exceptionally with an
      *         {@link AuthZenException}; like {@link #evaluateAsync(EvaluationRequest)}, its holder
-     *         cannot complete it but can cancel it
+     *         cannot complete it but can cancel it, and a cancelled stage completes with a
+     *         {@link java.util.concurrent.CancellationException}
      * @see #searchResources(ResourceSearchRequest)
      */
     CompletionStage<SearchResponse<Resource>> searchResourcesAsync(ResourceSearchRequest request);
@@ -208,7 +213,8 @@ public interface AuthZenClient {
      * @param request the request
      * @return a stage completed with one page of actions, or exceptionally with an
      *         {@link AuthZenException}; like {@link #evaluateAsync(EvaluationRequest)}, its holder
-     *         cannot complete it but can cancel it
+     *         cannot complete it but can cancel it, and a cancelled stage completes with a
+     *         {@link java.util.concurrent.CancellationException}
      * @see #searchActions(ActionSearchRequest)
      */
     CompletionStage<SearchResponse<Action>> searchActionsAsync(ActionSearchRequest request);
