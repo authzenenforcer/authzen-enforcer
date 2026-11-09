@@ -151,6 +151,18 @@ class AuthZenClientTest {
             assertEquals("/custom/evaluate", onlyRequest().path());
         }
 
+        @ParameterizedTest
+        @ValueSource(longs = {365L * 300, 365L * 1_000_000_000})
+        void acceptsRequestTimeoutsOfCenturies(long days) {
+            AuthZenClient client = AuthZenClient.builder()
+                    .pdpUrl(pdp.url())
+                    .credentials(CredentialProvider.staticBearer(TOKEN))
+                    .requestTimeout(Duration.ofDays(days))
+                    .build();
+
+            assertTrue(client.evaluate(REQUEST).getDecision());
+        }
+
         @Test
         void sendsNoAuthorizationWithoutCredentials() {
             AuthZenClient.builder().pdpUrl(pdp.url()).build().evaluate(REQUEST);

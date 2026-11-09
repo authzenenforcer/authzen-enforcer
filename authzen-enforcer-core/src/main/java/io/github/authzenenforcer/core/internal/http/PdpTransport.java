@@ -64,6 +64,9 @@ public final class PdpTransport {
     /** Maximum response body size in bytes, matching the parser's input limit. */
     static final int MAX_RESPONSE_BYTES = JsonParser.DEFAULT_MAX_LENGTH;
 
+    // Longer timeouts would overflow the deadline arithmetic; they are treated as this one, about 146 years
+    private static final Duration MAX_TIMEOUT = Duration.ofNanos(Long.MAX_VALUE / 2);
+
     private static final System.Logger LOGGER = System.getLogger(PdpTransport.class.getName());
     private static final String JSON = "application/json";
     private static final String USER_AGENT = userAgent();
@@ -72,6 +75,7 @@ public final class PdpTransport {
     private final CredentialProvider credentials;
     private final JsonCodec codec;
     private final Duration requestTimeout;
+    private final long requestTimeoutNanos;
     private final CredentialWaits credentialWaits = new CredentialWaits();
     private final RetryPolicy retryPolicy;
 
@@ -91,6 +95,9 @@ public final class PdpTransport {
         this.credentials = credentials;
         this.codec = Objects.requireNonNull(codec, "codec must not be null");
         this.requestTimeout = Objects.requireNonNull(requestTimeout, "requestTimeout must not be null");
+        this.requestTimeoutNanos = requestTimeout.compareTo(MAX_TIMEOUT) > 0
+                ? MAX_TIMEOUT.toNanos()
+                : requestTimeout.toNanos();
         this.retryPolicy = new RetryPolicy(maxRetries, requestTimeout, Clock.systemUTC());
     }
 
@@ -142,7 +149,7 @@ public final class PdpTransport {
         // Every HTTP exchange, including a repeated one, gets its own request id
         Exchange exchange = new Exchange(call.endpoint, call.get, call.json, UUID.randomUUID().toString());
         // The request timeout covers supplying the credential as well
-        long deadline = System.nanoTime() + requestTimeout.toNanos();
+        long deadline = System.nanoTime() + requestTimeoutNanos;
         CompletableFuture<AccessCredential> credential;
         try {
             credential = exchange.isGet() ? CompletableFuture.completedFuture(null) : currentCredential(deadline);
@@ -307,7 +314,7 @@ public final class PdpTransport {
 
     private AuthZenException credentialTimeout() {
         return new AuthZenException("Credential provider supplied no credential within the request timeout of "
-                + requestTimeout.toMillis() + " ms");
+                + Duration.ofNanos(requestTimeoutNanos).toMillis() + " ms");
     }
 
     private Object handle(Exchange exchange, HttpResponse<byte[]> response) {
