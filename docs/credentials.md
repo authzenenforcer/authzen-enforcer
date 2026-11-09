@@ -109,7 +109,10 @@ To refresh the token after the PDP answered `401`, implement `CredentialProvider
 `getCredentialAsync()` and `invalidate(rejected)`; `getCredential()` may then wait for the result of
 `getCredentialAsync()`, since the client does not call it. The client never cancels or completes the
 provider's stage, even when it gives up waiting, so a provider may hand the same stage to every
-request while a single token refresh is in progress.
+request while a single token refresh is in progress. It registers at most one callback on each
+stage, so requests that gave up waiting leave nothing behind on a stage that never completes.
+Still, give the token request a timeout of its own: until it completes, every request fails once
+its request timeout passes.
 
 ## Static tokens
 

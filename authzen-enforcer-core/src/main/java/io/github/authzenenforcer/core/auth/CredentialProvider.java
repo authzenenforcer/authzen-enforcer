@@ -55,7 +55,8 @@ public interface CredentialProvider {
      * thread, at most for the request timeout. A stage that does not complete in time, completes
      * exceptionally or completes with {@code null} fails the request without sending it. The client
      * never cancels the stage, so a provider may hand the same stage to concurrent requests, for
-     * example while a single token refresh is in progress. The default returns the result of
+     * example while a single token refresh is in progress; it registers at most one callback on
+     * each stage, however many requests wait for it. The default returns the result of
      * {@link #getCredential()} as a completed stage.
      *
      * @return a stage completed with the credential, never {@code null}
@@ -117,10 +118,12 @@ public interface CredentialProvider {
                 return await(getCredentialAsync());
             }
 
+            // The source's stage itself, so that a stage it shares stays shared; the client only
+            // reads it, which a stage of a credential subtype supports
+            @SuppressWarnings("unchecked")
             @Override
             public CompletionStage<AccessCredential> getCredentialAsync() {
-                CompletionStage<? extends AccessCredential> stage = source.get();
-                return stage == null ? null : stage.thenApply(AccessCredential.class::cast);
+                return (CompletionStage<AccessCredential>) source.get();
             }
         };
     }

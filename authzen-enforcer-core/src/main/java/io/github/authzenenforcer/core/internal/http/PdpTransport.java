@@ -72,6 +72,7 @@ public final class PdpTransport {
     private final CredentialProvider credentials;
     private final JsonCodec codec;
     private final Duration requestTimeout;
+    private final CredentialWaits credentialWaits = new CredentialWaits();
     private final RetryPolicy retryPolicy;
 
     /**
@@ -271,25 +272,37 @@ public final class PdpTransport {
         if (stage == null) {
             throw new AuthZenException("Credential provider returned no credential");
         }
-        // A separate future, so that the timeout never completes or cancels the provider's stage,
-        // which it may share with other requests
-        CompletableFuture<AccessCredential> credential = new CompletableFuture<>();
-        stage.whenComplete((current, error) -> {
-            if (error != null) {
-                credential.completeExceptionally(
-                        new AuthZenException("Credential provider failed to supply a credential", unwrap(error)));
-            } else if (current == null) {
-                credential.completeExceptionally(new AuthZenException("Credential provider returned no credential"));
-            } else {
-                credential.complete(current);
-            }
-        });
-        if (credential.isDone()) {
-            return credential;
+        // A stage that is already complete needs no waiting; a sharable one gets a single callback.
+        // Only a plain CompletableFuture is asked: subclasses such as minimalCompletionStage() refuse isDone()
+        CompletableFuture<Object> waiter = stage instanceof CompletableFuture<?> done
+                && done.getClass() == CompletableFuture.class && done.isDone()
+                ? done.thenApply(Object.class::cast)
+                : credentialWaits.waitFor(stage);
+        if (!waiter.isDone()) {
+            // Completes only this request's waiter, never the provider's stage
+            waiter.orTimeout(deadline - System.nanoTime(), TimeUnit.NANOSECONDS);
         }
-        return credential.orTimeout(deadline - System.nanoTime(), TimeUnit.NANOSECONDS)
-                .exceptionallyCompose(error -> CompletableFuture.failedFuture(
-                        unwrap(error) instanceof TimeoutException ? credentialTimeout() : unwrap(error)));
+        return waiter.handle((value, error) -> credential(value, error, deadline)).thenCompose(Function.identity());
+    }
+
+    private CompletableFuture<AccessCredential> credential(Object value, Throwable error, long deadline) {
+        if (error != null) {
+            Throwable cause = unwrap(error);
+            // A timeout of the provider's own fails like any other provider failure
+            boolean timedOut = cause instanceof TimeoutException && System.nanoTime() - deadline >= 0;
+            return CompletableFuture.failedFuture(timedOut
+                    ? credentialTimeout()
+                    : new AuthZenException("Credential provider failed to supply a credential", cause));
+        }
+        if (value == null) {
+            return CompletableFuture.failedFuture(new AuthZenException("Credential provider returned no credential"));
+        }
+        if (!(value instanceof AccessCredential credential)) {
+            // Only reachable through unchecked casts; the class name is safe to show, the value is not
+            return CompletableFuture.failedFuture(new AuthZenException(
+                    "Credential provider supplied a " + value.getClass().getName() + " instead of a credential"));
+        }
+        return CompletableFuture.completedFuture(credential);
     }
 
     private AuthZenException credentialTimeout() {
