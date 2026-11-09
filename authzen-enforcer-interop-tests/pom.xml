@@ -46,6 +46,18 @@
     </dependencies>
 
     <build>
+        <testResources>
+            <testResource>
+                <directory>src/test/resources</directory>
+            </testResource>
+            <!-- KeycloakPdp takes the Keycloak image from compose.yaml, which Dependabot updates -->
+            <testResource>
+                <directory>${project.basedir}</directory>
+                <includes>
+                    <include>compose.yaml</include>
+                </includes>
+            </testResource>
+        </testResources>
         <plugins>
             <plugin>
                 <artifactId>maven-surefire-plugin</artifactId>

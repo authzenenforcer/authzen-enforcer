@@ -2,8 +2,8 @@
 
 Keycloak acts as an AuthZEN PDP since version 26.7, as an experimental feature enabled with
 `--features=authzen`. Its decisions come from the policies of a client with Authorization Services.
-The interop tests of this project run against Keycloak 26.8.1; see
-`authzen-enforcer-interop-tests` for the realm they use.
+The interop tests of this project run against the Keycloak version in
+`authzen-enforcer-interop-tests/compose.yaml`; see that module for the realm they use.
 
 ## Connecting
 
