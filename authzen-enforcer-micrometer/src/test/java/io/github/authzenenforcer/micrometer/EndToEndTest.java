@@ -9,6 +9,7 @@ import io.github.authzenenforcer.core.model.Action;
 import io.github.authzenenforcer.core.model.EvaluationRequest;
 import io.github.authzenenforcer.core.model.Resource;
 import io.github.authzenenforcer.core.model.Subject;
+import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.search.Search;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
@@ -64,15 +65,20 @@ class EndToEndTest {
         assertTrue(client.evaluate(EvaluationRequest.of(Subject.of("user", "alice"), Action.of("can_read"),
                 Resource.of("account", "123"))).getDecision());
 
-        // Events arrive on the listener thread
+        // Events arrive on the listener thread, which registers the timer before it records the call;
+        // the call is published after its exchanges, so once it is counted the attempt is too
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-        while (Search.in(registry).name(MicrometerPepListener.CALLS).timer() == null
-                && System.nanoTime() - deadline < 0) {
+        while (callsRecorded(registry) == 0 && System.nanoTime() - deadline < 0) {
             Thread.sleep(5);
         }
         assertEquals(1, registry.get(MicrometerPepListener.CALLS).tag("outcome", "permit").timer().count());
         assertEquals(1, registry.get(MicrometerPepListener.ATTEMPTS).tag("status", "200").timer().count());
         assertEquals(0, registry.get(AuthZenClientMetrics.LISTENER_DROPPED).tag("event", "call_completed")
                 .functionCounter().count());
+    }
+
+    private static long callsRecorded(SimpleMeterRegistry registry) {
+        Timer calls = Search.in(registry).name(MicrometerPepListener.CALLS).timer();
+        return calls == null ? 0 : calls.count();
     }
 }
