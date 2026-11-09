@@ -16,11 +16,18 @@ credentials.
 
 ## Writing a provider
 
-The provider is called synchronously on the request path, and no request timeout covers it, so it
-should return quickly from a cache and refresh the token shortly before it expires. A call that
-blocks also blocks the request. While a circuit breaker tests whether a failing PDP has recovered,
-it lets a single request through; if that request blocks in the provider, every other request is
-rejected until it returns. If the provider throws, the request fails without being sent.
+The client asks the provider before every request, including a repeated one, and the time the
+provider takes counts toward the request timeout: a credential that does not arrive within it fails
+the request without sending it. If the provider throws or supplies no credential, the request fails
+without being sent as well.
+
+`getCredential()` is called synchronously, on the thread that starts or repeats the request, which
+may be a thread of the HTTP client. It should return quickly from a cache and refresh the token
+shortly before it expires. A call that blocks also blocks that thread, and the request timeout
+cannot interrupt it. While a circuit breaker tests whether a failing PDP has recovered, it lets a
+single request through; if that request blocks in the provider, every other request is rejected
+until it returns. If the token source is asynchronous, write an
+[asynchronous provider](#asynchronous-providers) instead.
 
 If the PDP answers `401`, the client calls `invalidate(rejected)` on the provider and repeats the
 request once with a fresh credential. Concurrent requests may report the same rejected credential,
@@ -82,6 +89,30 @@ its own. The example uses `ReentrantLock` rather than `synchronized`, which on J
 pin a virtual thread to its carrier while the token request runs.
 
 Providers must be thread-safe.
+
+## Asynchronous providers
+
+When the token source returns a `CompletionStage`, such as the reactive OAuth client of a
+framework, a provider that blocks for it would hold a thread that must not block, for example an
+event loop thread. Create the provider with `CredentialProvider.async` instead; the client then
+waits for the stage without blocking a thread:
+
+```java
+AuthZenClient client = AuthZenClient.builder()
+        .pdpUrl("https://pdp.example.com")
+        .credentials(CredentialProvider.async(() -> tokenSource.currentToken()
+                .thenApply(AccessCredential::bearer)))
+        .build();
+```
+
+To refresh the token after the PDP answered `401`, implement `CredentialProvider` and override
+`getCredentialAsync()` and `invalidate(rejected)`; `getCredential()` may then wait for the result of
+`getCredentialAsync()`, since the client does not call it. The client never cancels or completes the
+provider's stage, even when it gives up waiting, so a provider may hand the same stage to every
+request while a single token refresh is in progress. It registers at most one callback on each
+stage, so requests that gave up waiting leave nothing behind on a stage that never completes.
+Still, give the token request a timeout of its own: until it completes, every request fails once
+its request timeout passes.
 
 ## Static tokens
 

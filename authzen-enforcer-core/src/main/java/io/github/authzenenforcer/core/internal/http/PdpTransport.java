@@ -33,6 +33,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -63,6 +64,9 @@ public final class PdpTransport {
     /** Maximum response body size in bytes, matching the parser's input limit. */
     static final int MAX_RESPONSE_BYTES = JsonParser.DEFAULT_MAX_LENGTH;
 
+    // Longer timeouts would overflow the deadline arithmetic; they are treated as this one, about 146 years
+    private static final Duration MAX_TIMEOUT = Duration.ofNanos(Long.MAX_VALUE / 2);
+
     private static final System.Logger LOGGER = System.getLogger(PdpTransport.class.getName());
     private static final String JSON = "application/json";
     private static final String USER_AGENT = userAgent();
@@ -71,6 +75,8 @@ public final class PdpTransport {
     private final CredentialProvider credentials;
     private final JsonCodec codec;
     private final Duration requestTimeout;
+    private final long requestTimeoutNanos;
+    private final CredentialWaits credentialWaits = new CredentialWaits();
     private final RetryPolicy retryPolicy;
 
     /**
@@ -89,6 +95,9 @@ public final class PdpTransport {
         this.credentials = credentials;
         this.codec = Objects.requireNonNull(codec, "codec must not be null");
         this.requestTimeout = Objects.requireNonNull(requestTimeout, "requestTimeout must not be null");
+        this.requestTimeoutNanos = requestTimeout.compareTo(MAX_TIMEOUT) > 0
+                ? MAX_TIMEOUT.toNanos()
+                : requestTimeout.toNanos();
         this.retryPolicy = new RetryPolicy(maxRetries, requestTimeout, Clock.systemUTC());
     }
 
@@ -139,13 +148,28 @@ public final class PdpTransport {
     private CompletableFuture<Object> send(Call call, int retries, boolean refreshed) {
         // Every HTTP exchange, including a repeated one, gets its own request id
         Exchange exchange = new Exchange(call.endpoint, call.get, call.json, UUID.randomUUID().toString());
-        AccessCredential credential;
+        // The request timeout covers supplying the credential as well
+        long deadline = System.nanoTime() + requestTimeoutNanos;
+        CompletableFuture<AccessCredential> credential;
+        try {
+            credential = exchange.isGet() ? CompletableFuture.completedFuture(null) : currentCredential(deadline);
+        } catch (AuthZenException e) {
+            return CompletableFuture.failedFuture(e);
+        }
+        return credential.thenCompose(current -> send(call, retries, refreshed, exchange, current, deadline));
+    }
+
+    private CompletableFuture<Object> send(Call call, int retries, boolean refreshed, Exchange exchange,
+            AccessCredential credential, long deadline) {
+        Duration timeout = Duration.ofNanos(deadline - System.nanoTime());
+        if (timeout.isZero() || timeout.isNegative()) {
+            return CompletableFuture.failedFuture(credentialTimeout());
+        }
         TracerHook.TracedExchange traced;
         HttpRequest request;
         try {
-            credential = exchange.isGet() ? null : currentCredential();
             traced = call.trace.startExchange(exchange.method(), exchange.endpoint, exchange.requestId);
-            request = exchange.request(credential, traced != null ? traced.context() : null);
+            request = exchange.request(credential, timeout, traced != null ? traced.context() : null);
         } catch (AuthZenException e) {
             return CompletableFuture.failedFuture(e);
         } catch (RuntimeException e) {
@@ -161,7 +185,7 @@ public final class PdpTransport {
         // The JDK stops the request timer once the headers arrive, so bound the body as well and
         // abort the exchange when the deadline passes
         CompletableFuture<HttpResponse<byte[]>> bounded = pending.copy()
-                .orTimeout(requestTimeout.toMillis(), TimeUnit.MILLISECONDS);
+                .orTimeout(timeout.toNanos(), TimeUnit.NANOSECONDS);
         bounded.whenComplete((response, error) -> {
             if (error instanceof TimeoutException) {
                 pending.cancel(true);
@@ -242,20 +266,55 @@ public final class PdpTransport {
                 .thenCompose(ignored -> send(call, retries + 1, refreshed));
     }
 
-    private AccessCredential currentCredential() {
+    private CompletableFuture<AccessCredential> currentCredential(long deadline) {
         if (credentials == null) {
-            return null;
+            return CompletableFuture.completedFuture(null);
         }
-        AccessCredential credential;
+        CompletionStage<AccessCredential> stage;
         try {
-            credential = credentials.getCredential();
+            stage = credentials.getCredentialAsync();
         } catch (RuntimeException e) {
             throw new AuthZenException("Credential provider failed to supply a credential", e);
         }
-        if (credential == null) {
+        if (stage == null) {
             throw new AuthZenException("Credential provider returned no credential");
         }
-        return credential;
+        // A stage that is already complete needs no waiting; a sharable one gets a single callback.
+        // Only a plain CompletableFuture is asked: subclasses such as minimalCompletionStage() refuse isDone()
+        CompletableFuture<Object> waiter = stage instanceof CompletableFuture<?> done
+                && done.getClass() == CompletableFuture.class && done.isDone()
+                ? done.thenApply(Object.class::cast)
+                : credentialWaits.waitFor(stage);
+        if (!waiter.isDone()) {
+            // Completes only this request's waiter, never the provider's stage
+            waiter.orTimeout(deadline - System.nanoTime(), TimeUnit.NANOSECONDS);
+        }
+        return waiter.handle((value, error) -> credential(value, error, deadline)).thenCompose(Function.identity());
+    }
+
+    private CompletableFuture<AccessCredential> credential(Object value, Throwable error, long deadline) {
+        if (error != null) {
+            Throwable cause = unwrap(error);
+            // A timeout of the provider's own fails like any other provider failure
+            boolean timedOut = cause instanceof TimeoutException && System.nanoTime() - deadline >= 0;
+            return CompletableFuture.failedFuture(timedOut
+                    ? credentialTimeout()
+                    : new AuthZenException("Credential provider failed to supply a credential", cause));
+        }
+        if (value == null) {
+            return CompletableFuture.failedFuture(new AuthZenException("Credential provider returned no credential"));
+        }
+        if (!(value instanceof AccessCredential credential)) {
+            // Only reachable through unchecked casts; the class name is safe to show, the value is not
+            return CompletableFuture.failedFuture(new AuthZenException(
+                    "Credential provider supplied a " + value.getClass().getName() + " instead of a credential"));
+        }
+        return CompletableFuture.completedFuture(credential);
+    }
+
+    private AuthZenException credentialTimeout() {
+        return new AuthZenException("Credential provider supplied no credential within the request timeout of "
+                + Duration.ofNanos(requestTimeoutNanos).toMillis() + " ms");
     }
 
     private Object handle(Exchange exchange, HttpResponse<byte[]> response) {
@@ -374,9 +433,9 @@ public final class PdpTransport {
             return get ? "GET" : "POST";
         }
 
-        HttpRequest request(AccessCredential credential, TraceContext trace) {
+        HttpRequest request(AccessCredential credential, Duration timeout, TraceContext trace) {
             HttpRequest.Builder builder = HttpRequest.newBuilder(endpoint)
-                    .timeout(requestTimeout)
+                    .timeout(timeout)
                     .header("Accept", JSON)
                     .header("User-Agent", USER_AGENT)
                     .header(REQUEST_ID_HEADER, requestId);

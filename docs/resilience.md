@@ -9,7 +9,7 @@ tries before giving up.
 | Setting | Default | Covers |
 |---|---|---|
 | `connectTimeout(Duration)` | 5 seconds | Establishing a connection. |
-| `requestTimeout(Duration)` | 5 seconds | One request, from sending it until the complete response body is received. |
+| `requestTimeout(Duration)` | 5 seconds | One request, from asking the credential provider for the credential until the complete response body is received. |
 
 To configure TLS client certificates or a proxy, pass your own `java.net.http.HttpClient` with
 `httpClient(...)`. It must not follow redirects, so that credentials cannot be sent to another host,

@@ -43,6 +43,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
@@ -148,6 +149,18 @@ class AuthZenClientTest {
                     .evaluate(REQUEST);
 
             assertEquals("/custom/evaluate", onlyRequest().path());
+        }
+
+        @ParameterizedTest
+        @ValueSource(longs = {365L * 300, 365L * 1_000_000_000})
+        void acceptsRequestTimeoutsOfCenturies(long days) {
+            AuthZenClient client = AuthZenClient.builder()
+                    .pdpUrl(pdp.url())
+                    .credentials(CredentialProvider.staticBearer(TOKEN))
+                    .requestTimeout(Duration.ofDays(days))
+                    .build();
+
+            assertTrue(client.evaluate(REQUEST).getDecision());
         }
 
         @Test
@@ -502,6 +515,190 @@ class AuthZenClientTest {
             AuthZenException e = assertThrows(AuthZenException.class, () -> client.evaluate(REQUEST));
             assertInstanceOf(IllegalStateException.class, e.getCause());
             assertEquals(1, pdp.requests().size());
+        }
+    }
+
+    @Nested
+    class AsyncCredentials {
+
+        private AuthZenClient client(CredentialProvider credentials) {
+            return AuthZenClient.builder()
+                    .pdpUrl(pdp.url())
+                    .credentials(credentials)
+                    .requestTimeout(Duration.ofMillis(300))
+                    .build();
+        }
+
+        private CompletableFuture<AccessCredential> later(String token) {
+            return CompletableFuture.supplyAsync(() -> AccessCredential.bearer(token),
+                    CompletableFuture.delayedExecutor(50, TimeUnit.MILLISECONDS));
+        }
+
+        @Test
+        void sendsTheCredentialOnceTheStageCompletes() {
+            AuthZenClient client = client(CredentialProvider.async(() -> later(TOKEN)));
+
+            assertTrue(client.evaluateAsync(REQUEST).toCompletableFuture().join().getDecision());
+            assertTrue(client.evaluate(REQUEST).getDecision());
+
+            assertEquals(2, pdp.requests().size());
+            pdp.requests().forEach(request -> assertEquals("Bearer " + TOKEN, request.header("Authorization")));
+        }
+
+        @Test
+        void failsWithoutSendingWhenTheCredentialMissesTheRequestTimeout() {
+            CompletableFuture<AccessCredential> shared = new CompletableFuture<>();
+            AuthZenClient client = client(CredentialProvider.async(() -> shared));
+
+            long start = System.nanoTime();
+            AuthZenException e = assertThrows(AuthZenException.class, () -> client.evaluate(REQUEST));
+
+            assertTrue(Duration.ofNanos(System.nanoTime() - start).compareTo(Duration.ofSeconds(2)) < 0);
+            assertTrue(e.getMessage().contains("within the request timeout of 300 ms"), e.getMessage());
+            assertTrue(pdp.requests().isEmpty());
+            assertFalse(shared.isDone(), "the provider's stage may be shared, so the client must leave it alone");
+        }
+
+        @Test
+        void failsWithoutSendingWhenASynchronousProviderReturnsAfterTheRequestTimeout() {
+            AuthZenClient client = client(() -> {
+                sleep(Duration.ofMillis(400));
+                return AccessCredential.bearer(TOKEN);
+            });
+
+            AuthZenException e = assertThrows(AuthZenException.class, () -> client.evaluate(REQUEST));
+
+            assertTrue(e.getMessage().contains("within the request timeout"), e.getMessage());
+            assertTrue(pdp.requests().isEmpty());
+        }
+
+        @Test
+        void failsWithoutSendingWhenTheStageFails() {
+            AuthZenClient client = client(CredentialProvider.async(
+                    () -> CompletableFuture.failedFuture(new IllegalStateException("token endpoint down"))));
+
+            AuthZenException e = assertThrows(AuthZenException.class, () -> client.evaluate(REQUEST));
+
+            assertInstanceOf(IllegalStateException.class, e.getCause());
+            assertTrue(pdp.requests().isEmpty());
+        }
+
+        @Test
+        void failsWithoutSendingWhenTheStageHasNoCredential() {
+            AuthZenClient client = client(CredentialProvider.async(() -> CompletableFuture.completedFuture(null)));
+
+            AuthZenException e = assertThrows(AuthZenException.class, () -> client.evaluate(REQUEST));
+
+            assertEquals("Credential provider returned no credential", e.getMessage());
+            assertTrue(pdp.requests().isEmpty());
+        }
+
+        @Test
+        void failsWithoutSendingWhenTheProviderReturnsNoStage() {
+            AuthZenClient client = client(CredentialProvider.async(() -> null));
+
+            AuthZenException e = assertThrows(AuthZenException.class, () -> client.evaluate(REQUEST));
+
+            assertEquals("Credential provider returned no credential", e.getMessage());
+            assertTrue(pdp.requests().isEmpty());
+        }
+
+        @Test
+        void waitsForAStageThatCannotBeConvertedToAFuture() {
+            AuthZenClient client = client(CredentialProvider.async(() -> later(TOKEN).minimalCompletionStage()));
+
+            assertTrue(client.evaluate(REQUEST).getDecision());
+            assertEquals("Bearer " + TOKEN, onlyRequest().header("Authorization"));
+        }
+
+        @Test
+        void refreshesAnAsynchronousCredentialAfterA401() {
+            AtomicInteger generation = new AtomicInteger(1);
+            List<AccessCredential> invalidated = new CopyOnWriteArrayList<>();
+            pdp.respond(sequence(json(401, ""), json(200, "{\"decision\": true}")));
+            AuthZenClient client = client(new CredentialProvider() {
+                @Override
+                public AccessCredential getCredential() {
+                    return getCredentialAsync().toCompletableFuture().join();
+                }
+
+                @Override
+                public CompletionStage<AccessCredential> getCredentialAsync() {
+                    return later("token-" + generation.get());
+                }
+
+                @Override
+                public void invalidate(AccessCredential rejected) {
+                    invalidated.add(rejected);
+                    generation.incrementAndGet();
+                }
+            });
+
+            assertTrue(client.evaluateAsync(REQUEST).toCompletableFuture().join().getDecision());
+
+            List<RecordedRequest> requests = pdp.requests();
+            assertEquals("Bearer token-1", requests.get(0).header("Authorization"));
+            assertEquals("Bearer token-2", requests.get(1).header("Authorization"));
+            assertEquals(1, invalidated.size());
+        }
+
+        @Test
+        void leavesOneCallbackOnASharedStageThatNeverCompletes() {
+            CompletableFuture<AccessCredential> shared = new CompletableFuture<>();
+            AuthZenClient client = AuthZenClient.builder()
+                    .pdpUrl(pdp.url())
+                    .credentials(CredentialProvider.async(() -> shared))
+                    .requestTimeout(Duration.ofMillis(10))
+                    .build();
+
+            for (int i = 0; i < 50; i++) {
+                assertThrows(AuthZenException.class, () -> client.evaluate(REQUEST));
+            }
+
+            assertEquals(1, shared.getNumberOfDependents(), "requests that gave up must not pile up on the stage");
+            assertTrue(pdp.requests().isEmpty());
+        }
+
+        @Test
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        void failsAtOnceWhenTheStageHasNoCredential() {
+            CompletableFuture raw = CompletableFuture.supplyAsync(() -> "not a credential",
+                    CompletableFuture.delayedExecutor(20, TimeUnit.MILLISECONDS));
+            AuthZenClient client = AuthZenClient.builder()
+                    .pdpUrl(pdp.url())
+                    .credentials(CredentialProvider.async(() -> raw))
+                    .requestTimeout(Duration.ofSeconds(5))
+                    .build();
+
+            long start = System.nanoTime();
+            AuthZenException e = assertThrows(AuthZenException.class, () -> client.evaluate(REQUEST));
+
+            assertTrue(Duration.ofNanos(System.nanoTime() - start).compareTo(Duration.ofSeconds(2)) < 0);
+            assertEquals("Credential provider supplied a java.lang.String instead of a credential", e.getMessage());
+            assertTrue(pdp.requests().isEmpty());
+        }
+
+        @Test
+        void reportsATimeoutOfTheProviderAsAProviderFailure() {
+            AuthZenClient client = client(CredentialProvider.async(
+                    () -> CompletableFuture.failedFuture(new TimeoutException("token endpoint slow"))));
+
+            AuthZenException e = assertThrows(AuthZenException.class, () -> client.evaluate(REQUEST));
+
+            assertEquals("Credential provider failed to supply a credential", e.getMessage());
+        }
+
+        @Test
+        void givesTheExchangeOnlyTheTimeTheCredentialLeft() {
+            pdp.respond((request, exchange) -> {
+                sleep(Duration.ofMillis(200));
+                json(200, "{\"decision\": true}").respond(request, exchange);
+            });
+            AuthZenClient client = client(CredentialProvider.async(() -> CompletableFuture.supplyAsync(
+                    () -> AccessCredential.bearer(TOKEN), CompletableFuture.delayedExecutor(200, TimeUnit.MILLISECONDS))));
+
+            // 200 ms for the credential plus 200 ms for the answer exceed the request timeout of 300 ms
+            assertThrows(PdpCommunicationException.class, () -> client.evaluate(REQUEST));
         }
     }
 
