@@ -12,11 +12,26 @@ the API.
 - Asynchronous credential providers: `CredentialProvider.getCredentialAsync()` and
   `CredentialProvider.async(...)`, so that a token source returning a `CompletionStage` does not
   block a thread.
+- Cancellation: cancelling the stage of an `...Async` method, or the future its
+  `toCompletableFuture()` returns, aborts the HTTP exchange in progress, and no retry or credential
+  wait starts afterwards. Reactor's `Mono.fromCompletionStage` and Mutiny's
+  `Uni.createFrom().completionStage` cancel it when their subscriber cancels, for example after a
+  timeout. An interrupted blocking call and a cancelled search subscription stop the same way.
+- `Outcome.CANCELLED` for calls their caller cancelled, also as the `outcome` tag in Micrometer
+  and the `authzen.outcome` attribute in OpenTelemetry.
 
 ### Changed
 
+- The failure of a timed-out exchange or credential wait is no longer completed on the JDK's
+  shared delay thread, so code that follows it cannot hold up timeouts elsewhere in the JVM.
 - The request timeout now also covers supplying the credential. A request whose credential does not
   arrive within it fails without being sent.
+
+### Fixed
+
+- Cancelling the stage of an `...Async` method threw `UnsupportedOperationException`, which
+  Reactor reported through `onErrorDropped`, and the call went on. The stage can now be cancelled;
+  its holder still cannot complete it.
 
 ## [0.1.0] - 2026-11-07
 

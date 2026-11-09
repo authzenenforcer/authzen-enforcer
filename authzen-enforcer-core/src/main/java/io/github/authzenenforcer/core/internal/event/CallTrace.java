@@ -167,10 +167,12 @@ public final class CallTrace {
      * @param request   the request
      * @param response  the response, or {@code null} if the call failed
      * @param failure   the failure the caller received, or {@code null}
+     * @param cancelled whether the caller cancelled the call; {@code failure} then describes it
      * @param <Q>       the type of the request
      * @param <R>       the type of the response
      */
-    public <Q, R> void completed(Operation<Q, R> operation, Q request, R response, AuthZenException failure) {
+    public <Q, R> void completed(Operation<Q, R> operation, Q request, R response, AuthZenException failure,
+            boolean cancelled) {
         if (!isActive()) {
             return;
         }
@@ -189,6 +191,9 @@ public final class CallTrace {
             completed.forEach(attempt -> event.requestId(attempt.getRequestId()));
             if (failure != null) {
                 event.failure(failure);
+                if (cancelled) {
+                    event.cancelled();
+                }
             } else {
                 event.response(response);
             }

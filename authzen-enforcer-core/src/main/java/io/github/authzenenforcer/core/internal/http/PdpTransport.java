@@ -31,6 +31,7 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
@@ -106,11 +107,12 @@ public final class PdpTransport {
      *
      * @param endpoint the endpoint URL
      * @param body     the request body as a JSON tree
-     * @param trace    records every HTTP exchange
-     * @return a future completed with the parsed response, or exceptionally with an
-     *         {@link AuthZenException}
+     * @param trace        records every HTTP exchange
+     * @param cancellation stops the request once the caller cancels it
+     * @return a future completed with the parsed response, exceptionally with an
+     *         {@link AuthZenException}, or with a {@link CancellationException} once cancelled
      */
-    public CompletableFuture<Object> post(URI endpoint, Object body, CallTrace trace) {
+    public CompletableFuture<Object> post(URI endpoint, Object body, CallTrace trace, Cancellation cancellation) {
         String json;
         try {
             json = codec.write(body);
@@ -121,7 +123,7 @@ public final class PdpTransport {
             return CompletableFuture.failedFuture(new AuthZenException("JSON codec returned no text for the request"));
         }
         trace.requestBytes(json.length());
-        return send(new Call(endpoint, false, json, System.nanoTime(), trace), 0, false);
+        return send(new Call(endpoint, false, json, System.nanoTime(), trace, cancellation), 0, false);
     }
 
     /**
@@ -141,18 +143,22 @@ public final class PdpTransport {
      * @return a future completed with the document, or exceptionally with an {@link AuthZenException}
      */
     public CompletableFuture<Document> get(URI endpoint, CallTrace trace) {
-        return send(new Call(endpoint, true, null, System.nanoTime(), trace), 0, false)
+        return send(new Call(endpoint, true, null, System.nanoTime(), trace, new Cancellation()), 0, false)
                 .thenApply(Document.class::cast);
     }
 
     private CompletableFuture<Object> send(Call call, int retries, boolean refreshed) {
+        // Neither a retry nor the repeat after a 401 starts once the caller cancelled
+        if (call.cancellation.isCancelled()) {
+            return CompletableFuture.failedFuture(cancelled());
+        }
         // Every HTTP exchange, including a repeated one, gets its own request id
         Exchange exchange = new Exchange(call.endpoint, call.get, call.json, UUID.randomUUID().toString());
         // The request timeout covers supplying the credential as well
         long deadline = System.nanoTime() + requestTimeoutNanos;
         CompletableFuture<AccessCredential> credential;
         try {
-            credential = exchange.isGet() ? CompletableFuture.completedFuture(null) : currentCredential(deadline);
+            credential = exchange.isGet() ? CompletableFuture.completedFuture(null) : currentCredential(call, deadline);
         } catch (AuthZenException e) {
             return CompletableFuture.failedFuture(e);
         }
@@ -164,6 +170,10 @@ public final class PdpTransport {
         Duration timeout = Duration.ofNanos(deadline - System.nanoTime());
         if (timeout.isZero() || timeout.isNegative()) {
             return CompletableFuture.failedFuture(credentialTimeout());
+        }
+        // A credential that arrives after the caller cancelled is not sent
+        if (call.cancellation.isCancelled()) {
+            return CompletableFuture.failedFuture(cancelled());
         }
         TracerHook.TracedExchange traced;
         HttpRequest request;
@@ -180,8 +190,8 @@ public final class PdpTransport {
         }
         Instant startTime = call.trace.isActive() ? Instant.now() : null;
         long start = System.nanoTime();
-        CompletableFuture<HttpResponse<byte[]>> pending = httpClient.sendAsync(request,
-                new LimitedBodyHandler(MAX_RESPONSE_BYTES));
+        CompletableFuture<HttpResponse<byte[]>> pending = call.cancellation.track(httpClient.sendAsync(request,
+                new LimitedBodyHandler(MAX_RESPONSE_BYTES)));
         // The JDK stops the request timer once the headers arrive, so bound the body as well and
         // abort the exchange when the deadline passes
         CompletableFuture<HttpResponse<byte[]>> bounded = pending.copy()
@@ -201,11 +211,18 @@ public final class PdpTransport {
                         Throwable cause = unwrap(error);
                         LOGGER.log(Level.DEBUG, () -> "PDP request " + exchange.requestId + " to " + exchange.endpoint
                                 + " failed after " + elapsed.toMillis() + " ms: " + cause);
-                        Optional<Duration> delay = retryPolicy.afterError(retries, call.elapsed(), cause);
-                        record(call, attempt, builder -> builder.failure(cause), delay);
-                        return delay
-                                .map(wait -> retry(call, retries, refreshed, wait, exchange, cause.toString()))
-                                .orElseGet(() -> CompletableFuture.failedFuture(transportFailure(exchange, cause)));
+                        if (call.cancellation.isCancelled()) {
+                            record(call, attempt, builder -> builder.failure(cause), Optional.empty());
+                            return CompletableFuture.<Object>failedFuture(cancelled());
+                        }
+                        if (cause instanceof TimeoutException) {
+                            // Completed on the JDK's single delay thread, which every timeout in the
+                            // JVM shares; whatever follows, the caller's code included, runs elsewhere
+                            return CompletableFuture.supplyAsync(
+                                    () -> afterError(call, retries, refreshed, exchange, attempt, cause))
+                                    .thenCompose(Function.identity());
+                        }
+                        return afterError(call, retries, refreshed, exchange, attempt, cause);
                     }
                     LOGGER.log(Level.DEBUG, () -> "PDP request " + exchange.requestId + " to " + exchange.endpoint
                             + " returned HTTP " + response.statusCode() + " in " + elapsed.toMillis() + " ms");
@@ -217,6 +234,15 @@ public final class PdpTransport {
                     return onResponse(call, retries, refreshed, exchange, credential, response, attempt);
                 })
                 .thenCompose(Function.identity());
+    }
+
+    private CompletableFuture<Object> afterError(Call call, int retries, boolean refreshed, Exchange exchange,
+            AttemptCompleted.Builder attempt, Throwable cause) {
+        Optional<Duration> delay = retryPolicy.afterError(retries, call.elapsed(), cause);
+        record(call, attempt, builder -> builder.failure(cause), delay);
+        return delay
+                .map(wait -> retry(call, retries, refreshed, wait, exchange, cause.toString()))
+                .orElseGet(() -> CompletableFuture.failedFuture(transportFailure(exchange, cause)));
     }
 
     private CompletableFuture<Object> onResponse(Call call, int retries, boolean refreshed, Exchange exchange,
@@ -262,11 +288,11 @@ public final class PdpTransport {
         LOGGER.log(Level.DEBUG, () -> "Repeating PDP request " + exchange.requestId + " after " + reason
                 + " in " + delay.toMillis() + " ms (retry " + (retries + 1) + ")");
         Executor delayed = CompletableFuture.delayedExecutor(delay.toMillis(), TimeUnit.MILLISECONDS);
-        return CompletableFuture.supplyAsync(() -> null, delayed)
+        return call.cancellation.track(CompletableFuture.supplyAsync(() -> null, delayed))
                 .thenCompose(ignored -> send(call, retries + 1, refreshed));
     }
 
-    private CompletableFuture<AccessCredential> currentCredential(long deadline) {
+    private CompletableFuture<AccessCredential> currentCredential(Call call, long deadline) {
         if (credentials == null) {
             return CompletableFuture.completedFuture(null);
         }
@@ -287,19 +313,27 @@ public final class PdpTransport {
                 : credentialWaits.waitFor(stage);
         if (!waiter.isDone()) {
             // Completes only this request's waiter, never the provider's stage
-            waiter.orTimeout(deadline - System.nanoTime(), TimeUnit.NANOSECONDS);
+            call.cancellation.track(waiter).orTimeout(deadline - System.nanoTime(), TimeUnit.NANOSECONDS);
         }
-        return waiter.handle((value, error) -> credential(value, error, deadline)).thenCompose(Function.identity());
+        return waiter.handle((value, error) -> credential(call, value, error, deadline))
+                .thenCompose(Function.identity());
     }
 
-    private CompletableFuture<AccessCredential> credential(Object value, Throwable error, long deadline) {
+    private CompletableFuture<AccessCredential> credential(Call call, Object value, Throwable error, long deadline) {
         if (error != null) {
+            if (call.cancellation.isCancelled()) {
+                return CompletableFuture.failedFuture(cancelled());
+            }
             Throwable cause = unwrap(error);
             // A timeout of the provider's own fails like any other provider failure
-            boolean timedOut = cause instanceof TimeoutException && System.nanoTime() - deadline >= 0;
-            return CompletableFuture.failedFuture(timedOut
-                    ? credentialTimeout()
-                    : new AuthZenException("Credential provider failed to supply a credential", cause));
+            if (cause instanceof TimeoutException && System.nanoTime() - deadline >= 0) {
+                // Leaves the JDK's single delay thread, as for the timeout of an exchange
+                return CompletableFuture.supplyAsync(() -> {
+                    throw new CompletionException(credentialTimeout());
+                });
+            }
+            return CompletableFuture.failedFuture(
+                    new AuthZenException("Credential provider failed to supply a credential", cause));
         }
         if (value == null) {
             return CompletableFuture.failedFuture(new AuthZenException("Credential provider returned no credential"));
@@ -310,6 +344,10 @@ public final class PdpTransport {
                     "Credential provider supplied a " + value.getClass().getName() + " instead of a credential"));
         }
         return CompletableFuture.completedFuture(credential);
+    }
+
+    private static CancellationException cancelled() {
+        return new CancellationException("The caller cancelled the PDP request");
     }
 
     private AuthZenException credentialTimeout() {
@@ -403,7 +441,8 @@ public final class PdpTransport {
     }
 
     /** One logical request, which may take several HTTP exchanges: a GET, or a POST of {@code json}. */
-    private record Call(URI endpoint, boolean get, String json, long startNanos, CallTrace trace) {
+    private record Call(URI endpoint, boolean get, String json, long startNanos, CallTrace trace,
+            Cancellation cancellation) {
 
         Duration elapsed() {
             return Duration.ofNanos(System.nanoTime() - startNanos);

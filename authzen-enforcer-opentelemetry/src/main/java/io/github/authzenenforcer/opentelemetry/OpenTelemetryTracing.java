@@ -59,9 +59,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>Attributes:
  * <ul>
  *   <li>Call span: {@code authzen.operation}, {@code authzen.outcome} ({@code permit}, {@code deny},
- *       {@code completed} or {@code failed}), and for a single evaluation {@code authzen.resource.type}
- *       and {@code authzen.action.name}, which the builder can turn off. A failed call has the
- *       status {@code ERROR} and {@code error.type}, the class name of the failure.</li>
+ *       {@code completed}, {@code failed} or {@code cancelled}), and for a single evaluation
+ *       {@code authzen.resource.type} and {@code authzen.action.name}, which the builder can turn off.
+ *       A failed call has the status {@code ERROR} and {@code error.type}, the class name of the
+ *       failure; a call its caller cancelled keeps the status unset.</li>
  *   <li>Exchange span: {@code http.request.method}, {@code url.full}, {@code server.address},
  *       {@code server.port}, {@code authzen.request_id} (the {@code X-Request-ID}),
  *       {@code http.request.resend_count} for a repeated exchange, and

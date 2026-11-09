@@ -68,3 +68,30 @@ AuthZenClient client = AuthZenClient.builder()
 
 `CircuitBreakerOptions.disabled()` turns the breakers off. Breaker transitions are reported to
 listeners and as metrics; see [Observability](observability.md).
+
+## Cancellation
+
+A caller that gives up stops the call. Cancelling the stage that an `...Async` method returns, or
+the future its `toCompletableFuture()` returns, aborts the HTTP exchange in progress; neither a
+retry nor a wait for a credential starts afterwards. A thread interrupted while it waits in a
+blocking method cancels its call the same way, and cancelling the subscription of a search
+publisher cancels the page request in flight.
+
+Reactive libraries cancel the stage when their subscriber cancels, for example after a timeout of
+the caller's:
+
+```java
+Mono.fromCompletionStage(client.evaluateAsync(request))
+        .timeout(Duration.ofMillis(300));
+
+Uni.createFrom().completionStage(client.evaluateAsync(request))
+        .ifNoItem().after(Duration.ofMillis(300)).fail();
+```
+
+So a PDP that is already struggling gets no further retries for callers that have left. Requests
+sent before the cancel are not undone, and the PDP may still have seen them. A cancelled call does
+not count as a PDP failure for the circuit breaker, and listeners see it with the outcome
+`CANCELLED` once it has stopped.
+
+The holder of the stage cannot complete it: `complete` and similar methods throw
+`UnsupportedOperationException`, so code the stage is handed to cannot make up a decision.

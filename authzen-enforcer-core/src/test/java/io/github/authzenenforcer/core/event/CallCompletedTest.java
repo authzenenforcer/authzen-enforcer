@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.authzenenforcer.core.AuthZenException;
 import io.github.authzenenforcer.core.PdpCommunicationException;
 import io.github.authzenenforcer.core.model.Action;
 import io.github.authzenenforcer.core.model.ActionSearchRequest;
@@ -40,6 +41,26 @@ class CallCompletedTest {
 
     private static <Q, R> CallCompleted.Builder<Q, R> builder(Operation<Q, R> operation, Q request) {
         return CallCompleted.builder(operation).request(request).startTime(Instant.EPOCH).duration(Duration.ZERO);
+    }
+
+    @Test
+    void reportsACancelledCall() {
+        CallCompleted<EvaluationRequest, EvaluationResponse> event = builder(Operation.EVALUATION,
+                EvaluationRequest.of(ALICE, READ, ACCOUNT))
+                .failure(new AuthZenException("Evaluation was cancelled by the caller"))
+                .cancelled()
+                .build();
+
+        assertEquals(Outcome.CANCELLED, event.getOutcome());
+        assertTrue(event.getResponse().isEmpty());
+    }
+
+    @Test
+    void requiresAFailureForACancelledCall() {
+        CallCompleted.Builder<EvaluationRequest, EvaluationResponse> event = builder(Operation.EVALUATION,
+                EvaluationRequest.of(ALICE, READ, ACCOUNT)).response(EvaluationResponse.of(true)).cancelled();
+
+        assertThrows(IllegalStateException.class, event::build);
     }
 
     @Test

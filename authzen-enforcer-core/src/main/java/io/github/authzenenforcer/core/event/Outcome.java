@@ -19,5 +19,11 @@ public enum Outcome {
      * credentials or sent an invalid answer. Callers deny in that case, so a failed evaluation is a
      * deny the PDP may never have seen.
      */
-    FAILED
+    FAILED,
+
+    /**
+     * A call that its caller cancelled, or whose waiting thread was interrupted, before it
+     * completed. The caller got no decision; the PDP may or may not have seen the request.
+     */
+    CANCELLED
 }

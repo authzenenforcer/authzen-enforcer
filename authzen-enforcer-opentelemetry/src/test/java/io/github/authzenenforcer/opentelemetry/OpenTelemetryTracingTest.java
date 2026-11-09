@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.sun.net.httpserver.HttpServer;
+import io.github.authzenenforcer.core.AuthZenException;
 import io.github.authzenenforcer.core.PdpCommunicationException;
 import io.github.authzenenforcer.core.client.AuthZenClient;
 import io.github.authzenenforcer.core.event.AttemptCompleted;
@@ -334,5 +335,25 @@ class OpenTelemetryTracingTest {
         assertNotNull(failed.getStatus());
         assertEquals(StatusCode.ERROR, failed.getStatus().getStatusCode());
         assertEquals(start.plusMillis(3).toEpochMilli(), TimeUnit.NANOSECONDS.toMillis(failed.getEndEpochNanos()));
+    }
+
+    @Test
+    void leavesTheStatusOfACancelledCallUnset() {
+        OpenTelemetryTracing tracing = OpenTelemetryTracing.builder(openTelemetry).build();
+        PepTracer.CallSpan call = tracing.startCall(Operation.EVALUATION);
+
+        tracing.onCallCompleted(CallCompleted.builder(Operation.EVALUATION)
+                .request(REQUEST)
+                .failure(new AuthZenException("Evaluation was cancelled by the caller"))
+                .cancelled()
+                .startTime(Instant.now())
+                .duration(Duration.ofMillis(3))
+                .callSpan(call)
+                .build());
+
+        SpanData cancelled = named(exporter.getFinishedSpanItems(), "authzen evaluation");
+        assertEquals("cancelled", cancelled.getAttributes().get(AttributeKey.stringKey("authzen.outcome")));
+        assertEquals(StatusCode.UNSET, cancelled.getStatus().getStatusCode());
+        assertNull(cancelled.getAttributes().get(AttributeKey.stringKey("error.type")));
     }
 }

@@ -14,6 +14,7 @@ import io.github.authzenenforcer.core.event.ListenerDrops;
 import io.github.authzenenforcer.core.event.Operation;
 import io.github.authzenenforcer.core.internal.event.CallTrace;
 import io.github.authzenenforcer.core.internal.event.EventDispatcher;
+import io.github.authzenenforcer.core.internal.http.Cancellation;
 import io.github.authzenenforcer.core.internal.http.PdpTransport;
 import io.github.authzenenforcer.core.internal.wire.WireFormat;
 import io.github.authzenenforcer.core.model.Action;
@@ -42,6 +43,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
@@ -216,10 +218,10 @@ public final class DefaultAuthZenClient implements AuthZenClient {
         return await(evaluation(request), "Evaluation");
     }
 
-    // Callers get a stage they cannot complete; the SDK keeps the future
+    // Callers get a stage they can cancel but not complete
     @Override
     public CompletionStage<EvaluationResponse> evaluateAsync(EvaluationRequest request) {
-        return evaluation(request).minimalCompletionStage();
+        return evaluation(request);
     }
 
     private CompletableFuture<EvaluationResponse> evaluation(EvaluationRequest request) {
@@ -237,36 +239,45 @@ public final class DefaultAuthZenClient implements AuthZenClient {
             Api api, Map<String, Object> body, Function<Object, R> reader) {
         BreakerLog log = new BreakerLog();
         CallTrace trace = CallTrace.start(events, operation, parent);
-        CompletableFuture<R> result = new CompletableFuture<>();
+        Cancellation cancellation = new Cancellation();
+        CallResult<R> result = new CallResult<>(cancellation::cancel);
         endpoint(api)
                 .thenCompose(endpoint -> {
+                    // Discovery is shared with other calls and keeps running; this call stops here
+                    if (cancellation.isCancelled()) {
+                        return CompletableFuture.failedFuture(new CancellationException("The caller cancelled the call"));
+                    }
                     trace.endpoint(endpoint);
-                    return post(endpoint, body, log, trace);
+                    return post(endpoint, body, log, trace, cancellation);
                 })
                 .thenApply(reader)
-                // Every failure becomes an AuthZenException once, so that sync and async callers
-                // and the listeners all get the same exception
                 .whenComplete((response, error) -> {
-                    if (error != null) {
-                        result.completeExceptionally(asAuthZenException(error, DESCRIPTIONS.get(operation)));
+                    // Every failure becomes an AuthZenException once, so that sync and async callers
+                    // and the listeners all get the same exception
+                    AuthZenException failure = error != null ? asAuthZenException(error, DESCRIPTIONS.get(operation)) : null;
+                    if (failure != null) {
+                        result.fail(failure);
                     } else {
-                        result.complete(response);
+                        result.succeed(response);
+                    }
+                    // Only after the caller's future, so that a slow or failing logger or listener can
+                    // neither delay nor change the result. A cancelled call is reported once it has
+                    // stopped, with the exchanges it made until then.
+                    try {
+                        log.run();
+                    } finally {
+                        boolean cancelled = result.isCancelled();
+                        trace.completed(operation, request, cancelled ? null : response,
+                                cancelled ? new AuthZenException(DESCRIPTIONS.get(operation) + " was cancelled by the caller")
+                                        : failure,
+                                cancelled);
                     }
                 });
-        // A separate stage after the caller's future: a slow or failing logger or listener can
-        // neither delay nor change the result
-        result.whenComplete((response, error) -> {
-            try {
-                log.run();
-            } finally {
-                trace.completed(operation, request, response,
-                        error != null ? asAuthZenException(error, DESCRIPTIONS.get(operation)) : null);
-            }
-        });
         return result;
     }
 
-    private CompletableFuture<Object> post(URI endpoint, Map<String, Object> body, BreakerLog log, CallTrace trace) {
+    private CompletableFuture<Object> post(URI endpoint, Map<String, Object> body, BreakerLog log, CallTrace trace,
+            Cancellation cancellation) {
         CircuitBreaker.Permit permit;
         try {
             permit = breaker.acquire(now());
@@ -276,7 +287,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
         CompletableFuture<Object> response;
         try {
             breaker.announce(permit);
-            response = transport.post(endpoint, body, trace);
+            response = transport.post(endpoint, body, trace, cancellation);
         } catch (RuntimeException e) {
             breaker.released(permit);
             return CompletableFuture.failedFuture(e);
@@ -346,7 +357,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
 
     @Override
     public CompletionStage<EvaluationsResponse> evaluationsAsync(EvaluationsRequest request) {
-        return batch(request).minimalCompletionStage();
+        return batch(request);
     }
 
     private CompletableFuture<EvaluationsResponse> batch(EvaluationsRequest request) {
@@ -362,7 +373,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
 
     @Override
     public CompletionStage<SearchResponse<Subject>> searchSubjectsAsync(SubjectSearchRequest request) {
-        return subjectSearch(request).minimalCompletionStage();
+        return subjectSearch(request);
     }
 
     private CompletableFuture<SearchResponse<Subject>> subjectSearch(SubjectSearchRequest request) {
@@ -383,7 +394,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
 
     @Override
     public CompletionStage<SearchResponse<Resource>> searchResourcesAsync(ResourceSearchRequest request) {
-        return resourceSearch(request).minimalCompletionStage();
+        return resourceSearch(request);
     }
 
     private CompletableFuture<SearchResponse<Resource>> resourceSearch(ResourceSearchRequest request) {
@@ -404,7 +415,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
 
     @Override
     public CompletionStage<SearchResponse<Action>> searchActionsAsync(ActionSearchRequest request) {
-        return actionSearch(request).minimalCompletionStage();
+        return actionSearch(request);
     }
 
     private CompletableFuture<SearchResponse<Action>> actionSearch(ActionSearchRequest request) {
