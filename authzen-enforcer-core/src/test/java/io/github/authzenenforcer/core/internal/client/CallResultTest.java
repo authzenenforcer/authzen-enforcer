@@ -2,9 +2,11 @@ package io.github.authzenenforcer.core.internal.client;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.ref.WeakReference;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -44,6 +46,24 @@ class CallResultTest {
 
         assertFalse(result.cancel(true));
         assertEquals(0, cancels.get());
+    }
+
+    @Test
+    void dropsTheCancelHookOnceTheCallHasEnded() throws InterruptedException {
+        Runnable hook = cancels::incrementAndGet;
+        WeakReference<Runnable> held = new WeakReference<>(hook);
+        CallResult<String> ended = new CallResult<>(hook);
+        hook = null;
+
+        ended.succeed("done");
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (held.get() != null && System.nanoTime() < deadline) {
+            System.gc();
+            Thread.sleep(10);
+        }
+
+        assertNull(held.get(), "a kept result must not keep the call's state");
+        assertEquals("done", ended.join());
     }
 
     @Test

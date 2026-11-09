@@ -19,7 +19,10 @@ import java.util.function.Supplier;
  */
 final class CallResult<T> extends CompletableFuture<T> {
 
-    private final Runnable onCancel;
+    private static final Runnable NONE = () -> { };
+
+    // Dropped once the call has ended, so that a caller who keeps this future keeps nothing of the call
+    private volatile Runnable onCancel;
 
     CallResult(Runnable onCancel) {
         this.onCancel = onCancel;
@@ -27,12 +30,16 @@ final class CallResult<T> extends CompletableFuture<T> {
 
     /** Completes the call with its result. */
     boolean succeed(T value) {
-        return super.complete(value);
+        boolean completed = super.complete(value);
+        onCancel = NONE;
+        return completed;
     }
 
     /** Completes the call with its failure. */
     boolean fail(Throwable failure) {
-        return super.completeExceptionally(failure);
+        boolean completed = super.completeExceptionally(failure);
+        onCancel = NONE;
+        return completed;
     }
 
     // Whether the caller interrupts makes no difference: the call stops either way
@@ -42,7 +49,9 @@ final class CallResult<T> extends CompletableFuture<T> {
         boolean done = isDone();
         boolean cancelled = super.cancel(mayInterruptIfRunning);
         if (cancelled && !done) {
-            onCancel.run();
+            Runnable hook = onCancel;
+            onCancel = NONE;
+            hook.run();
         }
         return cancelled;
     }

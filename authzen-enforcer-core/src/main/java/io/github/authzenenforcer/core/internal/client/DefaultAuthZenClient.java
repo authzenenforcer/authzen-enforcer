@@ -252,6 +252,7 @@ public final class DefaultAuthZenClient implements AuthZenClient {
                 })
                 .thenApply(reader)
                 .whenComplete((response, error) -> {
+                    cancellation.release();
                     // Every failure becomes an AuthZenException once, so that sync and async callers
                     // and the listeners all get the same exception
                     AuthZenException failure = error != null ? asAuthZenException(error, DESCRIPTIONS.get(operation)) : null;

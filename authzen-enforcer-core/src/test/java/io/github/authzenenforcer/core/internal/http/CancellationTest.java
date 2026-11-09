@@ -35,6 +35,18 @@ class CancellationTest {
     }
 
     @Test
+    void forgetsTheStepsOfARequestThatEnded() {
+        CompletableFuture<Object> last = cancellation.track(new CompletableFuture<>());
+        cancellation.release();
+
+        cancellation.cancel();
+
+        assertFalse(last.isCancelled(), "an ended request holds no step");
+        assertTrue(cancellation.track(new CompletableFuture<>()).isCancelled(),
+                "a step started after the cancel is still cancelled");
+    }
+
+    @Test
     void leavesStepsAloneWithoutACancel() {
         CompletableFuture<Object> step = cancellation.track(new CompletableFuture<>());
 

@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class Cancellation {
 
     private volatile boolean cancelled;
+    private volatile boolean released;
     private final AtomicReference<Future<?>> current = new AtomicReference<>();
 
     /** Cancels the request: no further step starts, and the current one is cancelled. */
@@ -21,6 +22,15 @@ public final class Cancellation {
         if (step != null) {
             step.cancel(true);
         }
+    }
+
+    /**
+     * Ends the request: forgets the current step and tracks none afterwards, so that a caller who
+     * keeps the call's future does not keep the last exchange, its response body or its credential.
+     */
+    public void release() {
+        released = true;
+        current.set(null);
     }
 
     /**
@@ -41,7 +51,9 @@ public final class Cancellation {
      * @return the step
      */
     <T extends Future<?>> T track(T step) {
-        current.set(step);
+        if (!released) {
+            current.set(step);
+        }
         // A cancel between the two lines above found no step or the previous one
         if (cancelled) {
             step.cancel(true);
