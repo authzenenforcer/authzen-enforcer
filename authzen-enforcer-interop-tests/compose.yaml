@@ -11,8 +11,8 @@
 # when it imports the realm.
 services:
   keycloak:
-    # Keep in sync with KeycloakPdp
-    image: quay.io/keycloak/keycloak:26.8.1
+    # The interop tests (KeycloakPdp) start this image too; Dependabot keeps it current
+    image: quay.io/keycloak/keycloak:26.8.2
     command: ["start-dev", "--features=authzen", "--import-realm"]
     environment:
       AUTHZEN_PEP_CLIENT_SECRET: ${AUTHZEN_PEP_CLIENT_SECRET:?set AUTHZEN_PEP_CLIENT_SECRET}
