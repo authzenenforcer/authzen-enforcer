@@ -405,7 +405,10 @@ public interface AuthZenClient {
         /** Default timeout for establishing a connection. */
         public static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(5);
 
-        /** Default timeout for a single request, from sending it until the complete response body is received. */
+        /**
+         * Default timeout for a single request, from asking for the credential until the complete
+         * response body is received.
+         */
         public static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(5);
 
         /** Default number of retries after a transient failure. */
@@ -692,8 +695,9 @@ public interface AuthZenClient {
         }
 
         /**
-         * Sets the timeout for a single request, from sending it until the complete response body is
-         * received. Defaults to {@link #DEFAULT_REQUEST_TIMEOUT}.
+         * Sets the timeout for a single request, from asking the credential provider for the
+         * credential until the complete response body is received. Defaults to
+         * {@link #DEFAULT_REQUEST_TIMEOUT}.
          *
          * @param requestTimeout a positive duration
          * @return this builder

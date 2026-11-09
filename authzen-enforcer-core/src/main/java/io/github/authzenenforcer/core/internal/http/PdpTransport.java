@@ -33,6 +33,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -139,13 +140,28 @@ public final class PdpTransport {
     private CompletableFuture<Object> send(Call call, int retries, boolean refreshed) {
         // Every HTTP exchange, including a repeated one, gets its own request id
         Exchange exchange = new Exchange(call.endpoint, call.get, call.json, UUID.randomUUID().toString());
-        AccessCredential credential;
+        // The request timeout covers supplying the credential as well
+        long deadline = System.nanoTime() + requestTimeout.toNanos();
+        CompletableFuture<AccessCredential> credential;
+        try {
+            credential = exchange.isGet() ? CompletableFuture.completedFuture(null) : currentCredential(deadline);
+        } catch (AuthZenException e) {
+            return CompletableFuture.failedFuture(e);
+        }
+        return credential.thenCompose(current -> send(call, retries, refreshed, exchange, current, deadline));
+    }
+
+    private CompletableFuture<Object> send(Call call, int retries, boolean refreshed, Exchange exchange,
+            AccessCredential credential, long deadline) {
+        Duration timeout = Duration.ofNanos(deadline - System.nanoTime());
+        if (timeout.isZero() || timeout.isNegative()) {
+            return CompletableFuture.failedFuture(credentialTimeout());
+        }
         TracerHook.TracedExchange traced;
         HttpRequest request;
         try {
-            credential = exchange.isGet() ? null : currentCredential();
             traced = call.trace.startExchange(exchange.method(), exchange.endpoint, exchange.requestId);
-            request = exchange.request(credential, traced != null ? traced.context() : null);
+            request = exchange.request(credential, timeout, traced != null ? traced.context() : null);
         } catch (AuthZenException e) {
             return CompletableFuture.failedFuture(e);
         } catch (RuntimeException e) {
@@ -161,7 +177,7 @@ public final class PdpTransport {
         // The JDK stops the request timer once the headers arrive, so bound the body as well and
         // abort the exchange when the deadline passes
         CompletableFuture<HttpResponse<byte[]>> bounded = pending.copy()
-                .orTimeout(requestTimeout.toMillis(), TimeUnit.MILLISECONDS);
+                .orTimeout(timeout.toNanos(), TimeUnit.NANOSECONDS);
         bounded.whenComplete((response, error) -> {
             if (error instanceof TimeoutException) {
                 pending.cancel(true);
@@ -242,20 +258,43 @@ public final class PdpTransport {
                 .thenCompose(ignored -> send(call, retries + 1, refreshed));
     }
 
-    private AccessCredential currentCredential() {
+    private CompletableFuture<AccessCredential> currentCredential(long deadline) {
         if (credentials == null) {
-            return null;
+            return CompletableFuture.completedFuture(null);
         }
-        AccessCredential credential;
+        CompletionStage<AccessCredential> stage;
         try {
-            credential = credentials.getCredential();
+            stage = credentials.getCredentialAsync();
         } catch (RuntimeException e) {
             throw new AuthZenException("Credential provider failed to supply a credential", e);
         }
-        if (credential == null) {
+        if (stage == null) {
             throw new AuthZenException("Credential provider returned no credential");
         }
-        return credential;
+        // A separate future, so that the timeout never completes or cancels the provider's stage,
+        // which it may share with other requests
+        CompletableFuture<AccessCredential> credential = new CompletableFuture<>();
+        stage.whenComplete((current, error) -> {
+            if (error != null) {
+                credential.completeExceptionally(
+                        new AuthZenException("Credential provider failed to supply a credential", unwrap(error)));
+            } else if (current == null) {
+                credential.completeExceptionally(new AuthZenException("Credential provider returned no credential"));
+            } else {
+                credential.complete(current);
+            }
+        });
+        if (credential.isDone()) {
+            return credential;
+        }
+        return credential.orTimeout(deadline - System.nanoTime(), TimeUnit.NANOSECONDS)
+                .exceptionallyCompose(error -> CompletableFuture.failedFuture(
+                        unwrap(error) instanceof TimeoutException ? credentialTimeout() : unwrap(error)));
+    }
+
+    private AuthZenException credentialTimeout() {
+        return new AuthZenException("Credential provider supplied no credential within the request timeout of "
+                + requestTimeout.toMillis() + " ms");
     }
 
     private Object handle(Exchange exchange, HttpResponse<byte[]> response) {
@@ -374,9 +413,9 @@ public final class PdpTransport {
             return get ? "GET" : "POST";
         }
 
-        HttpRequest request(AccessCredential credential, TraceContext trace) {
+        HttpRequest request(AccessCredential credential, Duration timeout, TraceContext trace) {
             HttpRequest.Builder builder = HttpRequest.newBuilder(endpoint)
-                    .timeout(requestTimeout)
+                    .timeout(timeout)
                     .header("Accept", JSON)
                     .header("User-Agent", USER_AGENT)
                     .header(REQUEST_ID_HEADER, requestId);

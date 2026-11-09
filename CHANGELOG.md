@@ -7,6 +7,17 @@ the API.
 
 ## [Unreleased]
 
+### Added
+
+- Asynchronous credential providers: `CredentialProvider.getCredentialAsync()` and
+  `CredentialProvider.async(...)`, so that a token source returning a `CompletionStage` does not
+  block a thread.
+
+### Changed
+
+- The request timeout now also covers supplying the credential. A request whose credential does not
+  arrive within it fails without being sent.
+
 ## [0.1.0] - 2026-11-07
 
 First release.

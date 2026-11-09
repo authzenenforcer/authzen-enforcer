@@ -24,7 +24,8 @@ import java.util.Objects;
  *
  * <p>A probe that hangs, for example in a {@link io.github.authzenenforcer.core.auth.CredentialProvider}
  * that blocks, keeps the breaker from letting other requests through until it returns. The
- * request timeout bounds a probe only once its request has been sent.
+ * request timeout bounds a probe, including the wait for an asynchronous credential, but it cannot
+ * interrupt a provider that blocks.
  *
  * <pre>{@code
  * AuthZenClient client = AuthZenClient.builder()
