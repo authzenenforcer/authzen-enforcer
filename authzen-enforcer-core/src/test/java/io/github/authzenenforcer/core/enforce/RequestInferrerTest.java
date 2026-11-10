@@ -177,6 +177,15 @@ class RequestInferrerTest {
                 PermissionSpec.builder().action("describe").build()).getAction());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"options", "Options"})
+    void refusesOtherSpellingsOfAnExemptMethod(String method) {
+        Inference inference = RequestInferrer.defaults()
+                .infer(request(method, "/documents/{id}").pathVariable("id", "42").build(), PermissionSpec.none());
+
+        assertEquals(Inference.Kind.REFUSED, inference.getKind(), "never let an unknown method through unchecked");
+    }
+
     @Test
     void deniesAnonymousCallersWithoutAskingThePdp() {
         RequestDescription anonymous = RequestDescription.builder().method("GET").routePattern("/documents").build();

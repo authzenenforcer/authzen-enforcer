@@ -9,6 +9,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class ActionMapperTest {
 
@@ -27,6 +28,13 @@ class ActionMapperTest {
     void leavesCorsPreflightsUnchecked() {
         assertFalse(ActionMapper.defaults().enforces("OPTIONS"));
         assertEquals(Optional.empty(), ActionMapper.defaults().action("OPTIONS", false));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"options", "Options", "OPTIONs"})
+    void exemptsOnlyTheExactMethodToken(String method) {
+        assertTrue(ActionMapper.defaults().enforces(method), "an unknown method, not a CORS preflight");
+        assertEquals(Optional.empty(), ActionMapper.defaults().action(method, false));
     }
 
     @Test

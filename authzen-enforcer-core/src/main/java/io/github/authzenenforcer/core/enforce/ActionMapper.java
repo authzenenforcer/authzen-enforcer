@@ -22,7 +22,9 @@ import java.util.Set;
  *   <tr><td>OPTIONS</td><td colspan="2">not enforced (CORS preflight)</td></tr>
  * </table>
  * A method outside the dictionary has no action, and its requests are denied unless the action is
- * set explicitly. A POST is not always a create, as in {@code /search}; such endpoints should set
+ * set explicitly. Actions are looked up in any case, so {@code delete} is enforced like
+ * {@code DELETE}; a method is only exempt if it matches an exempt method exactly, since HTTP method
+ * tokens are case-sensitive and {@code options} is not a CORS preflight. A POST is not always a create, as in {@code /search}; such endpoints should set
  * their action explicitly.
  *
  * <p>Implementations must be thread-safe.
@@ -42,7 +44,11 @@ public interface ActionMapper {
      * Returns whether requests with a method are authorized at all. An explicit action enforces
      * them anyway. By default every method is.
      *
-     * @param method the HTTP method, in any case
+     * <p>An implementation must only exempt the exact method token it means: HTTP method tokens are
+     * case-sensitive, and frameworks pass unknown tokens such as {@code options} on to handlers
+     * mapped without a method.
+     *
+     * @param method the HTTP method, exactly as the request named it
      * @return {@code false} to let requests with the method through unchecked
      */
     default boolean enforces(String method) {
@@ -114,20 +120,22 @@ public interface ActionMapper {
                 Objects.requireNonNull(single, "single must not be null"),
                 Objects.requireNonNull(collection, "collection must not be null")
             });
-            notEnforced.remove(key);
+            notEnforced.removeIf(exempt -> key(exempt).equals(key));
             return this;
         }
 
         /**
-         * Lets requests with a method through unchecked, unless their action is set explicitly.
+         * Lets requests with exactly this method token through unchecked, unless their action is
+         * set explicitly. Other spellings, such as {@code options} for {@code OPTIONS}, are
+         * enforced and have no action, so they are denied.
          *
-         * @param method the HTTP method, in any case
+         * @param method the HTTP method, exactly as requests name it
          * @return this builder
          */
         public Builder notEnforced(String method) {
-            String key = key(method);
-            actions.remove(key);
-            notEnforced.add(key);
+            Objects.requireNonNull(method, "method must not be null");
+            actions.remove(key(method));
+            notEnforced.add(method);
             return this;
         }
 
@@ -146,9 +154,10 @@ public interface ActionMapper {
                     return pair == null ? Optional.empty() : Optional.of(pair[collection ? 1 : 0]);
                 }
 
+                // Exact: options is an unknown method, not a CORS preflight
                 @Override
                 public boolean enforces(String method) {
-                    return !skipped.contains(key(method));
+                    return !skipped.contains(Objects.requireNonNull(method, "method must not be null"));
                 }
 
                 @Override

@@ -54,6 +54,10 @@ over values for every method. Each inference step is also a replaceable componen
 A `POST` is not always a create, as in `/search`; set the action of such endpoints explicitly.
 `ActionMapper.builder()` changes the dictionary. A method without an action is refused.
 
+Actions are looked up in any case, but only the exact token `OPTIONS` is exempt. HTTP method
+tokens are case-sensitive, and a framework passes an unknown token such as `options` on to a
+handler mapped without a method; it is enforced and, having no action, refused.
+
 ## Resource
 
 The resource is inferred from the route pattern, never from the raw URI, so path normalization
