@@ -282,6 +282,26 @@ class EnforcerTest {
     }
 
     @Test
+    void warnsAboutAFailingComponentWithoutItsMessage() {
+        RequestInferrer inferrer = RequestInferrer.builder()
+                .subjectResolver(claims -> {
+                    throw new IllegalStateException("no subject for " + claims.get("sub"));
+                })
+                .build();
+        TestLoggerFinder.clearRecords();
+
+        Enforcer.builder(new StubClient().client()).inferrer(inferrer).build().enforce(READ, PermissionSpec.none());
+
+        List<String> warnings = TestLoggerFinder.records().stream()
+                .filter(record -> record.startsWith("WARNING " + Enforcer.class.getName()))
+                .toList();
+        assertEquals(1, warnings.size(), warnings::toString);
+        assertTrue(warnings.get(0).contains("java.lang.IllegalStateException"));
+        assertFalse(warnings.get(0).contains("alice-id"));
+        assertFalse(warnings.get(0).contains("["), "no throwable at warning level");
+    }
+
+    @Test
     void failsOpenOnlyWhenThePdpGivesNoDecision() {
         EnforcementPolicy failOpen = EnforcementPolicy.builder().failOpen(true).build();
         PdpCommunicationException failure = new PdpCommunicationException("PDP unreachable");

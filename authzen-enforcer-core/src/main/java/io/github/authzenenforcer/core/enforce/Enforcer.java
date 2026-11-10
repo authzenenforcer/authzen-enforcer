@@ -214,11 +214,13 @@ public final class Enforcer {
         try {
             inference = inferrer.infer(request, spec);
         } catch (RuntimeException e) {
-            // A faulty custom component, such as a subject resolver; fail-open is for the PDP only
+            // A faulty custom component, such as a subject resolver; fail-open is for the PDP only.
+            // Its message may hold claim values, so the warning names only the class
             if (componentWarnings.allow()) {
-                LOGGER.log(Level.WARNING, "Inferring the evaluation request failed; the request is denied"
-                        + " (logged at most once a minute)", e);
+                LOGGER.log(Level.WARNING, "Inferring the evaluation request failed with " + e.getClass().getName()
+                        + "; the request is denied (logged at most once a minute, the exception at debug level)");
             }
+            LOGGER.log(Level.DEBUG, "Inferring the evaluation request failed", e);
             return new Inferred(null, EnforcementResult.failed(null, asAuthZenException(e),
                     policy.getErrorStatus()));
         }
