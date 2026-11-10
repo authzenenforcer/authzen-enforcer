@@ -75,6 +75,7 @@ Treat it as a deny.
 - [Resilience](docs/resilience.md): timeouts, retries and circuit breakers
 - [Observability](docs/observability.md): listeners, Micrometer and OpenTelemetry
 - [Security model](docs/security-model.md)
+- [Enforcement inference](docs/enforcement.md): from an HTTP request to an evaluation request
 - PDP notes: [Keycloak](docs/pdps/keycloak.md)
 
 ## Planned
