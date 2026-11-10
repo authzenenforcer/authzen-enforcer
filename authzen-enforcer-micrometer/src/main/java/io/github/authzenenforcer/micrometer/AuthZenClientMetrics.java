@@ -26,6 +26,10 @@ import java.util.Objects;
  * <p>The registry reads the counts from the client when it publishes, and holds the client only
  * weakly. As a {@link MeterBinder}, an instance can be handed to frameworks that bind meters
  * themselves, such as Spring Boot.
+ *
+ * <p>Clients that share a registry need distinct tags, such as {@code pdp}. The meters of two
+ * clients bound with the same tags have the same ids, and the registry keeps only the meters of the
+ * first: the counts of the second are not exposed.
  */
 public final class AuthZenClientMetrics implements MeterBinder {
 
@@ -39,7 +43,8 @@ public final class AuthZenClientMetrics implements MeterBinder {
      * Creates a binder.
      *
      * @param client the client whose counts are exposed
-     * @param tags   tags added to every meter, for example to tell clients apart
+     * @param tags   tags added to every meter, for example to tell clients apart; clients that
+     *               share a registry need distinct tags
      */
     public AuthZenClientMetrics(AuthZenClient client, Iterable<Tag> tags) {
         this.client = Objects.requireNonNull(client, "client must not be null");

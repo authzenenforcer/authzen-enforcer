@@ -28,6 +28,10 @@ import java.util.Objects;
  * <p>The registry reads the counts from the enforcer when it publishes, and holds the enforcer only
  * weakly. As a {@link MeterBinder}, an instance can be handed to frameworks that bind meters
  * themselves, such as Spring Boot.
+ *
+ * <p>Enforcers that share a registry need distinct tags, such as {@code pdp}. The meters of two
+ * enforcers bound with the same tags have the same ids, and the registry keeps only the meters of
+ * the first: the counts of the second are not exposed.
  */
 public final class EnforcerMetrics implements MeterBinder {
 
@@ -41,7 +45,8 @@ public final class EnforcerMetrics implements MeterBinder {
      * Creates a binder.
      *
      * @param enforcer the enforcer whose counts are exposed
-     * @param tags     tags added to every meter, for example to tell enforcers apart
+     * @param tags     tags added to every meter, for example to tell enforcers apart; enforcers
+     *                 that share a registry need distinct tags
      */
     public EnforcerMetrics(Enforcer enforcer, Iterable<Tag> tags) {
         this.enforcer = Objects.requireNonNull(enforcer, "enforcer must not be null");

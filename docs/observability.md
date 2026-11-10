@@ -82,7 +82,10 @@ No tag carries an identifier such as a subject id, resource id or request id.
 `authzen.client.calls`; turn them on only if your types and action names are few and fixed.
 Clients that share a registry need one listener each, told apart by a tag such as `pdp`, and all
 of them with the same tag keys and opt-in tags: Prometheus rejects a meter whose tag keys differ
-from an earlier one with the same name. The
+from an earlier one with the same name. `AuthZenClientMetrics` and `EnforcerMetrics` need the
+same care: bind every client and every enforcer with its own tags, because the registry keeps only
+the first of two meters with the same name and tags, and the drop counts of the second would not
+be exposed. The
 module does not bring Micrometer along: it uses the `micrometer-core` of your application, 1.10 or
 newer, which a registry such as `micrometer-registry-prometheus` already provides.
 
