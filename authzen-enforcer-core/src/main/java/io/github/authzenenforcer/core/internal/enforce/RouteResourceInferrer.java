@@ -110,11 +110,9 @@ public final class RouteResourceInferrer implements ResourceInferrer {
                 last = i;
             }
         }
-        RoutePattern.Literal end = segments.get(segments.size() - 1) instanceof RoutePattern.Literal literal
-                ? literal
-                : null;
         if (last < 0) {
-            return new Shape(variables, end.text());
+            // Without variables every segment is a literal
+            return new Shape(variables, literal(segments.get(segments.size() - 1)));
         }
         int trailing = segments.size() - 1 - last;
         if (trailing == 0) {
@@ -126,7 +124,8 @@ public final class RouteResourceInferrer implements ResourceInferrer {
         }
         String verb = method.toUpperCase(Locale.ROOT);
         if (verb.equals("GET") || verb.equals("HEAD")) {
-            return new Shape(variables, end.text());
+            // The one segment after the last variable is a literal
+            return new Shape(variables, literal(segments.get(segments.size() - 1)));
         }
         if (actionGiven) {
             return new Shape(variables, null);
@@ -135,6 +134,10 @@ public final class RouteResourceInferrer implements ResourceInferrer {
         throw new InferenceException("Cannot infer the action of a write to route " + LogText.of(pattern)
                 + ": a static segment follows path variable " + id + ", which may name an action;"
                 + " set the action explicitly or add a route override", true);
+    }
+
+    private static String literal(RoutePattern.Segment segment) {
+        return ((RoutePattern.Literal) segment).text();
     }
 
     private String id(String pattern, String name, String value) {

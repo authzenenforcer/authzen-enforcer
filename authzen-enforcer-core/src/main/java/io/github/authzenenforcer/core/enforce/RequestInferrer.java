@@ -107,9 +107,10 @@ public final class RequestInferrer {
                             + " of route " + LogText.of(request.getRoutePattern())
                             + "; set the action explicitly or map the method", false));
             Subject subject = claims.isPresent() ? subjectResolver.resolve(claims.get()) : anonymousSubject;
-            if (explicit.getSubjectType().isPresent()) {
+            Optional<String> subjectType = explicit.getSubjectType();
+            if (subjectType.isPresent()) {
                 subject = Subject.builder()
-                        .type(explicit.getSubjectType().get())
+                        .type(subjectType.get())
                         .id(subject.getId())
                         .properties(subject.getProperties())
                         .build();
@@ -180,7 +181,7 @@ public final class RequestInferrer {
             // A collection's id is the type of what it holds, which an explicit type or id names
             return InferredResource.collection(Resource.builder()
                     .type(resource.getType())
-                    .id(type.or(() -> id).get())
+                    .id(type.or(() -> id).orElseThrow())
                     .properties(resource.getProperties())
                     .build());
         }
