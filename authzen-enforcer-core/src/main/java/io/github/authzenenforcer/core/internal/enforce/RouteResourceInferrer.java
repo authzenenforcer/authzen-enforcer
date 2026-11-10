@@ -41,7 +41,7 @@ public final class RouteResourceInferrer implements ResourceInferrer {
     @Override
     public InferredResource infer(RequestDescription request, boolean actionGiven) {
         String pattern = request.getRoutePattern();
-        Shape shape = shape(request.getMethod(), pattern, actionGiven);
+        Shape shape = checkedShape(request.getMethod(), pattern, actionGiven);
         List<Map<String, String>> ancestors = new ArrayList<>();
         Resource.Builder resource = Resource.builder();
         for (int i = 0; i < shape.variables().size(); i++) {
@@ -68,7 +68,20 @@ public final class RouteResourceInferrer implements ResourceInferrer {
 
     @Override
     public void check(String method, String routePattern, boolean actionGiven) {
-        shape(method, routePattern, actionGiven);
+        checkedShape(method, routePattern, actionGiven);
+    }
+
+    // A variable of the collection type would let callers name a collection, such as
+    // {collection, documents} for /collection/{id} with id documents
+    private Shape checkedShape(String method, String pattern, boolean actionGiven) {
+        Shape shape = shape(method, pattern, actionGiven);
+        for (Owned variable : shape.variables()) {
+            if (type(variable.segment()).equals(collectionType)) {
+                throw refused(pattern, "the type of path variable " + variable.name() + " would be " + collectionType
+                        + ", which stands for collections; name its type with typeName(...)");
+            }
+        }
+        return shape;
     }
 
     /**

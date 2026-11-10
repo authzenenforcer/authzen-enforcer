@@ -88,7 +88,10 @@ warning is logged once:
 - a variable that does not follow a static segment: `/{tenant}/documents`, `/documents/{id}/{version}`;
 - more than one static segment after the last variable: `/documents/{id}/comments/recent`;
 - wildcards, catch-all variables and segments that mix text and variables: `/files/**`,
-  `/files/{*path}`, `/documents/{id}.json`.
+  `/files/{*path}`, `/documents/{id}.json`;
+- a variable whose type would be the collection type, as in `/collection/{id}` (or
+  `/collections/{id}` when singularizing): a caller choosing the id `documents` would otherwise
+  name the same resource as `GET /documents`. Name its type with `typeName(...)`.
 
 One static segment after the last variable is ambiguous: `/tenants/{t}/documents` names a nested
 collection, `/documents/{id}/cancel` an action. For `GET` and `HEAD` it is read as a nested

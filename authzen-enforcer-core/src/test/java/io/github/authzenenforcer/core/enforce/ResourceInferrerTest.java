@@ -186,4 +186,16 @@ class ResourceInferrerTest {
 
         assertEquals(Resource.of("list", "documents"), infer(inferrer, "GET", "/documents", Map.of()).getResource());
     }
+
+    @Test
+    void refusesAVariableOfTheCollectionType() {
+        RequestDescription request = request("GET", "/collection/{id}", Map.of("id", "documents"));
+        ResourceInferrer singular = ResourceInferrer.builder().singularize(true).build();
+
+        assertThrows(InferenceException.class, () -> ResourceInferrer.defaults().infer(request, false));
+        assertThrows(InferenceException.class, () -> ResourceInferrer.defaults().check("GET", "/collection/{id}", false));
+        assertThrows(InferenceException.class, () -> singular.check("GET", "/collections/{id}/items", false));
+        assertEquals(Resource.of("box", "documents"), ResourceInferrer.builder().typeName("collection", "box").build()
+                .infer(request, false).getResource());
+    }
 }

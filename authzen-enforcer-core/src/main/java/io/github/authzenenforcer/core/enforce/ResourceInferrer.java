@@ -30,8 +30,10 @@ import java.util.Objects;
  * that mix text and variables. One static segment after the last variable, as in
  * {@code /documents/{id}/cancel}, stands for a nested collection for {@code GET} and {@code HEAD}; for
  * other methods it is refused unless the action is explicit, and the resource is then the one of the
- * variable. A path variable that is empty, contains a control character or is longer than
- * {@linkplain Builder#maxIdLength(int) the limit} is refused too.
+ * variable. A route whose variable would get the {@linkplain Builder#collectionType(String) collection
+ * type}, such as {@code /collection/{id}}, is refused as well, so that callers cannot name a
+ * collection by choosing an id. A path variable that is empty, contains a control character or is
+ * longer than {@linkplain Builder#maxIdLength(int) the limit} is refused too.
  *
  * <p>Implementations must be thread-safe.
  */
