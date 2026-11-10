@@ -2,13 +2,12 @@ package io.github.authzenenforcer.micrometer;
 
 import io.github.authzenenforcer.core.client.AuthZenClient;
 import io.github.authzenenforcer.core.event.ListenerDrops;
-import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.binder.MeterBinder;
 
-import java.util.List;
+import java.util.EnumSet;
 import java.util.Objects;
 
 /**
@@ -27,6 +26,10 @@ import java.util.Objects;
  * <p>The registry reads the counts from the client when it publishes, and holds the client only
  * weakly. As a {@link MeterBinder}, an instance can be handed to frameworks that bind meters
  * themselves, such as Spring Boot.
+ *
+ * <p>Clients that share a registry need distinct tags, such as {@code pdp}. The meters of two
+ * clients bound with the same tags have the same ids, and the registry keeps only the meters of the
+ * first: the counts of the second are not exposed.
  */
 public final class AuthZenClientMetrics implements MeterBinder {
 
@@ -40,7 +43,8 @@ public final class AuthZenClientMetrics implements MeterBinder {
      * Creates a binder.
      *
      * @param client the client whose counts are exposed
-     * @param tags   tags added to every meter, for example to tell clients apart
+     * @param tags   tags added to every meter, for example to tell clients apart; clients that
+     *               share a registry need distinct tags
      */
     public AuthZenClientMetrics(AuthZenClient client, Iterable<Tag> tags) {
         this.client = Objects.requireNonNull(client, "client must not be null");
@@ -77,27 +81,8 @@ public final class AuthZenClientMetrics implements MeterBinder {
     @Override
     public void bindTo(MeterRegistry registry) {
         Objects.requireNonNull(registry, "registry must not be null");
-        List<ListenerDrops.Listener> listeners = client.listenerDrops().getListeners();
-        for (int i = 0; i < listeners.size(); i++) {
-            int index = i;
-            for (ListenerDrops.EventType type : ListenerDrops.EventType.values()) {
-                if (type == ListenerDrops.EventType.ENFORCEMENT_COMPLETED) {
-                    // An enforcer publishes these, never a client
-                    continue;
-                }
-                FunctionCounter.builder(LISTENER_DROPPED, client, c -> dropped(c, index, type))
-                        .description("Events a listener did not get because its queue was full")
-                        .tags(tags)
-                        .tag("listener", listeners.get(i).getName())
-                        .tag("event", MicrometerPepListener.lower(type))
-                        .register(registry);
-            }
-        }
-    }
-
-    // A client of another implementation may report fewer listeners later; a scrape must not fail
-    private static double dropped(AuthZenClient client, int index, ListenerDrops.EventType type) {
-        List<ListenerDrops.Listener> listeners = client.listenerDrops().getListeners();
-        return index < listeners.size() ? listeners.get(index).getDropped(type) : 0;
+        // An enforcer publishes enforcement events, never a client
+        ListenerDropsMeters.register(registry, LISTENER_DROPPED, client, AuthZenClient::listenerDrops,
+                EnumSet.complementOf(EnumSet.of(ListenerDrops.EventType.ENFORCEMENT_COMPLETED)), tags);
     }
 }

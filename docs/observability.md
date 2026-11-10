@@ -44,7 +44,8 @@ AuthZenClient client = AuthZenClient.builder()
   shows more, and `exclude(...)` masks more. Batch options and page details (such as page tokens)
   always stay visible, so keep personal data out of them. Credentials and tokens are never part
   of an event.
-- `client.listenerDrops()` tells how many events each listener lost, per event type.
+- `client.listenerDrops()` and `enforcer.listenerDrops()` tell how many events each listener lost,
+  per event type.
 
 ## Metrics with Micrometer
 
@@ -62,6 +63,7 @@ Enforcer enforcer = Enforcer.builder(client)
         .listener(metrics)
         .build();
 AuthZenClientMetrics.bind(client, registry, Tags.of("pdp", "main"));
+EnforcerMetrics.bind(enforcer, registry, Tags.of("pdp", "main"));
 ```
 
 | Meter | Type | Tags |
@@ -72,6 +74,7 @@ AuthZenClientMetrics.bind(client, registry, Tags.of("pdp", "main"));
 | `authzen.client.breaker.state` | gauge | `breaker`; 0 closed, 1 half-open, 2 open |
 | `authzen.client.metadata.refreshes` | counter | `result` |
 | `authzen.client.listener.dropped` | function counter | `listener`, `event` |
+| `authzen.enforcer.listener.dropped` | function counter | `listener`, `event` (`enforcement_completed`) |
 | `authzen.enforcements` | timer | `outcome` (`permitted`/`denied`/`not_enforced`/`unauthenticated`/`refused`/`failed`/`failed_open`/`cancelled`) |
 
 No tag carries an identifier such as a subject id, resource id or request id.
@@ -79,7 +82,10 @@ No tag carries an identifier such as a subject id, resource id or request id.
 `authzen.client.calls`; turn them on only if your types and action names are few and fixed.
 Clients that share a registry need one listener each, told apart by a tag such as `pdp`, and all
 of them with the same tag keys and opt-in tags: Prometheus rejects a meter whose tag keys differ
-from an earlier one with the same name. The
+from an earlier one with the same name. `AuthZenClientMetrics` and `EnforcerMetrics` need the
+same care: bind every client and every enforcer with its own tags, because the registry keeps only
+the first of two meters with the same name and tags, and the drop counts of the second would not
+be exposed. The
 module does not bring Micrometer along: it uses the `micrometer-core` of your application, 1.10 or
 newer, which a registry such as `micrometer-registry-prometheus` already provides.
 
