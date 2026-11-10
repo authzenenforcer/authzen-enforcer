@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.ref.WeakReference;
+import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -16,7 +18,8 @@ import org.junit.jupiter.api.Test;
 class CallResultTest {
 
     private final AtomicInteger cancels = new AtomicInteger();
-    private final CallResult<String> result = new CallResult<>(cancels::incrementAndGet);
+    private final CallResult.Completer<String> completer = CallResult.create(cancels::incrementAndGet);
+    private final CallResult<String> result = completer.result();
 
     @Test
     void refusesToBeCompletedByItsHolder() {
@@ -31,18 +34,25 @@ class CallResultTest {
     }
 
     @Test
+    void offersNoWayToCompleteItToAHolderThatCastsTheStage() {
+        assertTrue(Arrays.stream(CallResult.class.getMethods())
+                .map(Method::getName)
+                .noneMatch(name -> name.equals("succeed") || name.equals("fail")));
+    }
+
+    @Test
     void cancelsTheCallOnce() {
         assertTrue(result.cancel(false));
         assertTrue(result.cancel(true), "a cancelled future stays cancelled");
 
         assertTrue(result.isCancelled());
         assertEquals(1, cancels.get());
-        assertFalse(result.succeed("late"), "a result that arrives after the cancel is dropped");
+        assertFalse(completer.succeed("late"), "a result that arrives after the cancel is dropped");
     }
 
     @Test
     void doesNotCancelACompletedCall() {
-        result.succeed("done");
+        completer.succeed("done");
 
         assertFalse(result.cancel(true));
         assertEquals(0, cancels.get());
@@ -52,10 +62,11 @@ class CallResultTest {
     void dropsTheCancelHookOnceTheCallHasEnded() throws InterruptedException {
         Runnable hook = cancels::incrementAndGet;
         WeakReference<Runnable> held = new WeakReference<>(hook);
-        CallResult<String> ended = new CallResult<>(hook);
+        CallResult.Completer<String> ending = CallResult.create(hook);
+        CallResult<String> ended = ending.result();
         hook = null;
 
-        ended.succeed("done");
+        ending.succeed("done");
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
         while (held.get() != null && System.nanoTime() < deadline) {
             System.gc();
@@ -81,7 +92,7 @@ class CallResultTest {
         CompletableFuture<String> copy = result.toCompletableFuture();
 
         copy.complete("forged");
-        result.succeed("real");
+        completer.succeed("real");
 
         assertEquals("real", result.join());
         assertEquals(0, cancels.get());
@@ -92,7 +103,7 @@ class CallResultTest {
         CompletableFuture<String> copy = result.toCompletableFuture();
         IllegalStateException failure = new IllegalStateException("failed");
 
-        result.fail(failure);
+        completer.fail(failure);
 
         assertTrue(copy.isCompletedExceptionally());
         assertEquals(failure, assertThrows(java.util.concurrent.CompletionException.class, copy::join).getCause());

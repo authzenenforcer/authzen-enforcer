@@ -142,20 +142,21 @@ public final class Enforcer {
         long start = System.nanoTime();
         Inferred inferred = infer(request, spec);
         AtomicReference<CompletableFuture<EvaluationResponse>> call = new AtomicReference<>();
-        CallResult<EnforcementResult> result = new CallResult<>(() -> {
+        CallResult.Completer<EnforcementResult> completer = CallResult.create(() -> {
             CompletableFuture<EvaluationResponse> current = call.get();
             if (current != null) {
                 current.cancel(true);
             }
         });
+        CallResult<EnforcementResult> result = completer.result();
         if (inferred.result != null) {
-            result.succeed(publish(request, start, inferred.result));
+            completer.succeed(publish(request, start, inferred.result));
             return result;
         }
         try {
             call.set(call(inferred.evaluation));
         } catch (RuntimeException e) {
-            result.succeed(publish(request, start, failed(inferred.evaluation, e)));
+            completer.succeed(publish(request, start, failed(inferred.evaluation, e)));
             return result;
         }
         // A cancel before the line above found no call to stop
@@ -164,7 +165,7 @@ public final class Enforcer {
         }
         call.get().whenComplete((response, error) -> {
             EnforcementResult outcome = decided(inferred.evaluation, response, error);
-            if (result.succeed(outcome)) {
+            if (completer.succeed(outcome)) {
                 publish(request, start, outcome);
             } else {
                 publishCancelled(request, start);
