@@ -59,11 +59,19 @@ class SubjectResolverTest {
     void recognizesKeycloakServiceAccounts() {
         SubjectResolver keycloak = SubjectResolver.keycloak().build();
 
-        assertEquals("client", keycloak.resolve(Map.of("sub", "1a2b", "client_id", "billing")).getType());
-        assertEquals("client", keycloak.resolve(Map.of("sub", "1a2b", "preferred_username", "service-account-billing"))
-                .getType());
+        assertEquals("client", keycloak.resolve(Map.of("sub", "1a2b", "client_id", "billing",
+                "preferred_username", "service-account-billing")).getType());
         assertEquals("user", SubjectResolver.claims().build().resolve(Map.of("sub", "1a2b", "client_id", "billing"))
                 .getType(), "only when a service account type is set");
+    }
+
+    @Test
+    void doesNotTrustAUsernameThatLooksLikeAServiceAccount() {
+        // A user named service-account-mallory, as Keycloak 26.8.2 accepts: no client_id claim
+        Subject subject = SubjectResolver.keycloak().build()
+                .resolve(Map.of("sub", "u-1", "preferred_username", "service-account-mallory", "azp", "app"));
+
+        assertEquals("user", subject.getType());
     }
 
     @Test

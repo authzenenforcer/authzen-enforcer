@@ -45,8 +45,9 @@ public interface SubjectResolver {
      * Returns a builder for a claims-based resolver with the Keycloak profile: properties
      * {@code roles} from {@code realm_access.roles}, {@code client_roles} from
      * {@code resource_access} and {@code groups} from {@code groups}, and type {@code client} for
-     * service accounts, recognized by a {@code client_id} claim or a {@code preferred_username}
-     * that starts with {@code service-account-}.
+     * service accounts, recognized by the {@code client_id} claim that Keycloak adds to tokens of
+     * the client credentials grant only. The username is not used: a user may be able to choose
+     * one such as {@code service-account-x}.
      *
      * @return the builder
      */
@@ -101,8 +102,11 @@ public interface SubjectResolver {
 
         /**
          * Sets the subject type of service accounts, which Keycloak issues tokens to under the
-         * client credentials grant. They are recognized by a {@code client_id} claim or a
-         * {@code preferred_username} that starts with {@code service-account-}.
+         * client credentials grant. They are recognized by a {@code client_id} claim, which
+         * Keycloak adds to those tokens only.
+         *
+         * <p>Use it only with such an issuer: JWT access tokens following RFC 9068 carry
+         * {@code client_id} in every token, so every caller would get this type.
          *
          * @param serviceAccountType the type
          * @return this builder

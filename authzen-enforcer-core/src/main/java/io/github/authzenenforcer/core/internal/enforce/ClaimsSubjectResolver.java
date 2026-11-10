@@ -13,7 +13,8 @@ import java.util.Map;
  */
 public final class ClaimsSubjectResolver implements SubjectResolver {
 
-    private static final String SERVICE_ACCOUNT_PREFIX = "service-account-";
+    // Keycloak's service_account client scope sets it only for the client credentials grant
+    private static final String CLIENT_ID_CLAIM = "client_id";
 
     private final String idClaim;
     private final String type;
@@ -59,11 +60,8 @@ public final class ClaimsSubjectResolver implements SubjectResolver {
     }
 
     private boolean isServiceAccount(Map<String, Object> claims) {
-        if (serviceAccountType == null) {
-            return false;
-        }
-        return claims.get("client_id") instanceof String
-                || claims.get("preferred_username") instanceof String username && username.startsWith(SERVICE_ACCOUNT_PREFIX);
+        // Not preferred_username: users may choose a name such as service-account-x themselves
+        return serviceAccountType != null && claims.get(CLIENT_ID_CLAIM) instanceof String;
     }
 
     private static Object at(Map<String, Object> claims, List<String> path) {

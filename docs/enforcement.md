@@ -108,7 +108,11 @@ callers control them, such refusals are logged at debug level only, and never wi
 
 `SubjectResolver.claims()` takes the id from the `sub` claim and the type `user`.
 `SubjectResolver.keycloak()` adds the properties `roles` (`realm_access.roles`), `client_roles`
-(`resource_access`) and `groups`, and the type `client` for service accounts. Claims with personal
+(`resource_access`) and `groups`, and the type `client` for service accounts. Keycloak marks their
+tokens, those of the client credentials grant, with a `client_id` claim; the username is not used,
+since a user may be able to choose one such as `service-account-x`. Outside the Keycloak profile,
+use `serviceAccountType(...)` only with an issuer like that: JWT access tokens following RFC 9068
+carry `client_id` in every token. Claims with personal
 data are only sent when mapped:
 
 ```java
