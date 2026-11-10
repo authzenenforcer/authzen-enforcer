@@ -17,26 +17,41 @@ import java.util.function.Supplier;
  *
  * @param <T> the type of the result
  */
-final class CallResult<T> extends CompletableFuture<T> {
+public final class CallResult<T> extends CompletableFuture<T> {
 
     private static final Runnable NONE = () -> { };
 
     // Dropped once the call has ended, so that a caller who keeps this future keeps nothing of the call
     private volatile Runnable onCancel;
 
-    CallResult(Runnable onCancel) {
+    /**
+     * Creates the future of a call.
+     *
+     * @param onCancel stops the call; runs at most once, on the first cancel before the call ends
+     */
+    public CallResult(Runnable onCancel) {
         this.onCancel = onCancel;
     }
 
-    /** Completes the call with its result. */
-    boolean succeed(T value) {
+    /**
+     * Completes the call with its result.
+     *
+     * @param value the result
+     * @return whether this completed the future
+     */
+    public boolean succeed(T value) {
         boolean completed = super.complete(value);
         onCancel = NONE;
         return completed;
     }
 
-    /** Completes the call with its failure. */
-    boolean fail(Throwable failure) {
+    /**
+     * Completes the call with its failure.
+     *
+     * @param failure the failure
+     * @return whether this completed the future
+     */
+    public boolean fail(Throwable failure) {
         boolean completed = super.completeExceptionally(failure);
         onCancel = NONE;
         return completed;

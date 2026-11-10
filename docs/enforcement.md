@@ -1,9 +1,94 @@
-# Enforcement inference
+# Enforcement
 
-The `io.github.authzenenforcer.core.enforce` package turns an HTTP request into an AuthZEN
-evaluation request. It is the framework-independent part of the planned Spring Boot and Quarkus
-integrations: they describe the request, the package infers the subject, action and resource, and
-the client asks the PDP. You can also use it directly.
+The `io.github.authzenenforcer.core.enforce` package decides whether an HTTP request may proceed.
+It is the framework-independent part of the planned Spring Boot and Quarkus integrations: they
+describe the request, the package infers the subject, action and resource, asks the PDP and tells
+them how to answer. You can also use it directly.
+
+```java
+Enforcer enforcer = Enforcer.builder(client)
+        .inferrer(RequestInferrer.builder()
+                .subjectResolver(SubjectResolver.keycloak().build())
+                .build())
+        .build();
+
+EnforcementResult result = enforcer.enforce(RequestDescription.builder()
+        .method("GET")
+        .routePattern("/documents/{id}")   // the pattern the framework matched, not the raw URI
+        .pathVariable("id", "42")
+        .claims(jwtClaims)                 // the caller's token claims; none for an anonymous caller
+        .build(), PermissionSpec.none());
+
+if (!result.isAllowed()) {
+    response.sendError(result.getStatus().getAsInt());
+}
+```
+
+## Outcomes
+
+| Outcome | Allowed | Status | When |
+|---|---|---|---|
+| `PERMITTED` | yes | | the PDP permitted the request |
+| `DENIED` | no | 403 | the PDP denied the request |
+| `NOT_ENFORCED` | yes | | the method is exempt, such as a CORS preflight (`OPTIONS`) |
+| `UNAUTHENTICATED` | no | 401 | the caller is anonymous and no anonymous subject is configured |
+| `REFUSED` | no | 403 | nothing could be inferred safely; `getReason()` says why |
+| `FAILED` | no | 403 or 503 | no decision: the PDP failed, its circuit breaker is open, or an inference component threw |
+| `FAILED_OPEN` | yes | | no decision from the PDP, and the policy fails open |
+
+The enforcer never throws for a request it cannot decide; every failure is a result. The PDP's
+response, including any reason in its context, is available through `getResponse()` for logs and
+hooks, but is not meant to reach the client.
+
+A 401 response must carry a `WWW-Authenticate` challenge (RFC 9110, section 15.5.2). Its scheme
+depends on how callers authenticate, which only the framework knows, so the framework integrations
+hand an unauthenticated request to the framework's own authentication, such as Spring Security's
+authentication entry point, instead of writing the response themselves. When you use the enforcer
+directly, add the challenge yourself, for example `WWW-Authenticate: Bearer`.
+
+### Policy
+
+`EnforcementPolicy` decides how requests without a decision are answered:
+
+```java
+Enforcer.builder(client)
+        .policy(EnforcementPolicy.builder()
+                .errorStatus(503)      // default 403
+                .build())
+        .build();
+```
+
+`failOpen(true)` lets requests through when the call to the PDP fails. It applies to the whole
+application and only to a failed call: a deny, a refused inference, an anonymous caller and a
+failing inference component still deny. The enforcer logs a warning when it is built and, at most
+once a minute, when it lets a request through without a decision, and reports each such request as
+`FAILED_OPEN` to its listeners; alert on the `failed_open` outcome of the `authzen.enforcements`
+meter.
+
+### Cancellation
+
+`enforceAsync(...)` returns a stage that cancels the call to the PDP when it is cancelled, as
+`AuthZenClient.evaluateAsync(...)` does; Reactor's `Mono.fromCompletionStage` and Mutiny's
+`Uni.createFrom().completionStage` cancel it when their subscriber cancels. An interrupted
+`enforce(...)` stops the call the same way. A cancelled request gets no result: the caller gets a
+`CancellationException` and must not let the request through.
+
+### Startup check
+
+`enforcer.check(method, routePattern, spec)` tells, before any request arrives, whether requests to
+a route will be refused. Framework integrations call it for every protected route at startup and
+log what it returns as a warning.
+
+### Events
+
+`Enforcer.Builder.listener(...)` registers a `PepListener` that gets an `EnforcementCompleted`
+event for every request: its method, route pattern, outcome, reason or failure, and duration. The
+event carries no subject or resource; the client's `CallCompleted` event reports the evaluation.
+
+## Inference
+
+A `RequestInferrer` turns the request into an evaluation request; the enforcer uses one, and you
+can use one directly:
 
 ```java
 RequestInferrer inferrer = RequestInferrer.builder()

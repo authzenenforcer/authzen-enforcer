@@ -9,6 +9,15 @@ the API.
 
 ### Added
 
+- `Enforcer`: decides whether an HTTP request may proceed, synchronously or with a cancellable
+  `enforceAsync(...)`. It infers the evaluation request, asks the PDP and returns an
+  `EnforcementResult` with the outcome (`PERMITTED`, `DENIED`, `NOT_ENFORCED`, `UNAUTHENTICATED`,
+  `REFUSED`, `FAILED`, `FAILED_OPEN`) and the HTTP status to answer with (401, 403, or 503 by
+  choice). It never throws for a request it cannot decide. `EnforcementPolicy` sets the status for
+  requests without a decision and an application-wide fail-open, which only covers failed calls to
+  the PDP and is logged and reported.
+- `PepListener.onEnforcementCompleted(...)` with the `EnforcementCompleted` event, and the
+  `authzen.enforcements` timer in Micrometer, tagged by outcome.
 - Enforcement inference (`io.github.authzenenforcer.core.enforce`): `RequestInferrer` turns an
   HTTP request, described by method, route pattern, path variables and the caller's claims, into an
   evaluation request. It infers the action from the method, the resource from the route pattern

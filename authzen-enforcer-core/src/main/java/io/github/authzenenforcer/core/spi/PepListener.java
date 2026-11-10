@@ -3,6 +3,7 @@ package io.github.authzenenforcer.core.spi;
 import io.github.authzenenforcer.core.event.AttemptCompleted;
 import io.github.authzenenforcer.core.event.BreakerTransition;
 import io.github.authzenenforcer.core.event.CallCompleted;
+import io.github.authzenenforcer.core.event.EnforcementCompleted;
 import io.github.authzenenforcer.core.event.MetadataRefresh;
 
 import java.lang.System.Logger.Level;
@@ -10,7 +11,9 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Receives events about the client's work with the PDP, for metrics, tracing and audit trails.
+ * Receives events about the client's work with the PDP, and about the requests an
+ * {@link io.github.authzenenforcer.core.enforce.Enforcer} handles, for metrics, tracing and audit
+ * trails.
  *
  * <p>Register listeners with
  * {@link io.github.authzenenforcer.core.client.AuthZenClient.Builder#listener(PepListener)}. A
@@ -81,6 +84,17 @@ public interface PepListener {
     }
 
     /**
+     * Called when an {@link io.github.authzenenforcer.core.enforce.Enforcer} has handled a request,
+     * or its caller cancelled it. Register the listener with
+     * {@link io.github.authzenenforcer.core.enforce.Enforcer.Builder#listener(PepListener)}; the
+     * rules above apply to the enforcer's events as well.
+     *
+     * @param event the event
+     */
+    default void onEnforcementCompleted(EnforcementCompleted event) {
+    }
+
+    /**
      * Combines listeners into one that calls each of them in order. An exception from one is
      * logged, and the others are still called; so are the errors listed above.
      *
@@ -109,6 +123,11 @@ public interface PepListener {
             @Override
             public void onMetadataRefresh(MetadataRefresh event) {
                 all.forEach(listener -> call(listener, () -> listener.onMetadataRefresh(event)));
+            }
+
+            @Override
+            public void onEnforcementCompleted(EnforcementCompleted event) {
+                all.forEach(listener -> call(listener, () -> listener.onEnforcementCompleted(event)));
             }
 
             private void call(PepListener listener, Runnable delivery) {

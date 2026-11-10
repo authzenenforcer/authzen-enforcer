@@ -1,5 +1,10 @@
 /**
- * Framework-independent enforcement: turns an HTTP request into an AuthZEN evaluation request.
+ * Framework-independent enforcement: decides whether an HTTP request may proceed.
+ *
+ * <p>An {@link io.github.authzenenforcer.core.enforce.Enforcer} infers the request's AuthZEN
+ * evaluation request, asks the PDP and returns an {@link
+ * io.github.authzenenforcer.core.enforce.EnforcementResult}, applying an {@link
+ * io.github.authzenenforcer.core.enforce.EnforcementPolicy} to requests without a decision.
  *
  * <p>Framework integrations describe the request with a {@link
  * io.github.authzenenforcer.core.enforce.RequestDescription}, using the route pattern the framework

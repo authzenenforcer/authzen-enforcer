@@ -3,6 +3,7 @@ package io.github.authzenenforcer.micrometer;
 import io.github.authzenenforcer.core.event.AttemptCompleted;
 import io.github.authzenenforcer.core.event.BreakerTransition;
 import io.github.authzenenforcer.core.event.CallCompleted;
+import io.github.authzenenforcer.core.event.EnforcementCompleted;
 import io.github.authzenenforcer.core.event.MetadataRefresh;
 import io.github.authzenenforcer.core.event.Operation;
 import io.github.authzenenforcer.core.model.EvaluationRequest;
@@ -30,7 +31,9 @@ import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * A {@link PepListener} that records the events of an
- * {@link io.github.authzenenforcer.core.client.AuthZenClient} as Micrometer meters.
+ * {@link io.github.authzenenforcer.core.client.AuthZenClient}, and of an
+ * {@link io.github.authzenenforcer.core.enforce.Enforcer} it is registered with as well, as
+ * Micrometer meters.
  *
  * <pre>{@code
  * MicrometerPepListener metrics = MicrometerPepListener.builder(registry)
@@ -40,6 +43,7 @@ import java.util.concurrent.locks.ReentrantLock;
  *         .pdpUrl(URI.create("https://pdp.example.com"))
  *         .listener(metrics)
  *         .build();
+ * Enforcer enforcer = Enforcer.builder(client).listener(metrics).build();
  * AuthZenClientMetrics.bind(client, registry, Tags.of("pdp", "main"));
  * }</pre>
  *
@@ -57,6 +61,9 @@ import java.util.concurrent.locks.ReentrantLock;
  *   <tr><td>{@value #BREAKER_STATE}</td><td>gauge</td>
  *       <td>{@code breaker}; 0 closed, 1 half-open, 2 open</td></tr>
  *   <tr><td>{@value #METADATA_REFRESHES}</td><td>counter</td><td>{@code result}</td></tr>
+ *   <tr><td>{@value #ENFORCEMENTS}</td><td>timer</td>
+ *       <td>{@code outcome}: an {@link io.github.authzenenforcer.core.enforce.EnforcementResult.Outcome},
+ *       or {@code cancelled}</td></tr>
  * </table>
  *
  * <p>Tag values are lower case. {@code exception} is the simple class name of the failure, or
@@ -94,7 +101,15 @@ public final class MicrometerPepListener implements PepListener {
     /** The counter of metadata refreshes. */
     public static final String METADATA_REFRESHES = "authzen.client.metadata.refreshes";
 
+    /**
+     * The timer of requests an enforcer handled. A {@code failed_open} outcome counts requests let
+     * through without a decision of the PDP, which deserves an alert.
+     */
+    public static final String ENFORCEMENTS = "authzen.enforcements";
+
     static final String NONE = "none";
+
+    static final String CANCELLED = "cancelled";
 
     static final String INVALID = "invalid";
 
@@ -222,6 +237,17 @@ public final class MicrometerPepListener implements PepListener {
                 .tag("result", lower(event.getResult()))
                 .register(registry)
                 .increment();
+    }
+
+    @Override
+    public void onEnforcementCompleted(EnforcementCompleted event) {
+        // The route and method would be bounded only by the application's routes and its callers
+        Timer.builder(ENFORCEMENTS)
+                .description("Requests an enforcer handled")
+                .tags(tags)
+                .tag("outcome", event.getOutcome().map(MicrometerPepListener::lower).orElse(CANCELLED))
+                .register(registry)
+                .record(event.getDuration());
     }
 
     private static int stateValue(BreakerTransition.State state) {
