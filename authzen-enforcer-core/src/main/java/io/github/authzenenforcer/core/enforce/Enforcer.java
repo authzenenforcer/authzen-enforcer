@@ -2,6 +2,7 @@ package io.github.authzenenforcer.core.enforce;
 
 import io.github.authzenenforcer.core.AuthZenException;
 import io.github.authzenenforcer.core.PdpCommunicationException;
+import io.github.authzenenforcer.core.PdpProtocolException;
 import io.github.authzenenforcer.core.client.AuthZenClient;
 import io.github.authzenenforcer.core.event.EnforcementCompleted;
 import io.github.authzenenforcer.core.event.EventContent;
@@ -106,7 +107,7 @@ public final class Enforcer {
         }
         CompletableFuture<EvaluationResponse> call;
         try {
-            call = client.evaluateAsync(inferred.evaluation).toCompletableFuture();
+            call = call(inferred.evaluation);
         } catch (RuntimeException e) {
             return publish(request, start, failed(inferred.evaluation, e));
         }
@@ -152,7 +153,7 @@ public final class Enforcer {
             return result;
         }
         try {
-            call.set(client.evaluateAsync(inferred.evaluation).toCompletableFuture());
+            call.set(call(inferred.evaluation));
         } catch (RuntimeException e) {
             result.succeed(publish(request, start, failed(inferred.evaluation, e)));
             return result;
@@ -232,11 +233,25 @@ public final class Enforcer {
         }
     }
 
+    private CompletableFuture<EvaluationResponse> call(EvaluationRequest evaluation) {
+        CompletionStage<EvaluationResponse> stage = Objects.requireNonNull(client.evaluateAsync(evaluation),
+                "the client returned no stage");
+        return Objects.requireNonNull(stage.toCompletableFuture(), "the client's stage returned no future");
+    }
+
+    // Never throws, so that neither caller gets an exception and an asynchronous result always completes
     private EnforcementResult decided(EvaluationRequest evaluation, EvaluationResponse response, Throwable error) {
-        if (error == null) {
+        try {
+            if (error != null) {
+                return failed(evaluation, error);
+            }
+            if (response == null) {
+                return failed(evaluation, new PdpProtocolException("The client completed the evaluation without a response"));
+            }
             return EnforcementResult.decided(evaluation, response);
+        } catch (RuntimeException | Error e) {
+            return EnforcementResult.failed(evaluation, asAuthZenException(e), policy.getErrorStatus());
         }
-        return failed(evaluation, error);
     }
 
     private EnforcementResult failed(EvaluationRequest evaluation, Throwable error) {

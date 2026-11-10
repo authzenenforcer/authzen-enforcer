@@ -234,6 +234,34 @@ class EnforcerTest {
     }
 
     @Test
+    void deniesWhenTheClientCompletesWithoutAResponse() {
+        StubClient pdp = new StubClient();
+        pdp.call().complete(null);
+        Enforcer enforcer = Enforcer.builder(pdp.client())
+                .policy(EnforcementPolicy.builder().failOpen(true).build())
+                .build();
+
+        EnforcementResult sync = enforcer.enforce(READ, PermissionSpec.none());
+        EnforcementResult async = enforcer.enforceAsync(READ, PermissionSpec.none()).toCompletableFuture()
+                .orTimeout(5, TimeUnit.SECONDS).join();
+
+        assertEquals(Outcome.FAILED, sync.getOutcome());
+        assertInstanceOf(PdpProtocolException.class, sync.getFailure().orElseThrow());
+        assertEquals(Outcome.FAILED, async.getOutcome());
+    }
+
+    @Test
+    void deniesWhenTheClientReturnsNoStage() {
+        AuthZenClient nothing = (AuthZenClient) Proxy.newProxyInstance(AuthZenClient.class.getClassLoader(),
+                new Class<?>[] {AuthZenClient.class}, (proxy, method, args) -> null);
+        Enforcer enforcer = Enforcer.builder(nothing).build();
+
+        assertEquals(Outcome.FAILED, enforcer.enforce(READ, PermissionSpec.none()).getOutcome());
+        assertEquals(Outcome.FAILED,
+                enforcer.enforceAsync(READ, PermissionSpec.none()).toCompletableFuture().join().getOutcome());
+    }
+
+    @Test
     void deniesWhenAnInferenceComponentThrowsEvenIfFailOpen() {
         StubClient pdp = new StubClient().answer(true);
         RequestInferrer inferrer = RequestInferrer.builder()
