@@ -72,7 +72,10 @@ value:
 | `DELETE /orgs/{o}/projects/{p}/documents/{id}` | `{type: "documents", id: "42"}` |
 
 Enclosing resources go into `properties`: `parent` holds the nearest as `{type, id}`, `ancestors`
-all of them from the outermost in. A collection is never named with a `*` wildcard, which a PDP
+all of them from the outermost in. Only the segment before each variable, or the last one of a
+collection, names a type; other segments are left out. So `/admin/users/{id}` and `/users/{id}`
+ask the PDP the same question. Where such routes need different decisions, set their resource
+type explicitly or with a route override. A collection is never named with a `*` wildcard, which a PDP
 could read as "every resource".
 
 Segments are used as they are. `ResourceInferrer.builder().singularize(true)` turns plurals into

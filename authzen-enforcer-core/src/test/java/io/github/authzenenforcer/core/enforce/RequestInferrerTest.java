@@ -273,4 +273,14 @@ class RequestInferrerTest {
         assertTrue(warnings.get(0).contains("/documents/{id}/cancel"));
         assertTrue(warnings.get(1).contains("/{tenant}/documents"), "a later misconfiguration is still a warning");
     }
+
+    @Test
+    void describesARequestWithoutItsValues() {
+        String text = request("GET\nFORGED", "/documents/{id}").pathVariable("id", "secret-42").build().toString();
+
+        assertFalse(text.contains("\n"), text);
+        assertFalse(text.contains("secret-42"), text);
+        assertFalse(text.contains("alice-id"), text);
+        assertTrue(text.contains("id") && text.contains("sub"), text);
+    }
 }

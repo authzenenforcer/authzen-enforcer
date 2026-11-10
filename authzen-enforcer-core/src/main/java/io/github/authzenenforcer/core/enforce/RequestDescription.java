@@ -1,5 +1,7 @@
 package io.github.authzenenforcer.core.enforce;
 
+import io.github.authzenenforcer.core.internal.text.LogText;
+
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -80,11 +82,11 @@ public final class RequestDescription {
 
     /**
      * Returns a description for logging. Path variable values and claims are masked, since they may
-     * hold personal data; names are shown.
+     * hold personal data; names are shown. The method, which the caller chooses, is escaped.
      */
     @Override
     public String toString() {
-        return "RequestDescription{method=" + method + ", routePattern=" + routePattern
+        return "RequestDescription{method=" + LogText.of(method) + ", routePattern=" + LogText.of(routePattern)
                 + ", pathVariables=" + pathVariables.keySet()
                 + ", claims=" + (claims != null ? claims.keySet() : "anonymous") + "}";
     }

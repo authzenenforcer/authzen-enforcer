@@ -12,6 +12,11 @@ import java.util.List;
  *
  * <p>Only plain segments can be inferred from: a literal, or a whole segment that is one variable.
  * Wildcards, catch-all variables and segments that mix text and variables are refused.
+ *
+ * <p>Braces are counted without regard to regular expression syntax, so a variable pattern with an
+ * unbalanced brace in a character class, such as {@code {x:[{]}}, is misread. Such patterns come
+ * from the application, not from callers; endpoints that use them should set their resource
+ * explicitly.
  */
 public final class RoutePattern {
 
