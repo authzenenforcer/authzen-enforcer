@@ -93,12 +93,16 @@ public final class EnforcementPolicy {
         }
 
         /**
-         * Lets requests through when the PDP gives no decision, for example because it cannot be
-         * reached, answers with an error or its circuit breaker is open. Off by default.
+         * Lets requests through when the PDP is unavailable: it cannot be reached, does not answer
+         * in time, answers with a {@code 5xx} status or keeps answering {@code 429}, or its circuit
+         * breaker is open, that is when the call fails with a
+         * {@link io.github.authzenenforcer.core.PdpCommunicationException}. Off by default.
          *
-         * <p>Fail-open applies to the whole application and only to a failed call to the PDP: a
-         * deny, a refused inference, an anonymous caller and a failure of an inference component
-         * still deny. An enforcer with this policy logs a warning when it is built and whenever it
+         * <p>Fail-open applies to the whole application and only to an unavailable PDP. A deny, a
+         * refused inference, an anonymous caller and a failure of an inference component still
+         * deny, and so do failures that are not transient: a rejected PEP credential
+         * ({@code 401}/{@code 403}), an invalid PDP response or metadata, a failing credential
+         * provider, and a call cancelled by anyone but the caller. An enforcer with this policy logs a warning when it is built and whenever it
          * lets a request through without a decision, at most once a minute, and reports every such
          * request as {@link EnforcementResult.Outcome#FAILED_OPEN} to its listeners.
          *

@@ -50,8 +50,8 @@ public final class EnforcementResult {
         FAILED(false),
 
         /**
-         * No decision could be obtained from the PDP, and the policy lets such requests through;
-         * see {@link EnforcementPolicy.Builder#failOpen(boolean)} and {@link #getFailure()}.
+         * The PDP is unavailable, and the policy lets such requests through; see
+         * {@link EnforcementPolicy.Builder#failOpen(boolean)} and {@link #getFailure()}.
          */
         FAILED_OPEN(true);
 

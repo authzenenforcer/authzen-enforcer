@@ -8,7 +8,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.authzenenforcer.core.AuthZenException;
+import io.github.authzenenforcer.core.PdpAuthenticationException;
 import io.github.authzenenforcer.core.PdpCommunicationException;
+import io.github.authzenenforcer.core.PdpProtocolException;
 import io.github.authzenenforcer.core.client.AuthZenClient;
 import io.github.authzenenforcer.core.enforce.EnforcementResult.Outcome;
 import io.github.authzenenforcer.core.event.EnforcementCompleted;
@@ -25,6 +27,7 @@ import java.lang.reflect.Proxy;
 import java.net.URI;
 import java.time.Duration;
 import java.util.List;
+import java.util.stream.Stream;
 import java.util.Map;
 import java.util.OptionalInt;
 import java.util.concurrent.BlockingQueue;
@@ -38,6 +41,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class EnforcerTest {
@@ -272,6 +276,31 @@ class EnforcerTest {
         assertEquals(Outcome.DENIED, denied.getOutcome());
         assertEquals(Outcome.REFUSED, refused.getOutcome());
         assertEquals(Outcome.UNAUTHENTICATED, anonymous.getOutcome());
+    }
+
+    static Stream<Throwable> failuresThatAreNotAnUnavailablePdp() {
+        return Stream.of(
+                new PdpAuthenticationException("PDP rejected the PEP's credential", 401),
+                new PdpProtocolException("PDP response is not valid JSON"),
+                new AuthZenException("Credential provider failed to supply a credential"),
+                new IllegalStateException("bug in a custom client"),
+                new StackOverflowError(),
+                new CancellationException("cancelled by someone else"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("failuresThatAreNotAnUnavailablePdp")
+    void failsOpenOnlyWhileThePdpIsUnavailable(Throwable failure) {
+        StubClient pdp = new StubClient().fail(failure);
+        Enforcer enforcer = Enforcer.builder(pdp.client())
+                .policy(EnforcementPolicy.builder().failOpen(true).build())
+                .build();
+
+        EnforcementResult result = enforcer.enforce(READ, PermissionSpec.none());
+
+        assertEquals(Outcome.FAILED, result.getOutcome());
+        assertFalse(result.isAllowed());
+        assertEquals(OptionalInt.of(403), result.getStatus());
     }
 
     @Test

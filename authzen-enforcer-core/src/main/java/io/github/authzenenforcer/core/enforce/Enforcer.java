@@ -1,6 +1,7 @@
 package io.github.authzenenforcer.core.enforce;
 
 import io.github.authzenenforcer.core.AuthZenException;
+import io.github.authzenenforcer.core.PdpCommunicationException;
 import io.github.authzenenforcer.core.client.AuthZenClient;
 import io.github.authzenenforcer.core.event.EnforcementCompleted;
 import io.github.authzenenforcer.core.event.EventContent;
@@ -45,7 +46,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * without a decision, whether the PDP failed or an inference component threw, has
  * {@linkplain EnforcementResult.Outcome#FAILED failed}; none of them is let through. Only a
  * {@linkplain EnforcementPolicy.Builder#failOpen(boolean) fail-open policy} lets a request through
- * whose call to the PDP failed.
+ * whose call to the PDP failed because the PDP could not be reached in time.
  *
  * <p>A caller that gives up stops the call to the PDP: cancelling the stage of
  * {@link #enforceAsync}, or interrupting the thread that waits in {@link #enforce}, aborts the
@@ -240,7 +241,10 @@ public final class Enforcer {
 
     private EnforcementResult failed(EvaluationRequest evaluation, Throwable error) {
         AuthZenException failure = asAuthZenException(error);
-        if (!policy.isFailOpen()) {
+        // Only an unavailable PDP is a reason to fail open. A rejected credential, an invalid
+        // response, a failure of the SDK or the integrator's code and an Error are not transient,
+        // and failing open on them would let every request through
+        if (!policy.isFailOpen() || !(failure instanceof PdpCommunicationException)) {
             return EnforcementResult.failed(evaluation, failure, policy.getErrorStatus());
         }
         long count = failOpenWarnings.count();

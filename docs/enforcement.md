@@ -34,7 +34,7 @@ if (!result.isAllowed()) {
 | `UNAUTHENTICATED` | no | 401 | the caller is anonymous and no anonymous subject is configured |
 | `REFUSED` | no | 403 | nothing could be inferred safely; `getReason()` says why |
 | `FAILED` | no | 403 or 503 | no decision: the PDP failed, its circuit breaker is open, or an inference component threw |
-| `FAILED_OPEN` | yes | | no decision from the PDP, and the policy fails open |
+| `FAILED_OPEN` | yes | | the PDP is unavailable, and the policy fails open |
 
 The enforcer never throws for a request it cannot decide; every failure is a result. The PDP's
 response, including any reason in its context, is available through `getResponse()` for logs and
@@ -58,9 +58,13 @@ Enforcer.builder(client)
         .build();
 ```
 
-`failOpen(true)` lets requests through when the call to the PDP fails. It applies to the whole
-application and only to a failed call: a deny, a refused inference, an anonymous caller and a
-failing inference component still deny. The enforcer logs a warning when it is built and, at most
+`failOpen(true)` lets requests through when the PDP is unavailable: it cannot be reached, does not
+answer in time, answers with a `5xx` status or keeps answering `429`, or its circuit breaker is
+open (a `PdpCommunicationException`). It applies to the whole application and only to an
+unavailable PDP: a deny, a refused inference, an anonymous caller and a failing inference
+component still deny, and so do failures that are not transient, such as a rejected PEP
+credential (`401`/`403`), an invalid PDP response or a failing credential provider. Failing open
+on those would let every request through until someone fixed the configuration. The enforcer logs a warning when it is built and, at most
 once a minute, when it lets a request through without a decision, and reports each such request as
 `FAILED_OPEN` to its listeners; alert on the `failed_open` outcome of the `authzen.enforcements`
 meter.
