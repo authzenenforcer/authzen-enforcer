@@ -262,11 +262,6 @@ public final class Enforcer {
         if (!policy.isFailOpen() || !(failure instanceof PdpCommunicationException)) {
             return EnforcementResult.failed(evaluation, failure, policy.getErrorStatus());
         }
-        long count = failOpenWarnings.count();
-        if (failOpenWarnings.allow()) {
-            LOGGER.log(Level.WARNING, "Fail-open: let a request through without a decision of the PDP ("
-                    + count + " so far): " + failure.getClass().getName());
-        }
         return EnforcementResult.failedOpen(evaluation, failure);
     }
 
@@ -282,7 +277,15 @@ public final class Enforcer {
         return new AuthZenException("Enforcement failed", cause);
     }
 
+    // Called only for a result the caller gets, so that a cancelled request is not counted as let through
     private EnforcementResult publish(RequestDescription request, long start, EnforcementResult result) {
+        if (result.getOutcome() == EnforcementResult.Outcome.FAILED_OPEN) {
+            long count = failOpenWarnings.count();
+            if (failOpenWarnings.allow()) {
+                LOGGER.log(Level.WARNING, "Fail-open: let a request through without a decision of the PDP ("
+                        + count + " so far): " + result.getFailure().orElseThrow().getClass().getName());
+            }
+        }
         if (events.isActive()) {
             events.publish(event(request, start)
                     .outcome(result.getOutcome())

@@ -351,6 +351,31 @@ class EnforcerTest {
     }
 
     @Test
+    void doesNotReportACancelledRequestAsLetThrough() throws InterruptedException {
+        // A client that ignores the cancel and fails afterwards, while the policy fails open
+        StubClient pdp = new StubClient();
+        pdp.next.set(new CompletableFuture<>() {
+            @Override
+            public boolean cancel(boolean mayInterruptIfRunning) {
+                return false;
+            }
+        });
+        Events events = new Events();
+        Enforcer enforcer = Enforcer.builder(pdp.client())
+                .policy(EnforcementPolicy.builder().failOpen(true).build())
+                .listener(events)
+                .build();
+        TestLoggerFinder.clearRecords();
+        CompletionStage<EnforcementResult> stage = enforcer.enforceAsync(READ, PermissionSpec.none());
+
+        stage.toCompletableFuture().cancel(true);
+        pdp.fail(new PdpCommunicationException("down"));
+
+        assertTrue(events.next().isCancelled());
+        assertTrue(TestLoggerFinder.records().stream().noneMatch(record -> record.contains("Fail-open: let")));
+    }
+
+    @Test
     void doesNotWarnWithoutFailOpen() {
         TestLoggerFinder.clearRecords();
 
