@@ -240,7 +240,8 @@ public final class DefaultAuthZenClient implements AuthZenClient {
         BreakerLog log = new BreakerLog();
         CallTrace trace = CallTrace.start(events, operation, parent);
         Cancellation cancellation = new Cancellation();
-        CallResult<R> result = new CallResult<>(cancellation::cancel);
+        CallResult.Completer<R> completer = CallResult.create(cancellation::cancel);
+        CallResult<R> result = completer.result();
         endpoint(api)
                 .thenCompose(endpoint -> {
                     // Discovery is shared with other calls and keeps running; this call stops here
@@ -257,9 +258,9 @@ public final class DefaultAuthZenClient implements AuthZenClient {
                     // and the listeners all get the same exception
                     AuthZenException failure = error != null ? asAuthZenException(error, DESCRIPTIONS.get(operation)) : null;
                     if (failure != null) {
-                        result.fail(failure);
+                        completer.fail(failure);
                     } else {
-                        result.succeed(response);
+                        completer.succeed(response);
                     }
                     // Only after the caller's future, so that a slow or failing logger or listener can
                     // neither delay nor change the result. A cancelled call is reported once it has

@@ -3,6 +3,7 @@ package io.github.authzenenforcer.core.internal.event;
 import io.github.authzenenforcer.core.event.AttemptCompleted;
 import io.github.authzenenforcer.core.event.BreakerTransition;
 import io.github.authzenenforcer.core.event.CallCompleted;
+import io.github.authzenenforcer.core.event.EnforcementCompleted;
 import io.github.authzenenforcer.core.event.EventContent;
 import io.github.authzenenforcer.core.event.ListenerDrops;
 import io.github.authzenenforcer.core.event.ListenerDrops.EventType;
@@ -247,6 +248,15 @@ public final class EventDispatcher {
         publish(EventType.METADATA_REFRESH, listener -> listener.onMetadataRefresh(event), low, bytes);
     }
 
+    /**
+     * Publishes a completed enforcement.
+     *
+     * @param event the event
+     */
+    public void publish(EnforcementCompleted event) {
+        publish(EventType.ENFORCEMENT_COMPLETED, listener -> listener.onEnforcementCompleted(event), false, 0);
+    }
+
     private void publish(EventType type, Consumer<PepListener> delivery, boolean low, long bytes) {
         long weight = EVENT_OVERHEAD_BYTES + Math.max(0, bytes);
         for (ListenerQueue queue : queues) {
@@ -292,24 +302,37 @@ public final class EventDispatcher {
     }
 
     /** Lets a warning through the first time and then at most once a minute, and counts the occasions. */
-    static final class Throttle {
+    public static final class Throttle {
 
         private final LongSupplier clock;
         private final AtomicLong occasions = new AtomicLong();
         private final AtomicLong last = new AtomicLong();
         private final AtomicBoolean warned = new AtomicBoolean();
 
-        Throttle(LongSupplier clock) {
+        /**
+         * Creates a throttle.
+         *
+         * @param clock the clock in nanoseconds, such as {@code System::nanoTime}
+         */
+        public Throttle(LongSupplier clock) {
             this.clock = clock;
         }
 
-        /** Counts an occasion and returns how many there were. */
-        long count() {
+        /**
+         * Counts an occasion.
+         *
+         * @return how many there were
+         */
+        public long count() {
             return occasions.incrementAndGet();
         }
 
-        /** Tells whether a warning may be logged now. */
-        boolean allow() {
+        /**
+         * Tells whether a warning may be logged now.
+         *
+         * @return {@code true} the first time and then at most once a minute
+         */
+        public boolean allow() {
             long now = clock.getAsLong();
             if (warned.compareAndSet(false, true)) {
                 last.set(now);

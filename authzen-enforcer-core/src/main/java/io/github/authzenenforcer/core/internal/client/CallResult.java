@@ -13,30 +13,40 @@ import java.util.function.Supplier;
  * further step starts and the step in progress is cancelled. Reactive libraries cancel it that way
  * when their subscriber cancels. The methods that would complete it throw
  * {@link UnsupportedOperationException}, as those of {@link #minimalCompletionStage()} do; dependent
- * stages are ordinary futures.
+ * stages are ordinary futures. Only the {@link Completer} that {@link #create(Runnable)} returns
+ * completes it, so a holder that casts a stage to this class cannot complete it either.
  *
  * @param <T> the type of the result
  */
-final class CallResult<T> extends CompletableFuture<T> {
+public final class CallResult<T> extends CompletableFuture<T> {
 
     private static final Runnable NONE = () -> { };
 
     // Dropped once the call has ended, so that a caller who keeps this future keeps nothing of the call
     private volatile Runnable onCancel;
 
-    CallResult(Runnable onCancel) {
+    private CallResult(Runnable onCancel) {
         this.onCancel = onCancel;
     }
 
-    /** Completes the call with its result. */
-    boolean succeed(T value) {
+    /**
+     * Creates the future of a call, held by the completer that the code running the call keeps.
+     *
+     * @param onCancel stops the call; runs at most once, on the first cancel before the call ends
+     * @param <T>      the type of the result
+     * @return the completer, whose {@link Completer#result()} is handed to the caller
+     */
+    public static <T> Completer<T> create(Runnable onCancel) {
+        return new Completer<>(new CallResult<>(onCancel));
+    }
+
+    private boolean succeed(T value) {
         boolean completed = super.complete(value);
         onCancel = NONE;
         return completed;
     }
 
-    /** Completes the call with its failure. */
-    boolean fail(Throwable failure) {
+    private boolean fail(Throwable failure) {
         boolean completed = super.completeExceptionally(failure);
         onCancel = NONE;
         return completed;
@@ -125,5 +135,48 @@ final class CallResult<T> extends CompletableFuture<T> {
     private static UnsupportedOperationException refused() {
         return new UnsupportedOperationException(
                 "the SDK completes this future; cancel it or use toCompletableFuture() for a copy");
+    }
+
+    /**
+     * Completes a {@link CallResult}. Only the code running the call holds it.
+     *
+     * @param <T> the type of the result
+     */
+    public static final class Completer<T> {
+
+        private final CallResult<T> result;
+
+        private Completer(CallResult<T> result) {
+            this.result = result;
+        }
+
+        /**
+         * Returns the future to hand to the caller.
+         *
+         * @return the future
+         */
+        public CallResult<T> result() {
+            return result;
+        }
+
+        /**
+         * Completes the call with its result.
+         *
+         * @param value the result
+         * @return whether this completed the future, {@code false} if it was cancelled before
+         */
+        public boolean succeed(T value) {
+            return result.succeed(value);
+        }
+
+        /**
+         * Completes the call with its failure.
+         *
+         * @param failure the failure
+         * @return whether this completed the future, {@code false} if it was cancelled before
+         */
+        public boolean fail(Throwable failure) {
+            return result.fail(failure);
+        }
     }
 }

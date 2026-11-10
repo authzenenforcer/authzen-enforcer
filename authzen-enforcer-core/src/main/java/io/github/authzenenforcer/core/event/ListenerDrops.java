@@ -11,7 +11,9 @@ import java.util.Objects;
 
 /**
  * How many events the listeners of a client did not get because their queues were full, as a
- * snapshot taken by {@link io.github.authzenenforcer.core.client.AuthZenClient#listenerDrops()}.
+ * snapshot taken by {@link io.github.authzenenforcer.core.client.AuthZenClient#listenerDrops()}, or
+ * those of an enforcer, taken by
+ * {@link io.github.authzenenforcer.core.enforce.Enforcer#listenerDrops()}.
  *
  * <p>The counts only grow while a client lives, so they suit monotonic counters such as a
  * Micrometer {@code FunctionCounter}. Every listener is reported, also one that never missed an
@@ -32,7 +34,9 @@ public final class ListenerDrops {
         /** A {@link BreakerTransition}. */
         BREAKER_TRANSITION,
         /** A {@link MetadataRefresh}. */
-        METADATA_REFRESH
+        METADATA_REFRESH,
+        /** An {@link EnforcementCompleted}. */
+        ENFORCEMENT_COMPLETED
     }
 
     private final List<Listener> listeners;

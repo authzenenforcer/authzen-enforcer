@@ -16,6 +16,6 @@ the client behaves; the Javadoc describes each type and method.
 - [Observability](observability.md): listeners, Micrometer metrics and OpenTelemetry tracing.
 - [Security model](security-model.md): fail-closed behaviour, what the client sends and what it
   checks.
-- [Enforcement inference](enforcement.md): turning an HTTP request into an evaluation request, and
-  how explicit values override what is inferred.
+- [Enforcement](enforcement.md): deciding about an HTTP request, the outcomes and the policy,
+  and how explicit values override what is inferred.
 - PDPs: [Keycloak](pdps/keycloak.md).

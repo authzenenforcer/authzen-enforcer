@@ -10,6 +10,12 @@ The client has no fail-open mode. An application that must allow access while th
 decides that itself when it catches the exception, and should log and count those decisions.
 Listeners see such failed calls too; see [Observability](observability.md).
 
+The `Enforcer` fails closed as well. Its `EnforcementPolicy` can fail open, for the whole
+application, but only while the PDP is unavailable (a `PdpCommunicationException`); a rejected
+PEP credential, an invalid response and every other failure still deny. It logs a warning when
+it is built and whenever it lets a request through, and reports each such request; see
+[Enforcement](enforcement.md#policy).
+
 A deny from the PDP is not an error: it is a `200` response with `"decision": false`. A `401` or
 `403` means that the PEP itself may not ask the PDP, not that the subject was denied; it throws a
 `PdpAuthenticationException`.

@@ -69,8 +69,8 @@ public final class AuthZenClientMetrics implements MeterBinder {
     }
 
     /**
-     * Registers a counter for every listener of the client and every event type. The listeners of
-     * a client are fixed when it is built.
+     * Registers a counter for every listener of the client and every event type a client publishes.
+     * The listeners of a client are fixed when it is built.
      *
      * @param registry the registry
      */
@@ -81,6 +81,10 @@ public final class AuthZenClientMetrics implements MeterBinder {
         for (int i = 0; i < listeners.size(); i++) {
             int index = i;
             for (ListenerDrops.EventType type : ListenerDrops.EventType.values()) {
+                if (type == ListenerDrops.EventType.ENFORCEMENT_COMPLETED) {
+                    // An enforcer publishes these, never a client
+                    continue;
+                }
                 FunctionCounter.builder(LISTENER_DROPPED, client, c -> dropped(c, index, type))
                         .description("Events a listener did not get because its queue was full")
                         .tags(tags)

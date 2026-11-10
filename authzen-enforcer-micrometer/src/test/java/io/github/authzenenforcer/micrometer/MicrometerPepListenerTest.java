@@ -11,7 +11,9 @@ import io.github.authzenenforcer.core.AuthZenException;
 import io.github.authzenenforcer.core.PdpCommunicationException;
 import io.github.authzenenforcer.core.event.AttemptCompleted;
 import io.github.authzenenforcer.core.event.BreakerTransition;
+import io.github.authzenenforcer.core.enforce.EnforcementResult;
 import io.github.authzenenforcer.core.event.CallCompleted;
+import io.github.authzenenforcer.core.event.EnforcementCompleted;
 import io.github.authzenenforcer.core.event.MetadataRefresh;
 import io.github.authzenenforcer.core.event.Operation;
 import io.github.authzenenforcer.core.model.Action;
@@ -303,5 +305,32 @@ class MicrometerPepListenerTest {
 
         assertNotNull(registry.get(MicrometerPepListener.CALLS)
                 .tag("exception", anonymous.getClass().getName()).timer());
+    }
+
+    private static EnforcementCompleted.Builder enforcement() {
+        return EnforcementCompleted.builder()
+                .method("GET")
+                .routePattern("/documents/{id}")
+                .duration(Duration.ofMillis(7))
+                .time(Instant.EPOCH);
+    }
+
+    @Test
+    void timesEnforcementsByOutcomeOnly() {
+        MicrometerPepListener listener = MicrometerPepListener.builder(registry).build();
+
+        listener.onEnforcementCompleted(enforcement().outcome(EnforcementResult.Outcome.PERMITTED).build());
+        listener.onEnforcementCompleted(enforcement().outcome(EnforcementResult.Outcome.FAILED_OPEN)
+                .failure(new PdpCommunicationException("PDP unreachable")).build());
+        listener.onEnforcementCompleted(enforcement().build());
+
+        Timer permitted = registry.get(MicrometerPepListener.ENFORCEMENTS).tag("outcome", "permitted").timer();
+        assertEquals(1, permitted.count());
+        assertEquals(7, permitted.totalTime(TimeUnit.MILLISECONDS), 0.001);
+        assertEquals(1, registry.get(MicrometerPepListener.ENFORCEMENTS).tag("outcome", "failed_open").timer().count());
+        assertEquals(1, registry.get(MicrometerPepListener.ENFORCEMENTS).tag("outcome", "cancelled").timer().count());
+        for (Meter meter : registry.get(MicrometerPepListener.ENFORCEMENTS).meters()) {
+            assertEquals(List.of("outcome"), meter.getId().getTags().stream().map(tag -> tag.getKey()).toList());
+        }
     }
 }

@@ -58,6 +58,9 @@ AuthZenClient client = AuthZenClient.builder()
         .pdpUrl("https://pdp.example.com")
         .listener(metrics)
         .build();
+Enforcer enforcer = Enforcer.builder(client)
+        .listener(metrics)
+        .build();
 AuthZenClientMetrics.bind(client, registry, Tags.of("pdp", "main"));
 ```
 
@@ -69,6 +72,7 @@ AuthZenClientMetrics.bind(client, registry, Tags.of("pdp", "main"));
 | `authzen.client.breaker.state` | gauge | `breaker`; 0 closed, 1 half-open, 2 open |
 | `authzen.client.metadata.refreshes` | counter | `result` |
 | `authzen.client.listener.dropped` | function counter | `listener`, `event` |
+| `authzen.enforcements` | timer | `outcome` (`permitted`/`denied`/`not_enforced`/`unauthenticated`/`refused`/`failed`/`failed_open`/`cancelled`) |
 
 No tag carries an identifier such as a subject id, resource id or request id.
 `resourceTypeTag(true)` and `actionNameTag(true)` add `resource.type` and `action.name` to
