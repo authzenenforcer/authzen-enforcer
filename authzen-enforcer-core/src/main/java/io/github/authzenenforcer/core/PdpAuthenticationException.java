@@ -11,6 +11,7 @@ public final class PdpAuthenticationException extends AuthZenException {
 
     private static final long serialVersionUID = 1L;
 
+    /** The HTTP status code returned by the PDP. */
     private final int statusCode;
 
     /**

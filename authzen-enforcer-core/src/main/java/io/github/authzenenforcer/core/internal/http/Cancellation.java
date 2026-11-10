@@ -15,6 +15,11 @@ public final class Cancellation {
     private volatile boolean released;
     private final AtomicReference<Future<?>> current = new AtomicReference<>();
 
+    /** Creates a cancellation for a request that is not cancelled yet. */
+    public Cancellation() {
+        // Nothing to set up
+    }
+
     /** Cancels the request: no further step starts, and the current one is cancelled. */
     public void cancel() {
         cancelled = true;

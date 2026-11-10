@@ -10,6 +10,7 @@ public final class JsonException extends RuntimeException {
 
     private static final long serialVersionUID = 1L;
 
+    /** Zero-based character offset in the input where the problem was detected. */
     private final int position;
 
     /**

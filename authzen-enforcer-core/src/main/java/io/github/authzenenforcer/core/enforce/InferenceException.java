@@ -13,6 +13,7 @@ public class InferenceException extends AuthZenException {
 
     private static final long serialVersionUID = 1L;
 
+    /** Whether the endpoint is misconfigured, as opposed to the request carrying invalid input. */
     private final boolean misconfiguration;
 
     /**

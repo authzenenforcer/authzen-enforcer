@@ -14,7 +14,7 @@ import java.util.List;
  * Wildcards, catch-all variables and segments that mix text and variables are refused.
  *
  * <p>Braces are counted without regard to regular expression syntax, so a variable pattern with an
- * unbalanced brace in a character class, such as {@code {x:[{]}}, is misread. Such patterns come
+ * unbalanced brace in a character class, such as <code>&#123;x:[&#123;]&#125;</code>, is misread. Such patterns come
  * from the application, not from callers; endpoints that use them should set their resource
  * explicitly.
  */
@@ -24,11 +24,19 @@ public final class RoutePattern {
     public sealed interface Segment permits Literal, Variable {
     }
 
-    /** A literal segment, such as {@code documents}. */
+    /**
+     * A literal segment, such as {@code documents}.
+     *
+     * @param text the segment
+     */
     public record Literal(String text) implements Segment {
     }
 
-    /** A segment that is one path variable, such as {@code {id}}. */
+    /**
+     * A segment that is one path variable, such as {@code {id}}.
+     *
+     * @param name the name of the variable
+     */
     public record Variable(String name) implements Segment {
     }
 
