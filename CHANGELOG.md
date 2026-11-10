@@ -18,6 +18,8 @@ the API.
   PDP (`PdpCommunicationException`) and is logged and reported.
 - `PepListener.onEnforcementCompleted(...)` with the `EnforcementCompleted` event, and the
   `authzen.enforcements` timer in Micrometer, tagged by outcome.
+- `EnforcerMetrics` in Micrometer: the `authzen.enforcer.listener.dropped` counter of the
+  enforcement events each listener of an `Enforcer` did not get.
 - Enforcement inference (`io.github.authzenenforcer.core.enforce`): `RequestInferrer` turns an
   HTTP request, described by method, route pattern, path variables and the caller's claims, into an
   evaluation request. It infers the action from the method, the resource from the route pattern

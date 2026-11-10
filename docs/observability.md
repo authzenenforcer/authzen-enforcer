@@ -44,7 +44,8 @@ AuthZenClient client = AuthZenClient.builder()
   shows more, and `exclude(...)` masks more. Batch options and page details (such as page tokens)
   always stay visible, so keep personal data out of them. Credentials and tokens are never part
   of an event.
-- `client.listenerDrops()` tells how many events each listener lost, per event type.
+- `client.listenerDrops()` and `enforcer.listenerDrops()` tell how many events each listener lost,
+  per event type.
 
 ## Metrics with Micrometer
 
@@ -62,6 +63,7 @@ Enforcer enforcer = Enforcer.builder(client)
         .listener(metrics)
         .build();
 AuthZenClientMetrics.bind(client, registry, Tags.of("pdp", "main"));
+EnforcerMetrics.bind(enforcer, registry, Tags.of("pdp", "main"));
 ```
 
 | Meter | Type | Tags |
@@ -72,6 +74,7 @@ AuthZenClientMetrics.bind(client, registry, Tags.of("pdp", "main"));
 | `authzen.client.breaker.state` | gauge | `breaker`; 0 closed, 1 half-open, 2 open |
 | `authzen.client.metadata.refreshes` | counter | `result` |
 | `authzen.client.listener.dropped` | function counter | `listener`, `event` |
+| `authzen.enforcer.listener.dropped` | function counter | `listener`, `event` (`enforcement_completed`) |
 | `authzen.enforcements` | timer | `outcome` (`permitted`/`denied`/`not_enforced`/`unauthenticated`/`refused`/`failed`/`failed_open`/`cancelled`) |
 
 No tag carries an identifier such as a subject id, resource id or request id.
