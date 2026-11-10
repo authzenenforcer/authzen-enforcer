@@ -118,7 +118,8 @@ public final class RouteResourceInferrer implements ResourceInferrer {
         if (actionGiven) {
             return new Shape(variables, null);
         }
-        throw new InferenceException("Cannot infer the action of " + LogText.of(method) + " " + LogText.of(pattern)
+        // The message leaves out the method, which the caller chooses, so that it is logged once per route
+        throw new InferenceException("Cannot infer the action of a write to route " + LogText.of(pattern)
                 + ": a static segment follows path variable " + id + ", which may name an action;"
                 + " set the action explicitly or add a route override", true);
     }

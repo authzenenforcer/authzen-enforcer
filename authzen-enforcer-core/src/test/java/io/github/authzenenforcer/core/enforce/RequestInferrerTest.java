@@ -151,12 +151,12 @@ class RequestInferrerTest {
     }
 
     @Test
-    void refusesAMethodWithoutAnAction() {
+    void refusesAMethodWithoutAnActionAsInvalidInput() {
         Inference inference = RequestInferrer.defaults()
                 .infer(request("PROPFIND", "/documents/{id}").pathVariable("id", "42").build(), PermissionSpec.none());
 
         assertEquals(Inference.Kind.REFUSED, inference.getKind());
-        assertTrue(inference.isMisconfiguration());
+        assertFalse(inference.isMisconfiguration(), "the caller chooses the method");
     }
 
     @Test
@@ -252,5 +252,25 @@ class RequestInferrerTest {
                 .toList();
         assertEquals(1, warnings.size(), String.valueOf(warnings));
         assertTrue(warnings.get(0).contains("/documents/{id}/cancel"));
+    }
+
+    @Test
+    void keepsWarningAboutMisconfigurationsWhateverMethodsCallersSend() {
+        RequestInferrer inferrer = RequestInferrer.defaults();
+        TestLoggerFinder.clearRecords();
+
+        for (int i = 0; i < 1100; i++) {
+            inferrer.infer(request("X" + i, "/documents/{id}").pathVariable("id", "42").build(), PermissionSpec.none());
+            inferrer.infer(request(i % 2 == 0 ? "post" : "Post" + i, "/documents/{id}/cancel").pathVariable("id", "42").build(),
+                    PermissionSpec.none());
+        }
+        inferrer.infer(request("GET", "/{tenant}/documents").build(), PermissionSpec.none());
+
+        List<String> warnings = TestLoggerFinder.records().stream()
+                .filter(record -> record.startsWith("WARNING " + RequestInferrer.class.getName()))
+                .toList();
+        assertEquals(2, warnings.size(), String.valueOf(warnings));
+        assertTrue(warnings.get(0).contains("/documents/{id}/cancel"));
+        assertTrue(warnings.get(1).contains("/{tenant}/documents"), "a later misconfiguration is still a warning");
     }
 }

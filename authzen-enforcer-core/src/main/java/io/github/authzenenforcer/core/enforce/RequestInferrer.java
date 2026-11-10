@@ -42,7 +42,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class RequestInferrer {
 
     private static final System.Logger LOGGER = System.getLogger(RequestInferrer.class.getName());
-    // Reasons name routes and claims, not values, so there are only as many as there are routes
+    // Misconfiguration reasons name routes and claim names, never request input such as the method,
+    // so there are only as many as there are routes; the cap only guards against a custom inferrer
     private static final int MAX_WARNED = 1000;
 
     private final ActionMapper actionMapper;
@@ -101,9 +102,10 @@ public final class RequestInferrer {
             InferredResource inferred = resource(request, explicit);
             String action = explicit.getAction()
                     .or(() -> actionMapper.action(method, inferred.isCollection()))
+                    // The caller chooses the method, so an unknown one is invalid input
                     .orElseThrow(() -> new InferenceException("No action is known for method " + LogText.of(method)
                             + " of route " + LogText.of(request.getRoutePattern())
-                            + "; set the action explicitly or map the method", true));
+                            + "; set the action explicitly or map the method", false));
             Subject subject = claims.isPresent() ? subjectResolver.resolve(claims.get()) : anonymousSubject;
             if (explicit.getSubjectType().isPresent()) {
                 subject = Subject.builder()
