@@ -100,15 +100,43 @@ class RequestInferrerTest {
     }
 
     @Test
-    void namesWhatACollectionHoldsWithAnExplicitType() {
+    void replacesOnlyTheTypeOfACollection() {
         EvaluationRequest evaluation = evaluate(RequestInferrer.defaults(),
                 request("GET", "/tenants/{t}/documents").pathVariable("t", "acme").build(),
-                PermissionSpec.builder().resourceType("document").build());
+                PermissionSpec.builder().resourceType("folder").build());
 
-        assertEquals("collection", evaluation.getResource().getType());
-        assertEquals("document", evaluation.getResource().getId());
+        assertEquals("folder", evaluation.getResource().getType());
+        assertEquals("documents", evaluation.getResource().getId());
         assertEquals(Map.of("type", "tenants", "id", "acme"), evaluation.getResource().getProperties().get("parent"));
         assertEquals(Action.of("list"), evaluation.getAction());
+    }
+
+    @Test
+    void replacesOnlyTheIdOfACollection() {
+        EvaluationRequest evaluation = evaluate(RequestInferrer.defaults(),
+                request("POST", "/documents").build(), PermissionSpec.builder().resourceId("document").build());
+
+        assertEquals(Resource.of("collection", "document"), evaluation.getResource());
+        assertEquals(Action.of("create"), evaluation.getAction());
+    }
+
+    @Test
+    void keepsTheActionOfACollectionWithAnExplicitTypeAndId() {
+        EvaluationRequest evaluation = evaluate(RequestInferrer.defaults(), request("GET", "/documents").build(),
+                PermissionSpec.builder().resourceType("folder").resourceId("document").build());
+
+        assertEquals(Resource.of("folder", "document"), evaluation.getResource());
+        assertEquals(Action.of("list"), evaluation.getAction());
+    }
+
+    @Test
+    void replacesOnlyTheTypeOfASingleResource() {
+        EvaluationRequest evaluation = evaluate(RequestInferrer.defaults(),
+                request("GET", "/documents/{id}").pathVariable("id", "42").build(),
+                PermissionSpec.builder().resourceType("document").build());
+
+        assertEquals(Resource.of("document", "42"), evaluation.getResource());
+        assertEquals(Action.of("read"), evaluation.getAction());
     }
 
     @Test

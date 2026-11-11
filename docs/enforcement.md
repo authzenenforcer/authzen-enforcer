@@ -127,7 +127,21 @@ RouteOverrides overrides = RouteOverrides.builder()
 ```
 
 A route is matched by its pattern exactly as the framework declares it; values for a method win
-over values for every method. Each inference step is also a replaceable component:
+over values for every method.
+
+Each value replaces only its own part of what is inferred. An explicit resource type replaces the
+type and an explicit resource id the id, on collections as on single resources; whether the
+resource is a collection, and so the action, and its enclosing resources still come from the route:
+
+| Route | Explicit values | Resource | Action |
+|---|---|---|---|
+| `GET /documents` | none | `{type: "collection", id: "documents"}` | `list` |
+| `GET /documents` | type `folder` | `{type: "folder", id: "documents"}` | `list` |
+| `GET /documents` | id `document` | `{type: "collection", id: "document"}` | `list` |
+| `GET /documents/{id}` | type `document` | `{type: "document", id: <id>}` | `read` |
+
+With both a type and an id, the resource is taken as given even on a route that cannot be inferred
+from, such as `/{tenant}/documents`. Each inference step is also a replaceable component:
 `ActionMapper`, `ResourceInferrer` and `SubjectResolver`.
 
 ## Action

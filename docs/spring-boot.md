@@ -82,6 +82,9 @@ void cancel(@PathVariable String id) { ... }
 ```
 
 - `action`, `resourceType` and `subjectType` are literal values; an empty value means "not given".
+  Each attribute replaces only its own part of what is inferred: `@CheckPermission(resourceType =
+  "folder")` on `GET /documents` asks to `list` `{type: "folder", id: "documents"}`; the id and the
+  action are still inferred. See [Enforcement](enforcement.md#explicit-values-win).
 - `resourceId` and the values of `context` (`name=expression`) are SpEL expressions. They may read
   only:
   - path variables by name (`#id`);

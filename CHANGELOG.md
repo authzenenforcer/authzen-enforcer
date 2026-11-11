@@ -40,7 +40,8 @@ the API.
   HTTP request, described by method, route pattern, path variables and the caller's claims, into an
   evaluation request. It infers the action from the method, the resource from the route pattern
   and the subject from the claims, with a Keycloak profile. Explicit values of the endpoint win
-  over `RouteOverrides`, which win over inference. Routes it cannot infer from safely, and invalid
+  over `RouteOverrides`, which win over inference, and each replaces only its own part: an explicit
+  resource type replaces the type, also of a collection, and the action is still inferred. Routes it cannot infer from safely, and invalid
   path variables, are denied without asking the PDP, and `check(...)` reports such routes at
   startup.
 - Asynchronous credential providers: `CredentialProvider.getCredentialAsync()` and

@@ -43,6 +43,12 @@ public class TestApplication {
             return "cancelled " + id;
         }
 
+        @CheckPermission(resourceType = "belge")
+        @GetMapping("/papers")
+        public String papers() {
+            return "papers";
+        }
+
         @CheckPermission
         @GetMapping("/exports/{id}")
         public Callable<String> export(@PathVariable String id) {

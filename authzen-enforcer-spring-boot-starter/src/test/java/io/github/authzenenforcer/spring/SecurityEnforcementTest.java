@@ -154,6 +154,14 @@ class SecurityEnforcementTest {
     }
 
     @Test
+    void replacesOnlyTheTypeOfACollection() throws Exception {
+        mvc.perform(get("/papers").with(alice())).andExpect(status().isOk());
+
+        assertEquals(Map.of("name", "list"), PDP.lastRequest().get("action"));
+        assertEquals(Map.of("type", "belge", "id", "papers"), PDP.lastRequest().get("resource"));
+    }
+
+    @Test
     void supportsMetaAnnotations() throws Exception {
         mvc.perform(post("/invoices/9/approve").with(alice()))
                 .andExpect(status().isOk());

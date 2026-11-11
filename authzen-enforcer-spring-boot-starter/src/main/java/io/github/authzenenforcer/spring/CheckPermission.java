@@ -59,15 +59,18 @@ public @interface CheckPermission {
     String action() default "";
 
     /**
-     * The resource type, such as {@code document}. Inferred from the route pattern if empty.
+     * The resource type, such as {@code document}. Inferred from the route pattern if empty. It
+     * replaces only the type: the id is still inferred, and so is whether the resource is a
+     * collection, which the action depends on. On {@code GET /documents}, {@code resourceType =
+     * "folder"} asks whether the caller may {@code list} {@code {"type": "folder", "id": "documents"}}.
      *
      * @return the resource type
      */
     String resourceType() default "";
 
     /**
-     * A SpEL expression for the resource id, such as {@code #id}. Inferred from the route pattern
-     * if empty.
+     * A SpEL expression for the resource id, such as {@code #id}, or a literal such as
+     * {@code 'document'}. Inferred from the route pattern if empty. It replaces only the id.
      *
      * @return the expression
      */
