@@ -28,11 +28,13 @@ import java.lang.annotation.Target;
  * read only these, and an application whose expressions use anything else does not start:
  * <ul>
  *   <li>the path variables by name, such as {@code #id};</li>
- *   <li>{@code #request.method}, {@code #request.remoteAddr}, {@code #request.header(name)} and
- *       {@code #request.parameter(name)}; headers and parameters that carry credentials, such as
- *       {@code Authorization}, {@code Cookie} or {@code access_token}, read as {@code null};</li>
+ *   <li>{@code #request.method}, {@code #request.remoteAddr}, {@code #request.header('name')} and
+ *       {@code #request.parameter('name')}, with a literal name; headers and parameters that
+ *       carry credentials, such as {@code Authorization}, {@code Cookie} or {@code access_token},
+ *       read as {@code null};</li>
  *   <li>{@code #claims}, the claims the subject is inferred from, such as {@code #claims['sub']}
- *       or {@code #claims.realm_access.roles}; {@code null} for an anonymous caller.</li>
+ *       or {@code #claims.realm_access.roles}; {@code null} for an anonymous caller, so read it
+ *       null-safely, such as {@code #claims?.['acr']}, where anonymous callers may come.</li>
  * </ul>
  * Types, constructors, beans, other methods and assignments are not available, so that an
  * expression cannot reach credentials or change state. The request body is not available: the

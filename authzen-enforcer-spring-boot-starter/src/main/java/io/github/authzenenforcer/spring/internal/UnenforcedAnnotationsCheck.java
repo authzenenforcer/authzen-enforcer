@@ -10,7 +10,9 @@ import org.springframework.util.ClassUtils;
 import org.springframework.util.ReflectionUtils;
 
 import java.lang.System.Logger.Level;
+import java.lang.reflect.Method;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -40,7 +42,7 @@ public final class UnenforcedAnnotationsCheck implements SmartInitializingSingle
     @Override
     public void afterSingletonsInstantiated() {
         EnforcedHandlerTypes integration = enforced.getIfAvailable();
-        Set<Class<?>> handlers = integration != null ? integration.types() : Set.of();
+        Set<EnforcedHandlerTypes.Handler> handlers = integration != null ? integration.handlers() : Set.of();
         String why = integration != null
                 ? "only handler methods of Spring MVC controllers are enforced"
                 : "this application has no Spring MVC (servlet) enforcement; WebFlux is not supported yet";
@@ -49,9 +51,24 @@ public final class UnenforcedAnnotationsCheck implements SmartInitializingSingle
                 .filter(type -> type != null && !type.getName().startsWith("org.springframework."))
                 .map(ClassUtils::getUserClass)
                 .distinct()
-                .filter(type -> !handlers.contains(type) && annotated(type))
-                .forEach(type -> LOGGER.log(Level.WARNING, "@CheckPermission on " + type.getName()
-                        + " is not enforced: " + why));
+                .forEach(type -> check(type, handlers, why));
+    }
+
+    // A method annotated directly, or any method of a class annotated as a whole, that is no handler
+    private static void check(Class<?> type, Set<EnforcedHandlerTypes.Handler> handlers, String why) {
+        List<Method> methods = Arrays.asList(
+                ReflectionUtils.getUniqueDeclaredMethods(type, ReflectionUtils.USER_DECLARED_METHODS));
+        boolean hasHandlers = methods.stream()
+                .anyMatch(method -> handlers.contains(new EnforcedHandlerTypes.Handler(type, method)));
+        if (AnnotatedElementUtils.hasAnnotation(type, CheckPermission.class) && !hasHandlers) {
+            LOGGER.log(Level.WARNING, "@CheckPermission on " + type.getName() + " is not enforced: " + why);
+            return;
+        }
+        methods.stream()
+                .filter(method -> AnnotatedElementUtils.hasAnnotation(method, CheckPermission.class)
+                        && !handlers.contains(new EnforcedHandlerTypes.Handler(type, method)))
+                .forEach(method -> LOGGER.log(Level.WARNING, "@CheckPermission on " + type.getName() + "."
+                        + method.getName() + " is not enforced: " + why));
     }
 
     private Class<?> type(String name) {
@@ -63,11 +80,4 @@ public final class UnenforcedAnnotationsCheck implements SmartInitializingSingle
         }
     }
 
-    private static boolean annotated(Class<?> type) {
-        if (AnnotatedElementUtils.hasAnnotation(type, CheckPermission.class)) {
-            return true;
-        }
-        return Arrays.stream(ReflectionUtils.getUniqueDeclaredMethods(type, ReflectionUtils.USER_DECLARED_METHODS))
-                .anyMatch(method -> AnnotatedElementUtils.hasAnnotation(method, CheckPermission.class));
-    }
 }

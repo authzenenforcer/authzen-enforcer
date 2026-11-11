@@ -17,6 +17,7 @@ import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.util.pattern.PathPattern;
 
 import java.lang.System.Logger.Level;
+import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
@@ -35,7 +36,7 @@ public final class PermissionInterceptor implements HandlerInterceptor {
     // as there are handlers; the cap only guards against a custom claims extractor
     private static final int MAX_WARNED = 1000;
 
-    // The handler method a request was let through to; request attributes cannot be set by the caller
+    // The handler and route a request was let through to; request attributes cannot be set by the caller
     private static final String PASSED = PermissionInterceptor.class.getName() + ".PASSED";
 
     // Answers an OPTIONS request that no mapping declares with the Allow header; no application code
@@ -76,19 +77,19 @@ public final class PermissionInterceptor implements HandlerInterceptor {
         // The second dispatch of an asynchronous request to the handler it was let through to. A
         // filter may start the asynchronous request before any dispatch reached a handler, so the
         // dispatcher type alone does not show that the request was decided
-        if (request.getDispatcherType() == DispatcherType.ASYNC
-                && method.getMethod().equals(request.getAttribute(PASSED))) {
+        String routePattern = routePattern(request);
+        Passed passed = new Passed(method.getBeanType(), method.getMethod(), routePattern);
+        if (request.getDispatcherType() == DispatcherType.ASYNC && passed.equals(request.getAttribute(PASSED))) {
             return true;
         }
         HandlerPermission permission = permissions.get(method);
-        String routePattern = routePattern(request);
         if (!permission.enforces(routePattern)) {
-            request.setAttribute(PASSED, method.getMethod());
+            request.setAttribute(PASSED, passed);
             return true;
         }
         EnforcementResult result = enforce(request, permission, routePattern);
         if (result.isAllowed()) {
-            request.setAttribute(PASSED, method.getMethod());
+            request.setAttribute(PASSED, passed);
             return true;
         }
         resultHandler.handleDenied(request, response, result);
@@ -149,6 +150,9 @@ public final class PermissionInterceptor implements HandlerInterceptor {
     private static Map<String, String> pathVariables(HttpServletRequest request) {
         Object variables = request.getAttribute(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE);
         return variables instanceof Map<?, ?> map ? (Map<String, String>) map : Map.of();
+    }
+
+    private record Passed(Class<?> type, Method method, String routePattern) {
     }
 
     @Override

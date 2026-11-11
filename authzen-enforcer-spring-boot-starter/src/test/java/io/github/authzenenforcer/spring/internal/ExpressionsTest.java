@@ -24,7 +24,7 @@ class ExpressionsTest {
     @ParameterizedTest
     @ValueSource(strings = {"#id", "'literal'", "#request.method", "#request.remoteAddr", "#request.header('X-Trace')",
             "#request.parameter('ref')", "#claims", "#claims['sub']", "#claims.realm_access.roles", "#claims?.email",
-            "#claims['groups'][0]", "#id + '-' + #request.method", "#request.header(#id)"})
+            "#claims['groups'][0]", "#claims?.['acr'] == 'mfa'", "#id + '-' + #request.method"})
     void acceptsWhatExpressionsMayRead(String expression) {
         assertDoesNotThrow(() -> Expressions.parse("the test expression", expression));
     }
@@ -34,7 +34,8 @@ class ExpressionsTest {
             "#request.session", "#request.cookies", "#request.getHeader('Authorization')", "#request['method']",
             "T(java.lang.Runtime).getRuntime()", "new java.lang.Object()", "@someBean", "#id.length()", "#id.bytes",
             "#id[0]", "#request.header('X').length()", "#request.header('X').bytes", "name", "#claims = null",
-            "#claims.sub.getClass()", "#this.class"})
+            "#claims.sub.getClass()", "#this.class", "#request.header(#id)", "#request.parameter(#request.method)",
+            "#request.header('a' + 'b')", "#claims.#request.method", "#claims.#id[0]"})
     void rejectsEverythingElseWhenParsing(String expression) {
         IllegalStateException e = assertThrows(IllegalStateException.class,
                 () -> Expressions.parse("the test expression", expression));
@@ -82,6 +83,13 @@ class ExpressionsTest {
             assertThrows(EvaluationException.class, () -> parser.parseExpression(expression).getValue(context),
                     expression);
         }
+    }
+
+    @Test
+    void readsClaimsOfAnAnonymousCallerNullSafely() {
+        EvaluationContext anonymous = Expressions.context(Map.of(), new RequestView(new MockHttpServletRequest()), null);
+
+        assertEquals(false, Expressions.parse("the test expression", "#claims?.['acr'] == 'mfa'").getValue(anonymous));
     }
 
     private static EvaluationContext context(MockHttpServletRequest request) {

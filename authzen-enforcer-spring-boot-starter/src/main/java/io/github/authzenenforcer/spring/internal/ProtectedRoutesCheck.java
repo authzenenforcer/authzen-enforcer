@@ -57,13 +57,14 @@ public final class ProtectedRoutesCheck implements SmartInitializingSingleton, E
     }
 
     @Override
-    public Set<Class<?>> types() {
-        Set<Class<?>> types = new HashSet<>();
+    public Set<Handler> handlers() {
+        Set<Handler> handlers = new HashSet<>();
         for (RequestMappingInfoHandlerMapping mapping : beans.getBeansOfType(RequestMappingInfoHandlerMapping.class)
                 .values()) {
-            mapping.getHandlerMethods().values().forEach(handler -> types.add(handler.getBeanType()));
+            mapping.getHandlerMethods().values()
+                    .forEach(handler -> handlers.add(new Handler(handler.getBeanType(), handler.getMethod())));
         }
-        return types;
+        return handlers;
     }
 
     private int check(RequestMappingInfo info, HandlerMethod handler) {

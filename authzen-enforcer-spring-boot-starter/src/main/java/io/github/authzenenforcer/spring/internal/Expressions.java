@@ -18,6 +18,7 @@ import org.springframework.expression.spel.ast.FunctionReference;
 import org.springframework.expression.spel.ast.Indexer;
 import org.springframework.expression.spel.ast.MethodReference;
 import org.springframework.expression.spel.ast.PropertyOrFieldReference;
+import org.springframework.expression.spel.ast.StringLiteral;
 import org.springframework.expression.spel.ast.TypeReference;
 import org.springframework.expression.spel.ast.VariableReference;
 import org.springframework.expression.spel.standard.SpelExpression;
@@ -45,7 +46,8 @@ final class Expressions {
     private static final Set<String> REQUEST_PROPERTIES = Set.of("method", "remoteAddr");
     private static final Set<String> REQUEST_METHODS = Set.of("header", "parameter");
     private static final String ALLOWED = "expressions may only read path variables, #request.method,"
-            + " #request.remoteAddr, #request.header(name), #request.parameter(name) and #claims";
+            + " #request.remoteAddr, #request.header('name'), #request.parameter('name') with a literal name,"
+            + " and #claims";
 
     private static final SpelExpressionParser PARSER = new SpelExpressionParser();
     private static final PropertyAccessor REQUEST_ACCESSOR = new RequestAccessor();
@@ -103,7 +105,12 @@ final class Expressions {
             throw rejected(where, node);
         }
         if (node instanceof MethodReference method && !(REQUEST.equals(head) && index == 1
-                && REQUEST_METHODS.contains(method.getName()))) {
+                && REQUEST_METHODS.contains(method.getName()) && method.getChildCount() == 1
+                && method.getChild(0) instanceof StringLiteral)) {
+            // A literal name, so that a caller cannot choose which header or parameter is read
+            throw rejected(where, node);
+        }
+        if (node instanceof VariableReference && index > 0) {
             throw rejected(where, node);
         }
         if (node instanceof PropertyOrFieldReference property && !CLAIMS.equals(head)

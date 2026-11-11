@@ -85,11 +85,14 @@ void cancel(@PathVariable String id) { ... }
 - `resourceId` and the values of `context` (`name=expression`) are SpEL expressions. They may read
   only:
   - path variables by name (`#id`);
-  - `#request.method`, `#request.remoteAddr`, `#request.header(name)` and `#request.parameter(name)`.
+  - `#request.method`, `#request.remoteAddr`, `#request.header('name')` and
+    `#request.parameter('name')`, with a literal name, so that a caller cannot choose what is read.
     Headers and parameters that carry credentials (`Authorization`, `Proxy-Authorization`, `Cookie`,
     `DPoP`, `access_token`) read as `null`;
   - `#claims`, the caller's claims that the subject is inferred from, such as `#claims['sub']` or
-    `#claims.realm_access.roles` (`null` for an anonymous caller).
+    `#claims.realm_access.roles`. It is `null` for an anonymous caller, so on endpoints that
+    anonymous callers reach, read it null-safely, such as `#claims?.['acr']`; otherwise the
+    expression fails and the request is refused before the caller is asked to authenticate.
 
   Types, constructors, beans, other methods and assignments are not available, so an expression
   cannot put the caller's token or other credentials into an evaluation request, nor change state.
@@ -129,8 +132,9 @@ enforced. `OPTIONS` requests are
 not enforced (CORS preflight), whether a handler or Spring MVC itself answers them.
 
 Only handler methods of Spring MVC controllers are enforced. `@CheckPermission` on any other bean,
-such as a service, or in an application without Spring MVC, such as a WebFlux application, has no
-effect; such annotations are logged as warnings at startup. Annotations are read from the class
+such as a service, on a method of a controller that is no handler, or in an application without
+Spring MVC, such as a WebFlux application, has no effect; such annotations are logged as warnings at
+startup. Annotations are read from the class
 of the bean: a controller behind a JDK interface proxy is only enforced through annotations on the
 interface. With a separate management port (`management.server.port`), the Actuator endpoints are
 enforced like the others, but they are not part of the startup check.

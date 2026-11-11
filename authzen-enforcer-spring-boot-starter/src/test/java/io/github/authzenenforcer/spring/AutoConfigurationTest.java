@@ -144,7 +144,7 @@ class AutoConfigurationTest {
                 .withUserConfiguration(Service.class)
                 .run(context -> assertNull(context.getStartupFailure())));
 
-        assertEquals(List.of("@CheckPermission on " + Service.class.getName() + " is not enforced: this application"
+        assertEquals(List.of("@CheckPermission on " + Service.class.getName() + ".approve is not enforced: this application"
                 + " has no Spring MVC (servlet) enforcement; WebFlux is not supported yet"), warnings);
     }
 
@@ -157,8 +157,11 @@ class AutoConfigurationTest {
                 .withPropertyValues("authzen.pdp.url=https://pdp.example.com")
                 .run(context -> assertNull(context.getStartupFailure())));
 
-        assertEquals(List.of("@CheckPermission on " + Service.class.getName() + " is not enforced: only handler"
-                + " methods of Spring MVC controllers are enforced"), warnings);
+        assertEquals(List.of(
+                "@CheckPermission on " + Service.class.getName() + ".approve is not enforced: only handler methods"
+                        + " of Spring MVC controllers are enforced",
+                "@CheckPermission on " + Controller.class.getName() + ".helper is not enforced: only handler methods"
+                        + " of Spring MVC controllers are enforced"), warnings);
     }
 
     // System.Logger writes to java.util.logging when no other logger finder is installed
@@ -213,6 +216,11 @@ class AutoConfigurationTest {
         @GetMapping("/documents/{id}")
         String document() {
             return "document";
+        }
+
+        @CheckPermission(action = "audit")
+        String helper() {
+            return "not a handler";
         }
     }
 
