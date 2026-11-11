@@ -35,6 +35,9 @@ public final class PermissionInterceptor implements HandlerInterceptor {
     // as there are handlers; the cap only guards against a custom claims extractor
     private static final int MAX_WARNED = 1000;
 
+    // The handler method a request was let through to; request attributes cannot be set by the caller
+    private static final String PASSED = PermissionInterceptor.class.getName() + ".PASSED";
+
     private final Enforcer enforcer;
     private final HandlerPermissions permissions;
     private final ClaimsExtractor claimsExtractor;
@@ -64,20 +67,26 @@ public final class PermissionInterceptor implements HandlerInterceptor {
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
             throws Exception {
-        // An asynchronous request was enforced when it was first dispatched, and an error page
-        // reports on a request that was handled already
-        DispatcherType dispatch = request.getDispatcherType();
-        if (!(handler instanceof HandlerMethod method) || dispatch == DispatcherType.ASYNC
-                || dispatch == DispatcherType.ERROR) {
+        // An error page reports on a request that was handled already
+        if (!(handler instanceof HandlerMethod method) || request.getDispatcherType() == DispatcherType.ERROR) {
+            return true;
+        }
+        // The second dispatch of an asynchronous request to the handler it was let through to. A
+        // filter may start the asynchronous request before any dispatch reached a handler, so the
+        // dispatcher type alone does not show that the request was decided
+        if (request.getDispatcherType() == DispatcherType.ASYNC
+                && method.getMethod().equals(request.getAttribute(PASSED))) {
             return true;
         }
         HandlerPermission permission = permissions.get(method);
         String routePattern = routePattern(request);
         if (!permission.enforces(routePattern)) {
+            request.setAttribute(PASSED, method.getMethod());
             return true;
         }
         EnforcementResult result = enforce(request, permission, routePattern);
         if (result.isAllowed()) {
+            request.setAttribute(PASSED, method.getMethod());
             return true;
         }
         resultHandler.handleDenied(request, response, result);

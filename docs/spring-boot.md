@@ -112,7 +112,9 @@ the endpoints of Spring Boot Actuator, such as health probes, except:
 Exclude the Actuator endpoints that must stay reachable, such as `/actuator/health/**`. The
 annotation nearest to the method wins; a method or class annotated with both does not start.
 Only handler methods are enforced: static resources and functional routes are not. Error dispatches
-and the second dispatch of an asynchronous request are not enforced again. `OPTIONS` requests are
+and the second dispatch of an asynchronous request to the handler that was let through on the first one
+are not enforced again; an asynchronous dispatch that a filter starts before any handler ran is
+enforced. `OPTIONS` requests are
 not enforced (CORS preflight).
 
 At startup, every enforced route is checked; routes whose requests would always be refused, such

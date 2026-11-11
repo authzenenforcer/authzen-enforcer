@@ -18,6 +18,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import java.util.List;
@@ -27,10 +28,12 @@ import static org.hamcrest.Matchers.startsWith;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(classes = {TestApplication.class, SecurityEnforcementTest.Security.class})
@@ -112,6 +115,18 @@ class SecurityEnforcementTest {
         assertEquals(Map.of("name", "cancel"), request.get("action"));
         assertEquals(Map.of("type", "order", "id", "7"), request.get("resource"));
         assertEquals(Map.of("ip", "127.0.0.1", "caller", "alice"), request.get("context"));
+    }
+
+    @Test
+    void decidesAnAsynchronousHandlerOnce() throws Exception {
+        MvcResult started = mvc.perform(get("/exports/5").with(alice()))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        mvc.perform(asyncDispatch(started))
+                .andExpect(status().isOk())
+                .andExpect(content().string("export 5"));
+        assertEquals(1, PDP.requests().size());
     }
 
     @Test

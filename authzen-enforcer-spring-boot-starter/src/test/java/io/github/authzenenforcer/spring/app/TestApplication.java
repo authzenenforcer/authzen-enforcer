@@ -14,6 +14,7 @@ import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+import java.util.concurrent.Callable;
 
 /** An application with enforced and open handlers. */
 @SpringBootApplication
@@ -39,6 +40,12 @@ public class TestApplication {
         @PostMapping("/orders/{id}/cancel")
         public String cancel(@PathVariable String id) {
             return "cancelled " + id;
+        }
+
+        @CheckPermission
+        @GetMapping("/exports/{id}")
+        public Callable<String> export(@PathVariable String id) {
+            return () -> "export " + id;
         }
 
         @Approve
