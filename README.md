@@ -28,9 +28,10 @@ requests to a Policy Decision Point (PDP) and returns the decision to your appli
   authorization server. You supply the token, plus the signing key for DPoP. Bearer is available;
   DPoP is planned.
 - **Fail-closed by default.** Any error results in a deny.
-- **Framework integrations (planned):** a Spring Boot starter and a Quarkus extension, both with
-  a `@CheckPermission` annotation that can infer the action and resource from the HTTP method
-  and the route. Until then, the client is used directly from application code.
+- **Framework integrations:** a Spring Boot starter (in development, not released yet) and a
+  Quarkus extension (planned), both with a `@CheckPermission` annotation that can infer the action
+  and resource from the HTTP method and the route. Until then, the client is used directly from
+  application code.
 
 ## Quick start
 
@@ -76,14 +77,15 @@ Treat it as a deny.
 - [Observability](docs/observability.md): listeners, Micrometer and OpenTelemetry
 - [Security model](docs/security-model.md)
 - [Enforcement](docs/enforcement.md): from an HTTP request to a decision
+- [Spring Boot](docs/spring-boot.md): the starter and `@CheckPermission` (not released yet)
 - PDP notes: [Keycloak](docs/pdps/keycloak.md)
 
 ## Planned
 
-Framework integrations will add a `@CheckPermission` annotation, for example with Spring Boot:
+Framework integrations add a `@CheckPermission` annotation, for example with Spring Boot:
 
 ```java
-@CheckPermission                     // action = "read", resource = {type: "document", id: <id>}
+@CheckPermission                     // action = "read", resource = {type: "documents", id: <id>}
 @GetMapping("/documents/{id}")
 public Document getDocument(@PathVariable String id) { ... }
 ```
@@ -93,7 +95,7 @@ public Document getDocument(@PathVariable String id) { ... }
 | Artifact | Java | Status | Description |
 |---|---|---|---|
 | `authzen-enforcer-core` | 17+ | Available | PDP client, model, Bearer. No dependencies. DPoP is planned. |
-| `authzen-enforcer-spring-boot-starter` | 17+ | Planned | Spring Boot 3 auto-configuration and `@CheckPermission` |
+| `authzen-enforcer-spring-boot-starter` | 17+ | In development | Spring Boot 4 auto-configuration and `@CheckPermission` for Spring MVC |
 | `authzen-enforcer-quarkus` | 17+ | Planned | Quarkus 3 extension |
 | `authzen-enforcer-micrometer` | 17+ | Available | Micrometer metrics for the client |
 | `authzen-enforcer-opentelemetry` | 17+ | Available | OpenTelemetry tracing for the client |

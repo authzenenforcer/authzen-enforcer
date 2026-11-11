@@ -9,6 +9,20 @@ the API.
 
 ### Added
 
+- `authzen-enforcer-spring-boot-starter` for Spring Boot 4 (in development; WebFlux and the
+  OAuth 2.0 client adapter follow). It configures an `AuthZenClient` and an `Enforcer` from
+  `authzen.*` properties; only `authzen.pdp.url` is required, and beans of the application replace
+  the defaults. A handler interceptor enforces Spring MVC handlers annotated with
+  `@CheckPermission`, or all of them with `authzen.enforcer.enforce-all`, except
+  `@SkipPermissionCheck` handlers and excluded route patterns. `resourceId` and `context` take SpEL
+  expressions, evaluated read-only. The subject comes from the Spring Security `Authentication`
+  (JWT claims, token or login attributes), or from a `ClaimsExtractor` bean. Denials go through
+  Spring Security's exception handling (`401` with its challenge, `403`), or are sent as a status
+  without it; an `EnforcementResultHandler` bean replaces that. Invalid annotations fail the
+  startup, and routes that cannot be inferred are logged as warnings. The PEP authenticates to the
+  PDP with a `CredentialProvider` bean; callers' tokens are not forwarded.
+- `EnforcementResult.refused(String)` for framework integrations that refuse a request
+  themselves, for example when an expression of the endpoint fails.
 - `Enforcer`: decides whether an HTTP request may proceed, synchronously or with a cancellable
   `enforceAsync(...)`. It infers the evaluation request, asks the PDP and returns an
   `EnforcementResult` with the outcome (`PERMITTED`, `DENIED`, `NOT_ENFORCED`, `UNAUTHENTICATED`,

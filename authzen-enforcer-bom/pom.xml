@@ -34,6 +34,11 @@
                 <artifactId>authzen-enforcer-opentelemetry</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>io.github.authzenenforcer</groupId>
+                <artifactId>authzen-enforcer-spring-boot-starter</artifactId>
+                <version>${project.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 </project>
