@@ -6,9 +6,6 @@ import io.github.authzenenforcer.spring.SkipPermissionCheck;
 
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.expression.Expression;
-import org.springframework.expression.ExpressionParser;
-import org.springframework.expression.ParseException;
-import org.springframework.expression.spel.standard.SpelExpressionParser;
 import org.springframework.http.server.PathContainer;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.util.pattern.PathPattern;
@@ -31,7 +28,7 @@ public final class HandlerPermissions {
 
     private final boolean enforceAll;
     private final List<PathPattern> excludePaths;
-    private final ExpressionParser parser = new SpelExpressionParser();
+    private final int maxIdLength;
     // As many entries as there are handler methods and route patterns, which requests cannot add to
     private final Map<Key, HandlerPermission> permissions = new ConcurrentHashMap<>();
     private final Map<String, Boolean> excluded = new ConcurrentHashMap<>();
@@ -41,10 +38,12 @@ public final class HandlerPermissions {
      *
      * @param enforceAll   whether every handler is enforced
      * @param excludePaths the route patterns that enforce-all leaves out
+     * @param maxIdLength  the maximum length of a resource id that an expression gives
      * @throws IllegalStateException if an exclude path is not a valid pattern
      */
-    public HandlerPermissions(boolean enforceAll, List<String> excludePaths) {
+    public HandlerPermissions(boolean enforceAll, List<String> excludePaths, int maxIdLength) {
         this.enforceAll = enforceAll;
+        this.maxIdLength = maxIdLength;
         this.excludePaths = excludePaths.stream().map(HandlerPermissions::pathPattern).toList();
     }
 
@@ -76,7 +75,7 @@ public final class HandlerPermissions {
         }
         if (enforceAll && !typeSkipped) {
             return new HandlerPermission(name, HandlerPermission.Source.ENFORCE_ALL, PermissionSpec.none(), null,
-                    Map.of(), this::excluded);
+                    Map.of(), this::excluded, maxIdLength);
         }
         return none(name);
     }
@@ -96,7 +95,7 @@ public final class HandlerPermissions {
 
     private static HandlerPermission none(String name) {
         return new HandlerPermission(name, HandlerPermission.Source.NONE, PermissionSpec.none(), null, Map.of(),
-                route -> true);
+                route -> true, 0);
     }
 
     // The method's values win attribute by attribute, and its context entries by name
@@ -122,14 +121,14 @@ public final class HandlerPermissions {
         context.putAll(context(name, onMethod.context()));
         return new HandlerPermission(name, HandlerPermission.Source.ANNOTATION, literals.build(),
                 resourceId.isEmpty() ? null : parse(name, "resourceId", resourceId),
-                Collections.unmodifiableMap(context), route -> false);
+                Collections.unmodifiableMap(context), route -> false, maxIdLength);
     }
 
     private static String attribute(String onMethod, String onType) {
         return onMethod.isEmpty() ? onType : onMethod;
     }
 
-    private Map<String, Expression> context(String name, String[] entries) {
+    private static Map<String, Expression> context(String name, String[] entries) {
         Map<String, Expression> context = new LinkedHashMap<>();
         for (String entry : entries) {
             int separator = entry.indexOf('=');
@@ -146,13 +145,8 @@ public final class HandlerPermissions {
         return context;
     }
 
-    private Expression parse(String name, String attribute, String expression) {
-        try {
-            return parser.parseExpression(expression);
-        } catch (ParseException e) {
-            throw new IllegalStateException("The " + attribute + " expression of " + name + " is invalid: "
-                    + e.getMessage(), e);
-        }
+    private static Expression parse(String name, String attribute, String expression) {
+        return Expressions.parse("the " + attribute + " expression of " + name, expression);
     }
 
     private boolean excluded(String routePattern) {

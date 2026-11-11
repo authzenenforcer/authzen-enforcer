@@ -19,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** Enforcement of every handler, those of Spring Boot Actuator included. */
@@ -71,6 +72,13 @@ class EnforceAllTest {
     @Test
     void leavesExcludedActuatorEndpointsOpen() throws Exception {
         mvc.perform(get("/actuator/health")).andExpect(status().isOk());
+
+        assertTrue(PDP.requests().isEmpty());
+    }
+
+    @Test
+    void leavesOptionsRequestsThatSpringAnswersOpen() throws Exception {
+        mvc.perform(options("/documents/42")).andExpect(status().isOk());
 
         assertTrue(PDP.requests().isEmpty());
     }

@@ -41,12 +41,7 @@ public final class SecurityClaimsExtractor implements ClaimsExtractor {
         return claims(authentication());
     }
 
-    /**
-     * Returns the authentication of the current request.
-     *
-     * @return the authentication, or {@code null} if there is none
-     */
-    public static Authentication authentication() {
+    private static Authentication authentication() {
         return SecurityContextHolder.getContextHolderStrategy().getContext().getAuthentication();
     }
 

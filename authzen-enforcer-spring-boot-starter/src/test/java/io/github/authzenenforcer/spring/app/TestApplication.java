@@ -36,7 +36,8 @@ public class TestApplication {
         }
 
         @CheckPermission(action = "cancel", resourceType = "order", resourceId = "#id",
-                context = {"ip=#request.remoteAddr", "caller=#authentication?.name"})
+                context = {"ip=#request.remoteAddr", "caller=#claims['sub']", "agent=#request.header('User-Agent')",
+                        "auth=#request.header('authorization')", "token=#request.parameter('access_token')"})
         @PostMapping("/orders/{id}/cancel")
         public String cancel(@PathVariable String id) {
             return "cancelled " + id;
@@ -46,6 +47,12 @@ public class TestApplication {
         @GetMapping("/exports/{id}")
         public Callable<String> export(@PathVariable String id) {
             return () -> "export " + id;
+        }
+
+        @CheckPermission(action = "share", resourceType = "note", resourceId = "#request.parameter('ref')")
+        @PostMapping("/notes/share")
+        public String share() {
+            return "shared";
         }
 
         @Approve
@@ -60,7 +67,7 @@ public class TestApplication {
             return "things";
         }
 
-        @CheckPermission(resourceId = "#missing.length()")
+        @CheckPermission(resourceId = "#claims['missing']")
         @GetMapping("/broken/{id}")
         public String broken(@PathVariable String id) {
             return "broken";

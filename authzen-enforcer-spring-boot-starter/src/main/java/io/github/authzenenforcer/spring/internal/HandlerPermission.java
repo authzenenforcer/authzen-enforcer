@@ -35,15 +35,17 @@ public final class HandlerPermission {
     private final Expression resourceId;
     private final Map<String, Expression> context;
     private final Predicate<String> excluded;
+    private final int maxIdLength;
 
     HandlerPermission(String handler, Source source, PermissionSpec literals, Expression resourceId,
-            Map<String, Expression> context, Predicate<String> excluded) {
+            Map<String, Expression> context, Predicate<String> excluded, int maxIdLength) {
         this.handler = handler;
         this.source = source;
         this.literals = literals;
         this.resourceId = resourceId;
         this.context = context;
         this.excluded = excluded;
+        this.maxIdLength = maxIdLength;
     }
 
     /**
@@ -90,13 +92,7 @@ public final class HandlerPermission {
         }
         PermissionSpec.Builder spec = PermissionSpec.builder();
         if (resourceId != null) {
-            Object id = evaluate("resourceId", resourceId, variables);
-            if (id instanceof String || id instanceof Number) {
-                spec.resourceId(id.toString());
-            } else {
-                throw new ExpressionFailure("The resourceId expression of " + handler + " gave "
-                        + (id == null ? "null" : "a " + id.getClass().getName()) + " instead of a string");
-            }
+            spec.resourceId(resourceId(evaluate("resourceId", resourceId, variables)));
         }
         context.forEach((name, expression) -> spec.context(name, evaluate("context " + name, expression, variables)));
         try {
@@ -106,6 +102,23 @@ public final class HandlerPermission {
             throw new ExpressionFailure("A context expression of " + handler + " gave a value that is not"
                     + " JSON-compatible: " + e.getMessage());
         }
+    }
+
+    // The checks that path variables get in the core: the value comes from the caller as well
+    private String resourceId(Object value) {
+        if (!(value instanceof String || value instanceof Number)) {
+            throw new ExpressionFailure("The resourceId expression of " + handler + " gave "
+                    + (value == null ? "null" : "a " + value.getClass().getName()) + " instead of a string");
+        }
+        String id = value.toString();
+        String problem = id.isEmpty() ? "an empty id"
+                : id.length() > maxIdLength ? "an id longer than " + maxIdLength + " characters"
+                : id.codePoints().anyMatch(c -> Character.getType(c) == Character.CONTROL) ? "an id with a control character"
+                : null;
+        if (problem != null) {
+            throw new ExpressionFailure("The resourceId expression of " + handler + " gave " + problem);
+        }
+        return id;
     }
 
     private Object evaluate(String attribute, Expression expression, EvaluationContext variables) {

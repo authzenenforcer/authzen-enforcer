@@ -10,6 +10,7 @@ import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMapping;
 
 import java.lang.System.Logger.Level;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -18,7 +19,7 @@ import java.util.Set;
  * Checks every enforced route once the application context is ready: it fails the startup for
  * invalid annotations, and warns about routes whose requests would be refused.
  */
-public final class ProtectedRoutesCheck implements SmartInitializingSingleton {
+public final class ProtectedRoutesCheck implements SmartInitializingSingleton, EnforcedHandlerTypes {
 
     private static final System.Logger LOGGER = System.getLogger(ProtectedRoutesCheck.class.getName());
 
@@ -53,6 +54,16 @@ public final class ProtectedRoutesCheck implements SmartInitializingSingleton {
         }
         int checked = routes;
         LOGGER.log(Level.DEBUG, () -> "Checked " + checked + " enforced routes");
+    }
+
+    @Override
+    public Set<Class<?>> types() {
+        Set<Class<?>> types = new HashSet<>();
+        for (RequestMappingInfoHandlerMapping mapping : beans.getBeansOfType(RequestMappingInfoHandlerMapping.class)
+                .values()) {
+            mapping.getHandlerMethods().values().forEach(handler -> types.add(handler.getBeanType()));
+        }
+        return types;
     }
 
     private int check(RequestMappingInfo info, HandlerMethod handler) {

@@ -7,6 +7,7 @@ import io.github.authzenenforcer.core.enforce.EnforcementPolicy;
 import io.github.authzenenforcer.core.enforce.Enforcer;
 import io.github.authzenenforcer.core.enforce.SubjectResolver;
 import io.github.authzenenforcer.core.model.Subject;
+import io.github.authzenenforcer.spring.internal.UnenforcedAnnotationsCheck;
 import io.github.authzenenforcer.spring.servlet.AuthZenWebMvcAutoConfiguration;
 
 import org.junit.jupiter.api.Test;
@@ -19,10 +20,15 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -132,12 +138,82 @@ class AutoConfigurationTest {
                 });
     }
 
+    @Test
+    void warnsAboutAnnotationsOutsideSpringMvc() {
+        List<String> warnings = warnings(() -> runner.withPropertyValues("authzen.pdp.url=https://pdp.example.com")
+                .withUserConfiguration(Service.class)
+                .run(context -> assertNull(context.getStartupFailure())));
+
+        assertEquals(List.of("@CheckPermission on " + Service.class.getName() + " is not enforced: this application"
+                + " has no Spring MVC (servlet) enforcement; WebFlux is not supported yet"), warnings);
+    }
+
+    @Test
+    void warnsAboutAnnotatedBeansThatAreNotControllers() {
+        List<String> warnings = warnings(() -> new WebApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(WebMvcAutoConfiguration.class, AuthZenAutoConfiguration.class,
+                        AuthZenWebMvcAutoConfiguration.class))
+                .withUserConfiguration(Service.class, Controller.class)
+                .withPropertyValues("authzen.pdp.url=https://pdp.example.com")
+                .run(context -> assertNull(context.getStartupFailure())));
+
+        assertEquals(List.of("@CheckPermission on " + Service.class.getName() + " is not enforced: only handler"
+                + " methods of Spring MVC controllers are enforced"), warnings);
+    }
+
+    // System.Logger writes to java.util.logging when no other logger finder is installed
+    private static List<String> warnings(Runnable run) {
+        Logger logger = Logger.getLogger(UnenforcedAnnotationsCheck.class.getName());
+        List<String> warnings = new CopyOnWriteArrayList<>();
+        Handler handler = new Handler() {
+            @Override
+            public void publish(LogRecord record) {
+                if (record.getLevel() == java.util.logging.Level.WARNING) {
+                    warnings.add(record.getMessage());
+                }
+            }
+
+            @Override
+            public void flush() {
+            }
+
+            @Override
+            public void close() {
+            }
+        };
+        logger.addHandler(handler);
+        try {
+            run.run();
+        } finally {
+            logger.removeHandler(handler);
+        }
+        return warnings;
+    }
+
     private static String rootMessage(Throwable failure) {
         StringBuilder messages = new StringBuilder();
         for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
             messages.append(cause.getMessage()).append('\n');
         }
         return messages.toString();
+    }
+
+    static class Service {
+
+        @CheckPermission(action = "approve")
+        void approve() {
+            // Not a handler method
+        }
+    }
+
+    @RestController
+    static class Controller {
+
+        @CheckPermission
+        @GetMapping("/documents/{id}")
+        String document() {
+            return "document";
+        }
     }
 
     @RestController

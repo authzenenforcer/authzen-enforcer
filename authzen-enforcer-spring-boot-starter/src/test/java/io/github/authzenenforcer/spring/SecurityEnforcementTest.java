@@ -2,6 +2,8 @@ package io.github.authzenenforcer.spring;
 
 import io.github.authzenenforcer.spring.app.TestApplication;
 
+import jakarta.servlet.http.Cookie;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,6 +23,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -108,13 +111,34 @@ class SecurityEnforcementTest {
 
     @Test
     void evaluatesExpressionsOfTheAnnotation() throws Exception {
-        mvc.perform(post("/orders/7/cancel").with(alice()))
+        mvc.perform(post("/orders/7/cancel").with(alice()).header("User-Agent", "test-agent")
+                        .cookie(new Cookie("SESSION", "s-1")).param("access_token", "t-1"))
                 .andExpect(status().isOk());
 
         Map<String, Object> request = PDP.lastRequest();
         assertEquals(Map.of("name", "cancel"), request.get("action"));
         assertEquals(Map.of("type", "order", "id", "7"), request.get("resource"));
-        assertEquals(Map.of("ip", "127.0.0.1", "caller", "alice"), request.get("context"));
+        Map<String, Object> context = new HashMap<>();
+        context.put("ip", "127.0.0.1");
+        context.put("caller", "alice");
+        context.put("agent", "test-agent");
+        // Credentials stay out of reach of expressions
+        context.put("auth", null);
+        context.put("token", null);
+        assertEquals(context, request.get("context"));
+    }
+
+    @Test
+    void checksAResourceIdThatAnExpressionGives() throws Exception {
+        mvc.perform(post("/notes/share").with(alice()).param("ref", "n-1")).andExpect(status().isOk());
+        assertEquals(Map.of("type", "note", "id", "n-1"), PDP.lastRequest().get("resource"));
+        PDP.reset();
+
+        for (String ref : List.of("", "n\u0007", "n".repeat(1025))) {
+            mvc.perform(post("/notes/share").with(alice()).param("ref", ref)).andExpect(status().isForbidden());
+        }
+        mvc.perform(post("/notes/share").with(alice())).andExpect(status().isForbidden());
+        assertTrue(PDP.requests().isEmpty());
     }
 
     @Test

@@ -11,13 +11,13 @@ import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
-import org.springframework.expression.spel.support.SimpleEvaluationContext;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.util.pattern.PathPattern;
 
 import java.lang.System.Logger.Level;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -38,11 +38,15 @@ public final class PermissionInterceptor implements HandlerInterceptor {
     // The handler method a request was let through to; request attributes cannot be set by the caller
     private static final String PASSED = PermissionInterceptor.class.getName() + ".PASSED";
 
+    // Answers an OPTIONS request that no mapping declares with the Allow header; no application code
+    // runs, and it has no route pattern to infer from
+    private static final String OPTIONS_HANDLER =
+            "org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMapping$HttpOptionsHandler";
+
     private final Enforcer enforcer;
     private final HandlerPermissions permissions;
     private final ClaimsExtractor claimsExtractor;
     private final EnforcementResultHandler resultHandler;
-    private final CurrentAuthentication authentication;
     private final Set<String> warned = ConcurrentHashMap.newKeySet();
 
     /**
@@ -52,23 +56,21 @@ public final class PermissionInterceptor implements HandlerInterceptor {
      * @param permissions     how handlers are enforced
      * @param claimsExtractor gets the caller's claims
      * @param resultHandler   answers requests that are not let through
-     * @param authentication  supplies the {@code #authentication} of expressions, or {@code null}
-     *                        without Spring Security
      */
     public PermissionInterceptor(Enforcer enforcer, HandlerPermissions permissions, ClaimsExtractor claimsExtractor,
-            EnforcementResultHandler resultHandler, CurrentAuthentication authentication) {
+            EnforcementResultHandler resultHandler) {
         this.enforcer = enforcer;
         this.permissions = permissions;
         this.claimsExtractor = claimsExtractor;
         this.resultHandler = resultHandler;
-        this.authentication = authentication;
     }
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
             throws Exception {
         // An error page reports on a request that was handled already
-        if (!(handler instanceof HandlerMethod method) || request.getDispatcherType() == DispatcherType.ERROR) {
+        if (!(handler instanceof HandlerMethod method) || request.getDispatcherType() == DispatcherType.ERROR
+                || OPTIONS_HANDLER.equals(method.getBeanType().getName())) {
             return true;
         }
         // The second dispatch of an asynchronous request to the handler it was let through to. A
@@ -102,20 +104,20 @@ public final class PermissionInterceptor implements HandlerInterceptor {
             return refused("No route pattern is known for a request to " + permission.getHandler());
         }
         Map<String, String> pathVariables = pathVariables(request);
-        PermissionSpec spec;
-        try {
-            spec = permission.spec(variables(request, pathVariables));
-        } catch (HandlerPermission.ExpressionFailure e) {
-            LOGGER.log(Level.DEBUG, "Expression failed", e.getCause());
-            return refused(e.getMessage());
-        }
+        // Exceptions are named by their type only, also at debug level: their messages may quote
+        // claim values or values of the request
         Optional<Map<String, Object>> claims;
         try {
             claims = claimsExtractor.extract(request);
         } catch (RuntimeException e) {
-            // Its message may hold claim values, so only the type is named
-            LOGGER.log(Level.DEBUG, "Extracting the claims failed", e);
             return refused("Extracting the caller's claims failed with " + e.getClass().getName());
+        }
+        PermissionSpec spec;
+        try {
+            spec = permission.spec(Expressions.context(pathVariables, new RequestView(request),
+                    claims.map(Collections::unmodifiableMap).orElse(null)));
+        } catch (HandlerPermission.ExpressionFailure e) {
+            return refused(e.getMessage());
         }
         RequestDescription.Builder description = RequestDescription.builder()
                 .method(request.getMethod())
@@ -123,18 +125,6 @@ public final class PermissionInterceptor implements HandlerInterceptor {
                 .pathVariables(pathVariables);
         claims.ifPresent(description::claims);
         return enforcer.enforce(description.build(), spec);
-    }
-
-    private SimpleEvaluationContext variables(HttpServletRequest request, Map<String, String> pathVariables) {
-        // Read-only: no types, constructors, bean references or assignments
-        SimpleEvaluationContext context = SimpleEvaluationContext.forReadOnlyDataBinding()
-                .withInstanceMethods()
-                .build();
-        pathVariables.forEach(context::setVariable);
-        // Set last, so that a path variable cannot stand in for them
-        context.setVariable("request", request);
-        context.setVariable("authentication", authentication != null ? authentication.get() : null);
-        return context;
     }
 
     private EnforcementResult refused(String reason) {

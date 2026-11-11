@@ -44,7 +44,7 @@ authzen:
 | `authzen.enforcer.subject.type` | `user` | Subject type. |
 | `authzen.enforcer.subject.properties.<name>` | – | Claim copied into a subject property, as a dotted path such as `realm_access.roles`. |
 | `authzen.enforcer.resource.singularize` | `false` | Turn plural route segments into singular resource types. |
-| `authzen.enforcer.resource.max-id-length` | `1024` | Longer resource ids from path variables are denied. |
+| `authzen.enforcer.resource.max-id-length` | `1024` | Longer resource ids from path variables or expressions are denied. |
 | `authzen.enforcer.resource.type-names.<segment>` | – | Resource type of a route segment, such as `analyses: analysis`. |
 
 A bean of the application replaces the default and the properties that configure it: an
@@ -82,20 +82,31 @@ void cancel(@PathVariable String id) { ... }
 ```
 
 - `action`, `resourceType` and `subjectType` are literal values; an empty value means "not given".
-- `resourceId` and the values of `context` (`name=expression`) are SpEL expressions. They see the
-  path variables by name (`#id`), `#request` (the `HttpServletRequest`) and `#authentication`
-  (the Spring Security `Authentication`, or `null`). They are evaluated read-only: properties and
-  methods can be used, types, constructors and beans cannot. `#request` and `#authentication` win
-  over path variables of the same name. The request body is not available, because the check runs
-  before it is read.
+- `resourceId` and the values of `context` (`name=expression`) are SpEL expressions. They may read
+  only:
+  - path variables by name (`#id`);
+  - `#request.method`, `#request.remoteAddr`, `#request.header(name)` and `#request.parameter(name)`.
+    Headers and parameters that carry credentials (`Authorization`, `Proxy-Authorization`, `Cookie`,
+    `DPoP`, `access_token`) read as `null`;
+  - `#claims`, the caller's claims that the subject is inferred from, such as `#claims['sub']` or
+    `#claims.realm_access.roles` (`null` for an anonymous caller).
+
+  Types, constructors, beans, other methods and assignments are not available, so an expression
+  cannot put the caller's token or other credentials into an evaluation request, nor change state.
+  An expression that uses anything else fails the startup. `#request` and `#claims` win over path
+  variables of the same name. The request body is not available, because the check runs before it
+  is read. A value that the application chooses itself, such as a custom API key header, is not
+  recognized as a credential: do not put such values into the context.
 - On a class, the annotation applies to all its handler methods. An annotation on the method wins
   attribute by attribute, and its context entries by name.
 - It works as a meta-annotation, for example `@CheckPermission(action = "approve")` on an
   `@Approve` annotation of the application.
 
-A request whose expression fails, or whose resource id expression gives neither a string nor a
-number, is denied with `403` without asking the PDP, and a warning is logged once. Invalid
-expressions and context entries fail the startup.
+A request whose expression fails is denied with `403` without asking the PDP, and a warning is
+logged once. The same goes for a resource id expression that gives neither a string nor a number,
+or an id that path variables would not be accepted with either: empty, longer than
+`authzen.enforcer.resource.max-id-length`, or with a control character. Invalid expressions and
+context entries fail the startup.
 
 ### Which handlers are enforced
 
@@ -115,7 +126,14 @@ Only handler methods are enforced: static resources and functional routes are no
 and the second dispatch of an asynchronous request to the handler that was let through on the first one
 are not enforced again; an asynchronous dispatch that a filter starts before any handler ran is
 enforced. `OPTIONS` requests are
-not enforced (CORS preflight).
+not enforced (CORS preflight), whether a handler or Spring MVC itself answers them.
+
+Only handler methods of Spring MVC controllers are enforced. `@CheckPermission` on any other bean,
+such as a service, or in an application without Spring MVC, such as a WebFlux application, has no
+effect; such annotations are logged as warnings at startup. Annotations are read from the class
+of the bean: a controller behind a JDK interface proxy is only enforced through annotations on the
+interface. With a separate management port (`management.server.port`), the Actuator endpoints are
+enforced like the others, but they are not part of the startup check.
 
 At startup, every enforced route is checked; routes whose requests would always be refused, such
 as `/{tenant}/documents`, are logged as warnings. Give their values explicitly, in the annotation
@@ -148,4 +166,5 @@ With Spring Security, the subject is inferred from the claims of the `Authentica
 - any other authentication: only `sub`, set to the name of the principal.
 
 Anonymous authentications have no claims. Without Spring Security, every caller is anonymous
-unless the application defines a `ClaimsExtractor` bean.
+unless the application defines a `ClaimsExtractor` bean. Expressions see the same claims as
+`#claims`, never the token itself.

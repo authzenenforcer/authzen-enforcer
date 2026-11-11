@@ -12,8 +12,11 @@ import io.github.authzenenforcer.core.enforce.SubjectResolver;
 import io.github.authzenenforcer.core.model.Subject;
 import io.github.authzenenforcer.core.spi.JsonCodec;
 import io.github.authzenenforcer.core.spi.PepListener;
+import io.github.authzenenforcer.spring.internal.EnforcedHandlerTypes;
+import io.github.authzenenforcer.spring.internal.UnenforcedAnnotationsCheck;
 
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -194,6 +197,20 @@ public class AuthZenAutoConfiguration {
         Enforcer.Builder builder = Enforcer.builder(client).inferrer(inferrer).policy(policy);
         listeners.orderedStream().forEach(builder::listener);
         return builder.build();
+    }
+
+    /**
+     * Creates the check that warns at startup about {@link CheckPermission} annotations that
+     * nothing enforces.
+     *
+     * @param beans    the bean factory
+     * @param enforced the types a web integration enforces, if there is one
+     * @return the check
+     */
+    @Bean
+    public UnenforcedAnnotationsCheck authZenUnenforcedAnnotationsCheck(ConfigurableListableBeanFactory beans,
+            ObjectProvider<EnforcedHandlerTypes> enforced) {
+        return new UnenforcedAnnotationsCheck(beans, enforced);
     }
 
     private static String[] claimPath(String name, String path) {

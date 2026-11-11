@@ -3,7 +3,6 @@ package io.github.authzenenforcer.spring.servlet;
 import io.github.authzenenforcer.core.enforce.Enforcer;
 import io.github.authzenenforcer.spring.AuthZenAutoConfiguration;
 import io.github.authzenenforcer.spring.AuthZenProperties;
-import io.github.authzenenforcer.spring.internal.CurrentAuthentication;
 import io.github.authzenenforcer.spring.internal.HandlerPermissions;
 import io.github.authzenenforcer.spring.internal.PermissionInterceptor;
 import io.github.authzenenforcer.spring.internal.ProtectedRoutesCheck;
@@ -14,7 +13,6 @@ import io.github.authzenenforcer.spring.internal.StatusResultHandler;
 import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.beans.factory.ListableBeanFactory;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -80,7 +78,7 @@ public class AuthZenWebMvcAutoConfiguration {
     @Bean
     public HandlerPermissions authZenHandlerPermissions(AuthZenProperties properties) {
         return new HandlerPermissions(properties.getEnforcer().isEnforceAll(),
-                properties.getEnforcer().getExcludePaths());
+                properties.getEnforcer().getExcludePaths(), properties.getEnforcer().getResource().getMaxIdLength());
     }
 
     /**
@@ -106,20 +104,18 @@ public class AuthZenWebMvcAutoConfiguration {
      * @param permissions     how handlers are enforced
      * @param claimsExtractor the claims extractor
      * @param resultHandler   the result handler
-     * @param authentication  the authentication of expressions, with Spring Security
      * @return the interceptor
      */
     @Bean
     public MappedInterceptor authZenPermissionInterceptor(Enforcer enforcer, HandlerPermissions permissions,
-            ClaimsExtractor claimsExtractor, EnforcementResultHandler resultHandler,
-            ObjectProvider<CurrentAuthentication> authentication) {
+            ClaimsExtractor claimsExtractor, EnforcementResultHandler resultHandler) {
         return new MappedInterceptor(null, new PermissionInterceptor(enforcer, permissions, claimsExtractor,
-                resultHandler, authentication.getIfAvailable()));
+                resultHandler));
     }
 
     // Member classes are processed before the bean methods above, so their beans come first
 
-    /** Claims and the authentication from Spring Security. */
+    /** Claims from Spring Security. */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = "org.springframework.security.core.context.SecurityContextHolder")
     static class SecurityConfiguration {
@@ -128,11 +124,6 @@ public class AuthZenWebMvcAutoConfiguration {
         @ConditionalOnMissingBean
         ClaimsExtractor authZenSecurityClaimsExtractor() {
             return new SecurityClaimsExtractor();
-        }
-
-        @Bean
-        CurrentAuthentication authZenCurrentAuthentication() {
-            return new CurrentAuthentication();
         }
     }
 
