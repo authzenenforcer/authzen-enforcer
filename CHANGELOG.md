@@ -7,22 +7,25 @@ the API.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-12
+
 ### Added
 
-- `authzen-enforcer-spring-boot-starter` for Spring Boot 4 (in development; WebFlux and the
-  OAuth 2.0 client adapter follow). It configures an `AuthZenClient` and an `Enforcer` from
-  `authzen.*` properties; only `authzen.pdp.url` is required, and beans of the application replace
-  the defaults. A handler interceptor enforces Spring MVC handlers annotated with
-  `@CheckPermission`, or all of them with `authzen.enforcer.enforce-all`, except
-  `@SkipPermissionCheck` handlers and excluded route patterns. `resourceId` and `context` take SpEL
-  expressions that may read only path variables, a view of the request without its credentials and
-  the caller's claims; anything else fails the startup. The subject comes from the Spring Security `Authentication`
-  (JWT claims, token or login attributes), or from a `ClaimsExtractor` bean. Denials go through
-  Spring Security's exception handling (`401` with its challenge, `403`), or are sent as a status
-  without it; an `EnforcementResultHandler` bean replaces that. Invalid annotations fail the
-  startup; routes that cannot be inferred, and annotations that nothing enforces (beans that are not
-  controllers, applications without Spring MVC), are logged as warnings. The PEP authenticates to the
-  PDP with a `CredentialProvider` bean; callers' tokens are not forwarded.
+- `authzen-enforcer-spring-boot-starter` for Spring Boot 4, a preview for Spring MVC (WebFlux, an
+  adapter for Spring Security's OAuth 2.0 client and the auto-configuration of metrics follow). It
+  configures an `AuthZenClient` and an `Enforcer` from `authzen.*` properties; only
+  `authzen.pdp.url` is required, and beans of the application replace the defaults. A handler
+  interceptor enforces Spring MVC handlers annotated with `@CheckPermission`, or all of them with
+  `authzen.enforcer.enforce-all`, except `@SkipPermissionCheck` handlers and excluded route
+  patterns. `resourceId` and `context` take SpEL expressions that may read only path variables, a
+  view of the request without its credentials and the caller's claims; anything else fails the
+  startup. The subject comes from the Spring Security `Authentication` (JWT claims, token or login
+  attributes), or from a `ClaimsExtractor` bean. Denials go through Spring Security's exception
+  handling (`401` with its challenge, `403`), or are sent as a status without it; an
+  `EnforcementResultHandler` bean replaces that. Invalid annotations fail the startup; routes that
+  cannot be inferred, and annotations that nothing enforces (beans that are not controllers,
+  applications without Spring MVC), are logged as warnings. The PEP authenticates to the PDP with a
+  `CredentialProvider` bean; callers' tokens are not forwarded.
 - `EnforcementResult.refused(String)` for framework integrations that refuse a request
   themselves, for example when an expression of the endpoint fails.
 - `Enforcer`: decides whether an HTTP request may proceed, synchronously or with a cancellable
@@ -98,5 +101,6 @@ First release.
   and propagates the W3C trace context to the PDP.
 - `authzen-enforcer-bom` for aligning the versions of the modules.
 
-[Unreleased]: https://github.com/authzenenforcer/authzen-enforcer/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/authzenenforcer/authzen-enforcer/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/authzenenforcer/authzen-enforcer/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/authzenenforcer/authzen-enforcer/releases/tag/v0.1.0

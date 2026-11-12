@@ -28,9 +28,9 @@ requests to a Policy Decision Point (PDP) and returns the decision to your appli
   authorization server. You supply the token, plus the signing key for DPoP. Bearer is available;
   DPoP is planned.
 - **Fail-closed by default.** Any error results in a deny.
-- **Framework integrations:** a Spring Boot starter (in development, not released yet) and a
-  Quarkus extension (planned), both with a `@CheckPermission` annotation that can infer the action
-  and resource from the HTTP method and the route. Until then, the client is used directly from
+- **Framework integrations:** a Spring Boot starter (a preview for Spring MVC) and a Quarkus
+  extension (planned), both with a `@CheckPermission` annotation that can infer the action and
+  resource from the HTTP method and the route. Without them, the client is used directly from
   application code.
 
 ## Quick start
@@ -42,7 +42,7 @@ authentication and metadata discovery.
 <dependency>
     <groupId>io.github.authzenenforcer</groupId>
     <artifactId>authzen-enforcer-core</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
 </dependency>
 ```
 
@@ -77,12 +77,27 @@ Treat it as a deny.
 - [Observability](docs/observability.md): listeners, Micrometer and OpenTelemetry
 - [Security model](docs/security-model.md)
 - [Enforcement](docs/enforcement.md): from an HTTP request to a decision
-- [Spring Boot](docs/spring-boot.md): the starter and `@CheckPermission` (not released yet)
+- [Spring Boot](docs/spring-boot.md): the starter and `@CheckPermission` in Spring MVC
 - PDP notes: [Keycloak](docs/pdps/keycloak.md)
 
-## Planned
+## Spring Boot
 
-Framework integrations add a `@CheckPermission` annotation, for example with Spring Boot:
+The starter asks the PDP before every Spring MVC handler annotated with `@CheckPermission`. What
+the annotation does not give is inferred from the request:
+
+```xml
+<dependency>
+    <groupId>io.github.authzenenforcer</groupId>
+    <artifactId>authzen-enforcer-spring-boot-starter</artifactId>
+    <version>0.2.0</version>
+</dependency>
+```
+
+```yaml
+authzen:
+  pdp:
+    url: https://pdp.example.com
+```
 
 ```java
 @CheckPermission                     // action = "read", resource = {type: "documents", id: <id>}
@@ -90,12 +105,16 @@ Framework integrations add a `@CheckPermission` annotation, for example with Spr
 public Document getDocument(@PathVariable String id) { ... }
 ```
 
+The subject comes from the caller's Spring Security authentication. The starter is a preview: it
+supports Spring MVC on Spring Boot 4; WebFlux, an adapter for Spring Security's OAuth 2.0 client
+and the auto-configuration of metrics follow. See [Spring Boot](docs/spring-boot.md).
+
 ## Modules
 
 | Artifact | Java | Status | Description |
 |---|---|---|---|
-| `authzen-enforcer-core` | 17+ | Available | PDP client, model, Bearer. No dependencies. DPoP is planned. |
-| `authzen-enforcer-spring-boot-starter` | 17+ | In development | Spring Boot 4 auto-configuration and `@CheckPermission` for Spring MVC |
+| `authzen-enforcer-core` | 17+ | Available | PDP client, model, Bearer, enforcement of HTTP requests. No dependencies. DPoP is planned. |
+| `authzen-enforcer-spring-boot-starter` | 17+ | Preview | Spring Boot 4 auto-configuration and `@CheckPermission` for Spring MVC; WebFlux is planned |
 | `authzen-enforcer-quarkus` | 17+ | Planned | Quarkus 3 extension |
 | `authzen-enforcer-micrometer` | 17+ | Available | Micrometer metrics for the client |
 | `authzen-enforcer-opentelemetry` | 17+ | Available | OpenTelemetry tracing for the client |

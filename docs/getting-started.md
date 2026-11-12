@@ -12,7 +12,7 @@ The artifacts are published to Maven Central:
 <dependency>
     <groupId>io.github.authzenenforcer</groupId>
     <artifactId>authzen-enforcer-core</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
 </dependency>
 ```
 
@@ -25,7 +25,7 @@ that their versions stay aligned, and leave the versions out of the dependencies
         <dependency>
             <groupId>io.github.authzenenforcer</groupId>
             <artifactId>authzen-enforcer-bom</artifactId>
-            <version>0.1.0</version>
+            <version>0.2.0</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>
