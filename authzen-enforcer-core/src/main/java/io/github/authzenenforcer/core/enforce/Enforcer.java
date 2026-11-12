@@ -9,6 +9,7 @@ import io.github.authzenenforcer.core.event.EventContent;
 import io.github.authzenenforcer.core.event.ListenerDrops;
 import io.github.authzenenforcer.core.internal.client.CallResult;
 import io.github.authzenenforcer.core.internal.event.EventDispatcher;
+import io.github.authzenenforcer.core.internal.text.LogText;
 import io.github.authzenenforcer.core.model.EvaluationRequest;
 import io.github.authzenenforcer.core.model.EvaluationResponse;
 import io.github.authzenenforcer.core.spi.PepListener;
@@ -60,12 +61,16 @@ public final class Enforcer {
 
     private static final System.Logger LOGGER = System.getLogger(Enforcer.class.getName());
 
+    // Causes named in the log of a request without a decision
+    private static final int MAX_CAUSES = 5;
+
     private final AuthZenClient client;
     private final RequestInferrer inferrer;
     private final EnforcementPolicy policy;
     private final EventDispatcher events;
     private final EventDispatcher.Throttle failOpenWarnings = new EventDispatcher.Throttle(System::nanoTime);
     private final EventDispatcher.Throttle componentWarnings = new EventDispatcher.Throttle(System::nanoTime);
+    private final EventDispatcher.Throttle failedWarnings = new EventDispatcher.Throttle(System::nanoTime);
 
     private Enforcer(Builder builder) {
         this.client = builder.client;
@@ -289,6 +294,9 @@ public final class Enforcer {
                         + count + " so far): " + result.getFailure().orElseThrow().getClass().getName());
             }
         }
+        if (result.getOutcome() == EnforcementResult.Outcome.FAILED && result.getRequest().isPresent()) {
+            warnFailed(result.getFailure().orElseThrow());
+        }
         if (events.isActive()) {
             events.publish(event(request, start)
                     .outcome(result.getOutcome())
@@ -297,6 +305,40 @@ public final class Enforcer {
                     .build());
         }
         return result;
+    }
+
+    // Without it, a PEP that cannot reach or authenticate to the PDP denies every request silently.
+    // Requests whose inference failed are warned about in infer(). The message is the SDK's own; the
+    // causes, often the integrator's code such as a token source or JDK exceptions that echo PDP
+    // input, are named by their types only, also at debug level
+    private void warnFailed(AuthZenException failure) {
+        long count = failedWarnings.count();
+        if (failedWarnings.allow()) {
+            LOGGER.log(Level.WARNING, "No decision of the PDP, the request is denied (" + count + " so far): "
+                    + describe(failure) + " (logged at most once a minute, every time at debug level)");
+        }
+        if (LOGGER.isLoggable(Level.DEBUG)) {
+            LOGGER.log(Level.DEBUG, "No decision of the PDP, the request is denied: " + describe(failure));
+        }
+    }
+
+    // The exception may come from a custom client, so that reading it must not fail the request
+    private static String describe(AuthZenException failure) {
+        StringBuilder text = new StringBuilder(failure.getClass().getName());
+        try {
+            text.append(": ").append(LogText.of(String.valueOf(failure.getMessage())));
+            Throwable cause = failure.getCause();
+            for (int depth = 0; cause != null && cause != failure && depth < MAX_CAUSES; depth++) {
+                text.append(depth == 0 ? " (caused by " : " <- ").append(cause.getClass().getName());
+                cause = cause.getCause();
+            }
+            if (failure.getCause() != null) {
+                text.append(')');
+            }
+        } catch (RuntimeException e) {
+            // Keeps what was read so far
+        }
+        return text.toString();
     }
 
     private void publishCancelled(RequestDescription request, long start) {

@@ -36,7 +36,16 @@ if (!result.isAllowed()) {
 | `FAILED` | no | 403 or 503 | no decision: the PDP failed, its circuit breaker is open, or an inference component threw |
 | `FAILED_OPEN` | yes | | the PDP is unavailable, and the policy fails open |
 
-The enforcer never throws for a request it cannot decide; every failure is a result. The PDP's
+The enforcer never throws for a request it cannot decide; every failure is a result. A `FAILED`
+request is also logged as a warning, at most once a minute, with the type and message of the failure,
+such as `Credential provider failed to supply a credential` or `PDP did not respond in time`, and the
+types of its causes; every such request is logged the same way at debug level. The messages of the
+causes are never logged: they may come from your code, such as a token source, or echo what the PDP
+sent. The messages of the default client
+are the SDK's own; a custom `AuthZenClient` should keep request values and response bodies out of
+the messages of its exceptions. Without it, a PEP that cannot reach
+or authenticate to the PDP would deny every request without a trace. Alert on the `failed` outcome
+of the `authzen.enforcements` meter as well. The PDP's
 response, including any reason in its context, is available through `getResponse()` for logs and
 hooks, but is not meant to reach the client.
 
