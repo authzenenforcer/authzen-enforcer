@@ -36,7 +36,8 @@ public final class PermissionInterceptor implements HandlerInterceptor {
     // as there are handlers; the cap only guards against a custom claims extractor
     private static final int MAX_WARNED = 1000;
 
-    // The handler and route a request was let through to; request attributes cannot be set by the caller
+    // The handler, route and path variables a request was let through to; request attributes cannot be
+    // set by the caller
     private static final String PASSED = PermissionInterceptor.class.getName() + ".PASSED";
 
     // Answers an OPTIONS request that no mapping declares with the Allow header; no application code
@@ -78,7 +79,7 @@ public final class PermissionInterceptor implements HandlerInterceptor {
         // filter may start the asynchronous request before any dispatch reached a handler, so the
         // dispatcher type alone does not show that the request was decided
         String routePattern = routePattern(request);
-        Passed passed = new Passed(method.getBeanType(), method.getMethod(), routePattern);
+        Passed passed = new Passed(method.getBeanType(), method.getMethod(), routePattern, Map.copyOf(pathVariables(request)));
         if (request.getDispatcherType() == DispatcherType.ASYNC && passed.equals(request.getAttribute(PASSED))) {
             return true;
         }
@@ -152,7 +153,8 @@ public final class PermissionInterceptor implements HandlerInterceptor {
         return variables instanceof Map<?, ?> map ? (Map<String, String>) map : Map.of();
     }
 
-    private record Passed(Class<?> type, Method method, String routePattern) {
+    // The path variables too: an application may dispatch asynchronously to another URI of the route
+    private record Passed(Class<?> type, Method method, String routePattern, Map<String, String> pathVariables) {
     }
 
     @Override

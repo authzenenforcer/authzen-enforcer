@@ -130,6 +130,32 @@ class RequestInferrerTest {
     }
 
     @Test
+    void refusesAnInvalidPathVariableAlsoWithAnExplicitTypeAndId() {
+        PermissionSpec explicit = PermissionSpec.builder().resourceType("report-list").resourceId("7").build();
+        String route = "/tenants/{t}/projects/{p}/reports";
+
+        EvaluationRequest valid = evaluate(RequestInferrer.defaults(),
+                request("GET", route).pathVariable("t", "acme").pathVariable("p", "7").build(), explicit);
+        Inference invalid = RequestInferrer.defaults().infer(
+                request("GET", route).pathVariable("t", "x".repeat(1025)).pathVariable("p", "7").build(), explicit);
+
+        assertEquals(Action.of("list"), valid.getAction());
+        assertEquals(Map.of("type", "projects", "id", "7"), valid.getResource().getProperties().get("parent"));
+        // The caller must not be able to switch the endpoint to another shape of the request
+        assertEquals(Inference.Kind.REFUSED, invalid.getKind());
+        assertFalse(invalid.isMisconfiguration());
+    }
+
+    @Test
+    void takesAnExplicitTypeAndIdOnARouteThatCannotBeInferredFrom() {
+        EvaluationRequest evaluation = evaluate(RequestInferrer.defaults(),
+                request("GET", "/{tenant}/reports").pathVariable("tenant", "acme").build(),
+                PermissionSpec.builder().resourceType("report").resourceId("r1").build());
+
+        assertEquals(Resource.of("report", "r1"), evaluation.getResource());
+    }
+
+    @Test
     void replacesOnlyTheTypeOfASingleResource() {
         EvaluationRequest evaluation = evaluate(RequestInferrer.defaults(),
                 request("GET", "/documents/{id}").pathVariable("id", "42").build(),

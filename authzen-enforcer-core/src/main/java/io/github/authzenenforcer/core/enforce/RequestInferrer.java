@@ -29,7 +29,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * {@code GET /documents} is a {@code list} of {@code {type: "folder", id: "documents"}}. Whether
  * the resource is a collection, and so the action, and its enclosing resources still come from the
  * route. With both a type and an id, a route that cannot be inferred from is not refused: the
- * explicit resource is used as a single resource. The context holds the members of the spec and
+ * explicit resource is used as a single resource. A path variable that is invalid, such as one
+ * that is too long, is refused in any case. The context holds the members of the spec and
  * the override; nothing is added by default.
  *
  * <p>A request is {@linkplain Inference.Kind#NOT_ENFORCED not enforced} if the action mapper
@@ -182,11 +183,11 @@ public final class RequestInferrer {
         try {
             inferred = resourceInferrer.infer(request, actionGiven);
         } catch (InferenceException e) {
-            if (type.isEmpty() || id.isEmpty()) {
+            // Nothing of the resource needs inferring from a route that cannot be inferred from. An
+            // invalid path variable is the caller's input, which must not choose another request
+            if (type.isEmpty() || id.isEmpty() || !e.isMisconfiguration()) {
                 throw e;
             }
-            // Nothing of the resource needs inferring: a route that cannot be inferred from, or a
-            // path variable that is invalid, is not used
             return InferredResource.single(Resource.of(type.get(), id.get()));
         }
         Resource resource = inferred.getResource();

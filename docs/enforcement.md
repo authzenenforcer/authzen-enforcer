@@ -141,7 +141,8 @@ resource is a collection, and so the action, and its enclosing resources still c
 | `GET /documents/{id}` | type `document` | `{type: "document", id: <id>}` | `read` |
 
 With both a type and an id, the resource is taken as given even on a route that cannot be inferred
-from, such as `/{tenant}/documents`. Each inference step is also a replaceable component:
+from, such as `/{tenant}/documents`. An invalid path variable is refused in any case, whether the
+explicit values use it or not. Each inference step is also a replaceable component:
 `ActionMapper`, `ResourceInferrer` and `SubjectResolver`.
 
 ## Action
