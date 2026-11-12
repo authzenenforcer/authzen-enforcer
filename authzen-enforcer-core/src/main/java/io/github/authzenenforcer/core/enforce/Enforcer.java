@@ -9,6 +9,7 @@ import io.github.authzenenforcer.core.event.EventContent;
 import io.github.authzenenforcer.core.event.ListenerDrops;
 import io.github.authzenenforcer.core.internal.client.CallResult;
 import io.github.authzenenforcer.core.internal.event.EventDispatcher;
+import io.github.authzenenforcer.core.internal.text.LogText;
 import io.github.authzenenforcer.core.model.EvaluationRequest;
 import io.github.authzenenforcer.core.model.EvaluationResponse;
 import io.github.authzenenforcer.core.spi.PepListener;
@@ -66,6 +67,7 @@ public final class Enforcer {
     private final EventDispatcher events;
     private final EventDispatcher.Throttle failOpenWarnings = new EventDispatcher.Throttle(System::nanoTime);
     private final EventDispatcher.Throttle componentWarnings = new EventDispatcher.Throttle(System::nanoTime);
+    private final EventDispatcher.Throttle failedWarnings = new EventDispatcher.Throttle(System::nanoTime);
 
     private Enforcer(Builder builder) {
         this.client = builder.client;
@@ -289,6 +291,9 @@ public final class Enforcer {
                         + count + " so far): " + result.getFailure().orElseThrow().getClass().getName());
             }
         }
+        if (result.getOutcome() == EnforcementResult.Outcome.FAILED && result.getRequest().isPresent()) {
+            warnFailed(result.getFailure().orElseThrow());
+        }
         if (events.isActive()) {
             events.publish(event(request, start)
                     .outcome(result.getOutcome())
@@ -297,6 +302,21 @@ public final class Enforcer {
                     .build());
         }
         return result;
+    }
+
+    // Without it, a PEP that cannot reach or authenticate to the PDP denies every request silently.
+    // Requests whose inference failed are warned about in infer(). The message is the SDK's own; the
+    // cause, often the integrator's code such as a token source, is named by its type only
+    private void warnFailed(AuthZenException failure) {
+        long count = failedWarnings.count();
+        if (failedWarnings.allow()) {
+            Throwable cause = failure.getCause();
+            LOGGER.log(Level.WARNING, "No decision of the PDP, the request is denied (" + count + " so far): "
+                    + failure.getClass().getName() + ": " + LogText.of(String.valueOf(failure.getMessage()))
+                    + (cause != null ? " (caused by " + cause.getClass().getName() + ")" : "")
+                    + " (logged at most once a minute, the exception at debug level)");
+        }
+        LOGGER.log(Level.DEBUG, "No decision of the PDP", failure);
     }
 
     private void publishCancelled(RequestDescription request, long start) {

@@ -352,6 +352,37 @@ class EnforcerTest {
     }
 
     @Test
+    void warnsAboutRequestsWithoutADecisionAtMostOnceAMinute() {
+        TestLoggerFinder.clearRecords();
+        Enforcer enforcer = Enforcer.builder(new StubClient().fail(new AuthZenException(
+                "Credential provider failed to supply a credential", new IllegalStateException("secret-detail")))
+                .client()).build();
+
+        enforcer.enforce(READ, PermissionSpec.none());
+        enforcer.enforce(READ, PermissionSpec.none());
+
+        List<String> warnings = TestLoggerFinder.records().stream()
+                .filter(record -> record.startsWith("WARNING " + Enforcer.class.getName()))
+                .toList();
+        assertEquals(1, warnings.size(), warnings::toString);
+        assertTrue(warnings.get(0).contains("Credential provider failed to supply a credential"));
+        assertTrue(warnings.get(0).contains("caused by java.lang.IllegalStateException"));
+        // The cause's message may come from the integrator's code, and the request holds personal data
+        assertFalse(warnings.get(0).contains("secret-detail"));
+        assertFalse(warnings.get(0).contains("alice-id"));
+    }
+
+    @Test
+    void doesNotWarnAboutADenyOfThePdp() {
+        TestLoggerFinder.clearRecords();
+
+        Enforcer.builder(new StubClient().answer(false).client()).build().enforce(READ, PermissionSpec.none());
+
+        assertTrue(TestLoggerFinder.records().stream()
+                .noneMatch(record -> record.startsWith("WARNING " + Enforcer.class.getName())));
+    }
+
+    @Test
     void warnsAboutFailOpenAtStartupAndWhenItLetsARequestThrough() {
         TestLoggerFinder.clearRecords();
         Enforcer enforcer = Enforcer.builder(new StubClient().fail(new PdpCommunicationException("down")).client())
@@ -402,8 +433,12 @@ class EnforcerTest {
         Enforcer.builder(new StubClient().fail(new PdpCommunicationException("down")).client()).build()
                 .enforce(READ, PermissionSpec.none());
 
-        assertTrue(TestLoggerFinder.records().stream()
-                .noneMatch(record -> record.startsWith("WARNING " + Enforcer.class.getName())));
+        // Only the warning that the request was denied without a decision
+        List<String> warnings = TestLoggerFinder.records().stream()
+                .filter(record -> record.startsWith("WARNING " + Enforcer.class.getName()))
+                .toList();
+        assertEquals(1, warnings.size(), warnings::toString);
+        assertTrue(warnings.get(0).contains("No decision of the PDP, the request is denied"));
     }
 
     @Test
