@@ -2,13 +2,17 @@
 
 The `authzen-enforcer-spring-boot-starter` module configures an `AuthZenClient` and an `Enforcer`
 from properties, and enforces handler methods of Spring MVC annotated with `@CheckPermission`. It
-requires Spring Boot 4.0 or later and Java 17 or later. WebFlux is not supported yet.
+requires Spring Boot 4.0 or later and Java 17 or later.
+
+The starter is a preview, available since 0.2.0. WebFlux, an adapter for Spring Security's OAuth 2.0
+client and the auto-configuration of metrics follow; until then, give the PEP's credential as a
+`CredentialProvider` bean and bind metrics as described in [Observability](observability.md).
 
 ```xml
 <dependency>
     <groupId>io.github.authzenenforcer</groupId>
     <artifactId>authzen-enforcer-spring-boot-starter</artifactId>
-    <version>${authzen-enforcer.version}</version>
+    <version>0.2.0</version>
 </dependency>
 ```
 

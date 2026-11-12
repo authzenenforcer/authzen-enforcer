@@ -6,7 +6,7 @@
 
     <groupId>io.github.authzenenforcer</groupId>
     <artifactId>authzen-enforcer-parent</artifactId>
-    <version>0.2.0-SNAPSHOT</version>
+    <version>0.3.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>AuthZEN Enforcer Parent</name>
@@ -56,7 +56,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <!-- Reproducible builds; updated by the release workflow -->
-        <project.build.outputTimestamp>2026-10-31T00:00:00Z</project.build.outputTimestamp>
+        <project.build.outputTimestamp>2026-11-12T11:02:39Z</project.build.outputTimestamp>
 
         <!-- Baseline for all modules -->
         <maven.compiler.release>17</maven.compiler.release>
