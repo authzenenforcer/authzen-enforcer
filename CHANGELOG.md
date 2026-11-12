@@ -33,7 +33,7 @@ the API.
   requests without a decision and an application-wide fail-open, which only covers an unavailable
   PDP (`PdpCommunicationException`) and is logged and reported.
 - `Enforcer` logs a warning, at most once a minute, when a request is denied because no decision
-  could be obtained (`FAILED`), with the type and message of the failure and the type of its cause,
+  could be obtained (`FAILED`), with the type and message of the failure and the types of its causes,
   so that a PEP that cannot reach or authenticate to the PDP does not deny every request silently.
 - `PepListener.onEnforcementCompleted(...)` with the `EnforcementCompleted` event, and the
   `authzen.enforcements` timer in Micrometer, tagged by outcome.

@@ -367,9 +367,14 @@ class EnforcerTest {
         assertEquals(1, warnings.size(), warnings::toString);
         assertTrue(warnings.get(0).contains("Credential provider failed to supply a credential"));
         assertTrue(warnings.get(0).contains("caused by java.lang.IllegalStateException"));
-        // The cause's message may come from the integrator's code, and the request holds personal data
-        assertFalse(warnings.get(0).contains("secret-detail"));
-        assertFalse(warnings.get(0).contains("alice-id"));
+        // The cause's message may come from the integrator's code, and the request holds personal data:
+        // neither is logged at any level
+        List<String> leaks = TestLoggerFinder.records().stream()
+                .filter(record -> record.contains("secret-detail") || record.contains("alice-id"))
+                .toList();
+        assertTrue(leaks.isEmpty(), leaks::toString);
+        assertTrue(TestLoggerFinder.records().stream().anyMatch(record -> record.startsWith("DEBUG "
+                + Enforcer.class.getName()) && record.contains("caused by java.lang.IllegalStateException")));
     }
 
     @Test
