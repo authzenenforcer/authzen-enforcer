@@ -64,6 +64,11 @@ public @interface CheckPermission {
      * collection, which the action depends on. On {@code GET /documents}, {@code resourceType =
      * "folder"} asks whether the caller may {@code list} {@code {"type": "folder", "id": "documents"}}.
      *
+     * <p>On a collection, the request then no longer says that it is about a collection: give
+     * collections a type that no single resource has, or the PDP cannot tell the collection
+     * {@code documents} from a single resource {@code documents} of the same type. Such handlers are
+     * logged as a warning at startup.
+     *
      * @return the resource type
      */
     String resourceType() default "";
@@ -71,6 +76,10 @@ public @interface CheckPermission {
     /**
      * A SpEL expression for the resource id, such as {@code #id}, or a literal such as
      * {@code 'document'}. Inferred from the route pattern if empty. It replaces only the id.
+     *
+     * <p>On a collection, use a literal: an id from the request, such as a path variable or a
+     * parameter, lets callers choose which collection the PDP is asked about. Such handlers are
+     * logged as a warning at startup.
      *
      * @return the expression
      */

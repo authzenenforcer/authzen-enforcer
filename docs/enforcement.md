@@ -140,6 +140,12 @@ resource is a collection, and so the action, and its enclosing resources still c
 | `GET /documents` | id `document` | `{type: "collection", id: "document"}` | `list` |
 | `GET /documents/{id}` | type `document` | `{type: "document", id: <id>}` | `read` |
 
+An explicit type on a collection drops the `collection` type, which is what tells the PDP that the
+request is about a collection: `{type: "folder", id: "documents"}` is also what a single resource
+`documents` of the type `folder` would be asked about. Give collections a type that no single
+resource has. And name a collection with a literal id, not one from the request, so that callers
+cannot choose which collection is asked about. The Spring Boot starter warns about both at startup.
+
 With both a type and an id, the resource is taken as given even on a route that cannot be inferred
 from, such as `/{tenant}/documents`. An invalid path variable is refused in any case, whether the
 explicit values use it or not. Each inference step is also a replaceable component:

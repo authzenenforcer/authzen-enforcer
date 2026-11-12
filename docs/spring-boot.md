@@ -85,6 +85,11 @@ void cancel(@PathVariable String id) { ... }
   Each attribute replaces only its own part of what is inferred: `@CheckPermission(resourceType =
   "folder")` on `GET /documents` asks to `list` `{type: "folder", id: "documents"}`; the id and the
   action are still inferred. See [Enforcement](enforcement.md#explicit-values-win).
+- On a collection route, two explicit values deserve care, and are logged as warnings at startup:
+  a `resourceType` makes the request look like one about a single resource of that type, so give
+  collections a type that no single resource has; a `resourceId` taken from the request, such as
+  `#request.parameter('folder')`, lets callers choose the collection, so use a literal such as
+  `resourceId = "'documents'"`.
 - `resourceId` and the values of `context` (`name=expression`) are SpEL expressions. They may read
   only:
   - path variables by name (`#id`);

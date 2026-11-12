@@ -1,6 +1,7 @@
 package io.github.authzenenforcer.spring.servlet;
 
 import io.github.authzenenforcer.core.enforce.Enforcer;
+import io.github.authzenenforcer.core.enforce.ResourceInferrer;
 import io.github.authzenenforcer.spring.AuthZenAutoConfiguration;
 import io.github.authzenenforcer.spring.AuthZenProperties;
 import io.github.authzenenforcer.spring.internal.HandlerPermissions;
@@ -13,6 +14,7 @@ import io.github.authzenenforcer.spring.internal.StatusResultHandler;
 import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.beans.factory.ListableBeanFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -84,15 +86,16 @@ public class AuthZenWebMvcAutoConfiguration {
     /**
      * Creates the check of the enforced routes at startup.
      *
-     * @param beans       the bean factory
-     * @param enforcer    the enforcer
-     * @param permissions how handlers are enforced
+     * @param beans            the bean factory
+     * @param enforcer         the enforcer
+     * @param permissions      how handlers are enforced
+     * @param resourceInferrer the resource inferrer, if there is one, to tell collections apart
      * @return the check
      */
     @Bean
     public ProtectedRoutesCheck authZenProtectedRoutesCheck(ListableBeanFactory beans, Enforcer enforcer,
-            HandlerPermissions permissions) {
-        return new ProtectedRoutesCheck(beans, enforcer, permissions);
+            HandlerPermissions permissions, ObjectProvider<ResourceInferrer> resourceInferrer) {
+        return new ProtectedRoutesCheck(beans, enforcer, permissions, resourceInferrer.getIfUnique());
     }
 
     /**

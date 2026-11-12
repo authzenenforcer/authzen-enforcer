@@ -7,6 +7,7 @@ import io.github.authzenenforcer.core.enforce.EnforcementPolicy;
 import io.github.authzenenforcer.core.enforce.Enforcer;
 import io.github.authzenenforcer.core.enforce.SubjectResolver;
 import io.github.authzenenforcer.core.model.Subject;
+import io.github.authzenenforcer.spring.internal.ProtectedRoutesCheck;
 import io.github.authzenenforcer.spring.internal.UnenforcedAnnotationsCheck;
 import io.github.authzenenforcer.spring.servlet.AuthZenWebMvcAutoConfiguration;
 
@@ -164,9 +165,32 @@ class AutoConfigurationTest {
                         + " of Spring MVC controllers are enforced"), warnings);
     }
 
-    // System.Logger writes to java.util.logging when no other logger finder is installed
+    @Test
+    void warnsAboutExplicitValuesThatBlurACollection() {
+        List<String> warnings = warnings(ProtectedRoutesCheck.class, () -> new WebApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(WebMvcAutoConfiguration.class, AuthZenAutoConfiguration.class,
+                        AuthZenWebMvcAutoConfiguration.class))
+                .withUserConfiguration(Collections.class)
+                .withPropertyValues("authzen.pdp.url=https://pdp.example.com")
+                .run(context -> assertNull(context.getStartupFailure())));
+
+        String handlers = Collections.class.getName();
+        assertEquals(List.of(
+                handlers + ".chosen takes the id of the collection /folders from the request, so callers choose which"
+                        + " collection the PDP is asked about. Use a literal id, such as resourceId = \"'documents'\"",
+                handlers + ".typed sets the type of the collection /papers: the PDP is asked about {type: <that type>,"
+                        + " id: <collection>}, as about a single resource of that type with that id. Give collections"
+                        + " a type that no single resource has"),
+                warnings.stream().sorted().toList());
+    }
+
     private static List<String> warnings(Runnable run) {
-        Logger logger = Logger.getLogger(UnenforcedAnnotationsCheck.class.getName());
+        return warnings(UnenforcedAnnotationsCheck.class, run);
+    }
+
+    // System.Logger writes to java.util.logging when no other logger finder is installed
+    private static List<String> warnings(Class<?> source, Runnable run) {
+        Logger logger = Logger.getLogger(source.getName());
         List<String> warnings = new CopyOnWriteArrayList<>();
         Handler handler = new Handler() {
             @Override
@@ -221,6 +245,34 @@ class AutoConfigurationTest {
         @CheckPermission(action = "audit")
         String helper() {
             return "not a handler";
+        }
+    }
+
+    @RestController
+    static class Collections {
+
+        @CheckPermission(resourceType = "belge")
+        @GetMapping("/papers")
+        String typed() {
+            return "papers";
+        }
+
+        @CheckPermission(resourceId = "#request.parameter('folder')")
+        @GetMapping("/folders")
+        String chosen() {
+            return "folders";
+        }
+
+        @CheckPermission(resourceId = "'documents'")
+        @GetMapping("/documents")
+        String literal() {
+            return "documents";
+        }
+
+        @CheckPermission(resourceType = "belge")
+        @GetMapping("/papers/{id}")
+        String single() {
+            return "paper";
         }
     }
 

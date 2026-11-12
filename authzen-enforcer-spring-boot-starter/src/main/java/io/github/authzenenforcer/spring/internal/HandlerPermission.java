@@ -4,6 +4,8 @@ import io.github.authzenenforcer.core.enforce.PermissionSpec;
 
 import org.springframework.expression.EvaluationContext;
 import org.springframework.expression.Expression;
+import org.springframework.expression.spel.ast.Literal;
+import org.springframework.expression.spel.standard.SpelExpression;
 
 import java.util.Map;
 import java.util.function.Predicate;
@@ -77,6 +79,25 @@ public final class HandlerPermission {
             return literals;
         }
         return PermissionSpec.builder().resourceId(EXPRESSION_PLACEHOLDER).build().orElse(literals);
+    }
+
+    /**
+     * Returns whether the handler sets the resource type explicitly.
+     *
+     * @return {@code true} if it does
+     */
+    public boolean setsResourceType() {
+        return literals.getResourceType().isPresent();
+    }
+
+    /**
+     * Returns whether the resource id comes from the request, through an expression that is not a
+     * literal.
+     *
+     * @return {@code true} if it does
+     */
+    public boolean takesResourceIdFromRequest() {
+        return resourceId instanceof SpelExpression expression && !(expression.getAST() instanceof Literal);
     }
 
     /**
