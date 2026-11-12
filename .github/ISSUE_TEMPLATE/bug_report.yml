@@ -1,0 +1,48 @@
+name: Bug report
+description: Something does not work as documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. **A security vulnerability goes to
+        [Report a vulnerability](https://github.com/authzenenforcer/authzen-enforcer/security/advisories/new),
+        not here.** Questions go to [Discussions](https://github.com/authzenenforcer/authzen-enforcer/discussions).
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module
+      options:
+        - authzen-enforcer-core
+        - authzen-enforcer-spring-boot-starter
+        - authzen-enforcer-micrometer
+        - authzen-enforcer-opentelemetry
+        - authzen-enforcer-bom
+        - Documentation
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: "0.2.0"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Java version, and where it applies, Spring Boot version and the PDP with its version.
+      placeholder: "Java 21, Spring Boot 4.0.9, Keycloak 26.8.2"
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead. Logs help; remove tokens and personal data first.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: A minimal configuration, code or test that shows it.

@@ -3,6 +3,14 @@
 Thank you for your interest in contributing. This document describes how to build the project
 and the design rules every change must follow.
 
+Everyone taking part is expected to follow the
+[Code of Conduct](https://github.com/authzenenforcer/.github/blob/main/CODE_OF_CONDUCT.md).
+Questions are welcome in [Discussions](https://github.com/authzenenforcer/authzen-enforcer/discussions);
+issues labelled [good first issue](https://github.com/authzenenforcer/authzen-enforcer/labels/good%20first%20issue)
+are a good place to start. Report security vulnerabilities privately, as the
+[security policy](https://github.com/authzenenforcer/.github/blob/main/SECURITY.md) describes, never in
+a public issue.
+
 ## Building
 
 Requirements: JDK 17 or newer and Maven 3.9 or newer. All modules are compiled with
