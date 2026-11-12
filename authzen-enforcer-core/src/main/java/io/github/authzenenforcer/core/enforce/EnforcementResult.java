@@ -109,7 +109,15 @@ public final class EnforcementResult {
         return UNAUTHENTICATED;
     }
 
-    static EnforcementResult refused(String reason) {
+    /**
+     * Returns a {@link Outcome#REFUSED} result with status {@value #FORBIDDEN}, for a framework
+     * integration that cannot build the request to enforce, for example because an expression of the
+     * endpoint failed. The PDP is not asked.
+     *
+     * @param reason why the request is refused; it must not hold values taken from the request
+     * @return the result
+     */
+    public static EnforcementResult refused(String reason) {
         return new EnforcementResult(Outcome.REFUSED, FORBIDDEN, null, null,
                 Objects.requireNonNull(reason, "reason must not be null"), null);
     }

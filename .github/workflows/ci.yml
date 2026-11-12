@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Weekly, so that a new Micrometer or OpenTelemetry release that breaks the modules shows up
+  # Weekly, so that a new Micrometer, OpenTelemetry or Spring Boot release that breaks the modules shows up
   # even when no pull request is open
   schedule:
     - cron: '0 6 * * 1'
@@ -74,6 +74,28 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Test with the latest OpenTelemetry
         run: mvn -B -ntp -pl authzen-enforcer-opentelemetry -am verify -Dopentelemetry.version=${{ steps.opentelemetry.outputs.version }}
+
+  spring-boot-latest:
+    # The starter compiles against the oldest supported Spring Boot; this checks the newest release
+    name: Spring Boot (latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+      - name: Find the latest Spring Boot release
+        id: spring-boot
+        run: |
+          version=$(curl -fsS https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-dependencies/maven-metadata.xml \
+            | grep -oE '<version>[0-9]+\.[0-9]+\.[0-9]+</version>' | sed -E 's/<\/?version>//g' | sort -V | tail -n 1)
+          test -n "$version"
+          echo "Spring Boot $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Test with the latest Spring Boot
+        run: mvn -B -ntp -pl authzen-enforcer-spring-boot-starter -am verify -Dspring-boot.version=${{ steps.spring-boot.outputs.version }}
 
   interop:
     name: Interop (Keycloak)

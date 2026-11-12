@@ -100,15 +100,69 @@ class RequestInferrerTest {
     }
 
     @Test
-    void namesWhatACollectionHoldsWithAnExplicitType() {
+    void replacesOnlyTheTypeOfACollection() {
         EvaluationRequest evaluation = evaluate(RequestInferrer.defaults(),
                 request("GET", "/tenants/{t}/documents").pathVariable("t", "acme").build(),
-                PermissionSpec.builder().resourceType("document").build());
+                PermissionSpec.builder().resourceType("folder").build());
 
-        assertEquals("collection", evaluation.getResource().getType());
-        assertEquals("document", evaluation.getResource().getId());
+        assertEquals("folder", evaluation.getResource().getType());
+        assertEquals("documents", evaluation.getResource().getId());
         assertEquals(Map.of("type", "tenants", "id", "acme"), evaluation.getResource().getProperties().get("parent"));
         assertEquals(Action.of("list"), evaluation.getAction());
+    }
+
+    @Test
+    void replacesOnlyTheIdOfACollection() {
+        EvaluationRequest evaluation = evaluate(RequestInferrer.defaults(),
+                request("POST", "/documents").build(), PermissionSpec.builder().resourceId("document").build());
+
+        assertEquals(Resource.of("collection", "document"), evaluation.getResource());
+        assertEquals(Action.of("create"), evaluation.getAction());
+    }
+
+    @Test
+    void keepsTheActionOfACollectionWithAnExplicitTypeAndId() {
+        EvaluationRequest evaluation = evaluate(RequestInferrer.defaults(), request("GET", "/documents").build(),
+                PermissionSpec.builder().resourceType("folder").resourceId("document").build());
+
+        assertEquals(Resource.of("folder", "document"), evaluation.getResource());
+        assertEquals(Action.of("list"), evaluation.getAction());
+    }
+
+    @Test
+    void refusesAnInvalidPathVariableAlsoWithAnExplicitTypeAndId() {
+        PermissionSpec explicit = PermissionSpec.builder().resourceType("report-list").resourceId("7").build();
+        String route = "/tenants/{t}/projects/{p}/reports";
+
+        EvaluationRequest valid = evaluate(RequestInferrer.defaults(),
+                request("GET", route).pathVariable("t", "acme").pathVariable("p", "7").build(), explicit);
+        Inference invalid = RequestInferrer.defaults().infer(
+                request("GET", route).pathVariable("t", "x".repeat(1025)).pathVariable("p", "7").build(), explicit);
+
+        assertEquals(Action.of("list"), valid.getAction());
+        assertEquals(Map.of("type", "projects", "id", "7"), valid.getResource().getProperties().get("parent"));
+        // The caller must not be able to switch the endpoint to another shape of the request
+        assertEquals(Inference.Kind.REFUSED, invalid.getKind());
+        assertFalse(invalid.isMisconfiguration());
+    }
+
+    @Test
+    void takesAnExplicitTypeAndIdOnARouteThatCannotBeInferredFrom() {
+        EvaluationRequest evaluation = evaluate(RequestInferrer.defaults(),
+                request("GET", "/{tenant}/reports").pathVariable("tenant", "acme").build(),
+                PermissionSpec.builder().resourceType("report").resourceId("r1").build());
+
+        assertEquals(Resource.of("report", "r1"), evaluation.getResource());
+    }
+
+    @Test
+    void replacesOnlyTheTypeOfASingleResource() {
+        EvaluationRequest evaluation = evaluate(RequestInferrer.defaults(),
+                request("GET", "/documents/{id}").pathVariable("id", "42").build(),
+                PermissionSpec.builder().resourceType("document").build());
+
+        assertEquals(Resource.of("document", "42"), evaluation.getResource());
+        assertEquals(Action.of("read"), evaluation.getAction());
     }
 
     @Test

@@ -24,10 +24,14 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li>inference: the {@link ActionMapper} for the action, the {@link ResourceInferrer} for the
  *       resource, the {@link SubjectResolver} for the subject.</li>
  * </ol>
- * An explicit resource type or id alone replaces that part of the inferred resource; on a
- * collection route, where the inferred resource is {@code {type: "collection", id: "documents"}},
- * either one replaces the id, which names what the collection holds. The context holds the members
- * of the spec and the override; nothing is added by default.
+ * An explicit resource type replaces only the type of the inferred resource, and an explicit id
+ * only its id, on a collection route as on any other: with an explicit type {@code folder},
+ * {@code GET /documents} is a {@code list} of {@code {type: "folder", id: "documents"}}. Whether
+ * the resource is a collection, and so the action, and its enclosing resources still come from the
+ * route. With both a type and an id, a route that cannot be inferred from is not refused: the
+ * explicit resource is used as a single resource. A path variable that is invalid, such as one
+ * that is too long, is refused in any case. The context holds the members of the spec and
+ * the override; nothing is added by default.
  *
  * <p>A request is {@linkplain Inference.Kind#NOT_ENFORCED not enforced} if the action mapper
  * exempts its method and no action is set explicitly. An anonymous caller is
@@ -166,30 +170,33 @@ public final class RequestInferrer {
         }
     }
 
+    // An explicit type or id replaces only that part; the route still tells whether the resource is
+    // a collection, which the action is inferred from, and its enclosing resources
     private InferredResource resource(RequestDescription request, PermissionSpec explicit) {
         Optional<String> type = explicit.getResourceType();
         Optional<String> id = explicit.getResourceId();
-        if (type.isPresent() && id.isPresent()) {
+        boolean actionGiven = explicit.getAction().isPresent();
+        if (type.isEmpty() && id.isEmpty()) {
+            return resourceInferrer.infer(request, actionGiven);
+        }
+        InferredResource inferred;
+        try {
+            inferred = resourceInferrer.infer(request, actionGiven);
+        } catch (InferenceException e) {
+            // Nothing of the resource needs inferring from a route that cannot be inferred from. An
+            // invalid path variable is the caller's input, which must not choose another request
+            if (type.isEmpty() || id.isEmpty() || !e.isMisconfiguration()) {
+                throw e;
+            }
             return InferredResource.single(Resource.of(type.get(), id.get()));
         }
-        InferredResource inferred = resourceInferrer.infer(request, explicit.getAction().isPresent());
-        if (type.isEmpty() && id.isEmpty()) {
-            return inferred;
-        }
         Resource resource = inferred.getResource();
-        if (inferred.isCollection()) {
-            // A collection's id is the type of what it holds, which an explicit type or id names
-            return InferredResource.collection(Resource.builder()
-                    .type(resource.getType())
-                    .id(type.or(() -> id).orElseThrow())
-                    .properties(resource.getProperties())
-                    .build());
-        }
-        return InferredResource.single(Resource.builder()
+        Resource replaced = Resource.builder()
                 .type(type.orElse(resource.getType()))
                 .id(id.orElse(resource.getId()))
                 .properties(resource.getProperties())
-                .build());
+                .build();
+        return inferred.isCollection() ? InferredResource.collection(replaced) : InferredResource.single(replaced);
     }
 
     private void log(InferenceException e) {

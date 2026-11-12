@@ -127,7 +127,28 @@ RouteOverrides overrides = RouteOverrides.builder()
 ```
 
 A route is matched by its pattern exactly as the framework declares it; values for a method win
-over values for every method. Each inference step is also a replaceable component:
+over values for every method.
+
+Each value replaces only its own part of what is inferred. An explicit resource type replaces the
+type and an explicit resource id the id, on collections as on single resources; whether the
+resource is a collection, and so the action, and its enclosing resources still come from the route:
+
+| Route | Explicit values | Resource | Action |
+|---|---|---|---|
+| `GET /documents` | none | `{type: "collection", id: "documents"}` | `list` |
+| `GET /documents` | type `folder` | `{type: "folder", id: "documents"}` | `list` |
+| `GET /documents` | id `document` | `{type: "collection", id: "document"}` | `list` |
+| `GET /documents/{id}` | type `document` | `{type: "document", id: <id>}` | `read` |
+
+An explicit type on a collection drops the `collection` type, which is what tells the PDP that the
+request is about a collection: `{type: "folder", id: "documents"}` is also what a single resource
+`documents` of the type `folder` would be asked about. Give collections a type that no single
+resource has. And name a collection with a literal id, not one from the request, so that callers
+cannot choose which collection is asked about. The Spring Boot starter warns about both at startup.
+
+With both a type and an id, the resource is taken as given even on a route that cannot be inferred
+from, such as `/{tenant}/documents`. An invalid path variable is refused in any case, whether the
+explicit values use it or not. Each inference step is also a replaceable component:
 `ActionMapper`, `ResourceInferrer` and `SubjectResolver`.
 
 ## Action

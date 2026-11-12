@@ -18,4 +18,5 @@ the client behaves; the Javadoc describes each type and method.
   checks.
 - [Enforcement](enforcement.md): deciding about an HTTP request, the outcomes and the policy,
   and how explicit values override what is inferred.
+- [Spring Boot](spring-boot.md): the starter, its properties and `@CheckPermission` in Spring MVC.
 - PDPs: [Keycloak](pdps/keycloak.md).
