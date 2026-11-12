@@ -43,6 +43,15 @@
             <version>${testcontainers.version}</version>
             <scope>test</scope>
         </dependency>
+        <!-- Testcontainers logs through SLF4J; without a binding its messages, such as why a container
+             did not start, are dropped with a warning. The binding must match the SLF4J API that
+             Testcontainers brings (1.7.x); see src/test/resources/simplelogger.properties -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>${slf4j-simple.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

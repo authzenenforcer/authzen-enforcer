@@ -70,6 +70,8 @@
         <reactor.version>3.8.8</reactor.version>
         <mutiny.version>2.9.5</mutiny.version>
         <testcontainers.version>2.0.5</testcontainers.version>
+        <!-- The SLF4J API line of Testcontainers; a 2.x binding would not bind to it -->
+        <slf4j-simple.version>1.7.36</slf4j-simple.version>
 
         <!-- Plugins -->
         <maven-clean-plugin.version>3.5.0</maven-clean-plugin.version>
