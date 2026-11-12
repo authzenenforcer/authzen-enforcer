@@ -1,3 +1,5 @@
+<img src="docs/assets/authzen-enforcer-logo.svg" alt="" width="112" align="right">
+
 # authzen-enforcer
 
 [![CI](https://github.com/authzenenforcer/authzen-enforcer/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/authzenenforcer/authzen-enforcer/actions/workflows/ci.yml)
