@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question
+    url: https://github.com/authzenenforcer/authzen-enforcer/discussions/categories/q-a
+    about: Ask how to use authzen-enforcer in Discussions.
+  - name: Security vulnerability
+    url: https://github.com/authzenenforcer/authzen-enforcer/security/advisories/new
+    about: Report a vulnerability privately, never in a public issue.
