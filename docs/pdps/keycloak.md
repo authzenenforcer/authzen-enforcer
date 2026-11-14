@@ -60,7 +60,9 @@ the identity provider and another PDP. With Keycloak as the PDP, it leads to wro
   that reads groups from a claim (`groupsClaim`) no longer finds them
   ([keycloak/keycloak#53328](https://github.com/keycloak/keycloak/issues/53328)).
 
-Both denials are silent: Keycloak answers `200` with `"decision": false`.
+Map no claims into subject properties yourself either, with `property(...)` or
+`authzen.enforcer.subject.properties.*`, for the same reason. Both denials are silent: Keycloak
+answers `200` with `"decision": false`.
 
 ## Behavior that differs from the specification
 
