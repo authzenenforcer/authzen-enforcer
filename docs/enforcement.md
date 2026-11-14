@@ -237,8 +237,9 @@ callers control them, such refusals are logged at debug level only, and never wi
 tokens, those of the client credentials grant, with a `client_id` claim; the username is not used,
 since a user may be able to choose one such as `service-account-x`. Outside the Keycloak profile,
 use `serviceAccountType(...)` only with an issuer like that: JWT access tokens following RFC 9068
-carry `client_id` in every token. Claims with personal
-data are only sent when mapped:
+carry `client_id` in every token. The Keycloak profile is meant for Keycloak as the identity
+provider and another PDP. With Keycloak as the PDP, use `SubjectResolver.claims()`; see
+[Keycloak](pdps/keycloak.md#subject). Claims with personal data are only sent when mapped:
 
 ```java
 SubjectResolver.keycloak()

@@ -14,8 +14,9 @@ import java.util.Objects;
  * <p>The {@linkplain #claims() claims-based} resolver takes the id from the {@code sub} claim, a
  * stable identifier, and the type {@code user}; it copies the claims it is told to into the
  * subject's properties. The {@linkplain #keycloak() Keycloak profile} adds the roles and groups of a
- * Keycloak access token and recognizes service accounts. Claims with personal data, such as
- * {@code email} or {@code preferred_username}, are only sent when mapped explicitly.
+ * Keycloak access token and recognizes service accounts, for Keycloak as the identity provider and
+ * another PDP; with Keycloak as the PDP, use the claims-based resolver. Claims with personal data,
+ * such as {@code email} or {@code preferred_username}, are only sent when mapped explicitly.
  *
  * <p>Implementations must be thread-safe.
  */
@@ -48,6 +49,14 @@ public interface SubjectResolver {
      * service accounts, recognized by the {@code client_id} claim that Keycloak adds to tokens of
      * the client credentials grant only. The username is not used: a user may be able to choose
      * one such as {@code service-account-x}.
+     *
+     * <p>The profile is meant for Keycloak as the identity provider and another PDP, which learns
+     * the caller's roles and groups and whether it is a service from the subject. With Keycloak as
+     * the PDP, use {@link #claims()} instead. Keycloak evaluates a subject of type {@code client}
+     * only when it is the calling PEP itself, so it would deny every other service account, and it
+     * merges subject properties over the identity it resolves, which can change the decisions of
+     * group policies. It resolves a service account by its {@code sub} like any user and knows its
+     * roles and groups.
      *
      * @return the builder
      */
