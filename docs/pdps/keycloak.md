@@ -42,6 +42,28 @@ credentials provider in the interop tests shows one way to write such a provider
 
 An unknown subject, resource or scope is a deny (`200` with `"decision": false`), not an error.
 
+## Subject
+
+Use `SubjectResolver.claims()`, the default, which sends the caller as type `user` with the id
+from `sub` and no properties. In the Spring Boot starter, keep `authzen.enforcer.subject.profile`
+at `default`. Keycloak resolves the subject by its id and evaluates its policies with the roles and
+groups it knows, so the properties add nothing. A service account calling the application is a
+user to Keycloak as well: `sub` is the id of the client's service account user.
+
+The Keycloak profile (`SubjectResolver.keycloak()`, `profile=keycloak`) is meant for Keycloak as
+the identity provider and another PDP. With Keycloak as the PDP, it leads to wrong denies:
+
+- It sends service accounts with the type `client`. Keycloak evaluates a `client` subject only when
+  its id is the `client_id` of the calling PEP itself, and denies any other client.
+- It sends `roles`, `client_roles` and `groups` as subject properties. Keycloak merges subject
+  properties over the attributes of the user and turns lists into JSON strings, so a group policy
+  that reads groups from a claim (`groupsClaim`) no longer finds them
+  ([keycloak/keycloak#53328](https://github.com/keycloak/keycloak/issues/53328)).
+
+Map no claims into subject properties yourself either, with `property(...)` or
+`authzen.enforcer.subject.properties.*`, for the same reason. Both denials are silent: Keycloak
+answers `200` with `"decision": false`.
+
 ## Behavior that differs from the specification
 
 - Keycloak rejects unknown JSON fields with `400`. This includes `action.properties`, which the

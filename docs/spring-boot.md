@@ -43,7 +43,7 @@ authzen:
 | `authzen.enforcer.fail-open` | `false` | Let requests through when the PDP is unavailable; see [Enforcement](enforcement.md). |
 | `authzen.enforcer.anonymous.enabled` | `false` | Ask the PDP about anonymous callers instead of answering `401`. |
 | `authzen.enforcer.anonymous.type` / `.id` | `anonymous` | Subject of anonymous callers. |
-| `authzen.enforcer.subject.profile` | `default` | `keycloak` adds roles, client roles and groups, and type `client` for service accounts. |
+| `authzen.enforcer.subject.profile` | `default` | `keycloak` adds roles, client roles and groups, and type `client` for service accounts, for Keycloak as the identity provider and another PDP. With Keycloak as the PDP, keep `default`; see [Keycloak](pdps/keycloak.md#subject). |
 | `authzen.enforcer.subject.id-claim` | `sub` | Claim that holds the subject id. |
 | `authzen.enforcer.subject.type` | `user` | Subject type. |
 | `authzen.enforcer.subject.properties.<name>` | – | Claim copied into a subject property, as a dotted path such as `realm_access.roles`. |

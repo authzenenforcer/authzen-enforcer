@@ -7,6 +7,14 @@ the API.
 
 ## [Unreleased]
 
+### Fixed
+
+- The documentation says which subject profile to use with Keycloak as the PDP: the default one.
+  The Keycloak profile is meant for Keycloak as the identity provider and another PDP; Keycloak as
+  the PDP denies the service accounts it sends as type `client`, and its `groups` property can
+  break group policies ([#65](https://github.com/authzenenforcer/authzen-enforcer/issues/65),
+  [#66](https://github.com/authzenenforcer/authzen-enforcer/issues/66)).
+
 ## [0.2.0] - 2026-11-12
 
 ### Added

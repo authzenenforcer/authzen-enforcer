@@ -365,10 +365,14 @@ public class AuthZenProperties {
     /** Built-in sets of subject properties. */
     public enum SubjectProfile {
 
-        /** No properties beyond those mapped explicitly. */
+        /** No properties beyond those mapped explicitly; the profile for Keycloak as the PDP. */
         DEFAULT,
 
-        /** The roles and groups of a Keycloak access token, and type client for service accounts. */
+        /**
+         * The roles and groups of a Keycloak access token, and type client for service accounts,
+         * for Keycloak as the identity provider and another PDP. Keycloak as the PDP denies such
+         * service accounts.
+         */
         KEYCLOAK
     }
 
