@@ -82,6 +82,15 @@ public final class HandlerPermission {
     }
 
     /**
+     * Returns whether the handler sets the action explicitly.
+     *
+     * @return {@code true} if it does
+     */
+    public boolean setsAction() {
+        return literals.getAction().isPresent();
+    }
+
+    /**
      * Returns whether the handler sets the resource type explicitly.
      *
      * @return {@code true} if it does
