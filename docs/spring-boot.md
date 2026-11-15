@@ -93,7 +93,9 @@ void cancel(@PathVariable String id) { ... }
   a `resourceType` makes the request look like one about a single resource of that type, so give
   collections a type that no single resource has; a `resourceId` taken from the request, such as
   `#request.parameter('folder')`, lets callers choose the collection, so use a literal such as
-  `resourceId = "'documents'"`.
+  `resourceId = "'documents'"`. Both together name a single resource, which is not warned about:
+  `GET /documents/{id}/download` with `resourceType = "document"` and `resourceId = "#id"` is about
+  the document.
 - `resourceId` and the values of `context` (`name=expression`) are SpEL expressions. They may read
   only:
   - path variables by name (`#id`);

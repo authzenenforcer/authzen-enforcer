@@ -9,6 +9,9 @@ the API.
 
 ### Fixed
 
+- The Spring Boot starter no longer warns about a route shaped like a collection whose handler
+  names a single resource with an explicit `resourceType` and a `resourceId` from the request,
+  such as `GET /documents/{id}/download` with `resourceType = "document"` and `resourceId = "#id"`.
 - The documentation says which subject profile to use with Keycloak as the PDP: the default one.
   The Keycloak profile is meant for Keycloak as the identity provider and another PDP; Keycloak as
   the PDP denies the service accounts it sends as type `client`, and its `groups` property can

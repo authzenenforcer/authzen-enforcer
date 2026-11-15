@@ -153,7 +153,8 @@ An explicit type on a collection drops the `collection` type, which is what tell
 request is about a collection: `{type: "folder", id: "documents"}` is also what a single resource
 `documents` of the type `folder` would be asked about. Give collections a type that no single
 resource has. And name a collection with a literal id, not one from the request, so that callers
-cannot choose which collection is asked about. The Spring Boot starter warns about both at startup.
+cannot choose which collection is asked about. The Spring Boot starter warns about both at startup,
+except where a type and an id from the request together name a single resource.
 
 With both a type and an id, the resource is taken as given even on a route that cannot be inferred
 from, such as `/{tenant}/documents`. An invalid path variable is refused in any case, whether the

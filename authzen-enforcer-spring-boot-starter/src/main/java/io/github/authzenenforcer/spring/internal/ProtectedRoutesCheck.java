@@ -64,11 +64,13 @@ public final class ProtectedRoutesCheck implements SmartInitializingSingleton, E
         LOGGER.log(Level.DEBUG, () -> "Checked " + checked + " enforced routes");
     }
 
-    // Explicit values that make a collection look like a single resource, or let callers name it
+    // Explicit values that make a collection look like a single resource, or let callers name it.
+    // Neither is set, or both are: a type with an id from the request names a single resource, as
+    // GET /documents/{id}/download does with resourceType = "document" and resourceId = "#id"
     private void checkCollection(HandlerPermission permission, String pattern, List<String> methods) {
         boolean type = permission.setsResourceType();
         boolean idFromRequest = permission.takesResourceIdFromRequest();
-        if ((!type && !idFromRequest) || methods.stream().noneMatch(method -> isCollection(method, pattern))) {
+        if (type == idFromRequest || methods.stream().noneMatch(method -> isCollection(method, pattern))) {
             return;
         }
         if (type) {

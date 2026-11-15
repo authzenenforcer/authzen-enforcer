@@ -178,6 +178,9 @@ class AutoConfigurationTest {
         assertEquals(List.of(
                 handlers + ".chosen takes the id of the collection /folders from the request, so callers choose which"
                         + " collection the PDP is asked about. Use a literal id, such as resourceId = \"'documents'\"",
+                handlers + ".named sets the type of the collection /drawers: the PDP is asked about {type: <that type>,"
+                        + " id: <collection>}, as about a single resource of that type with that id. Give collections"
+                        + " a type that no single resource has",
                 handlers + ".typed sets the type of the collection /papers: the PDP is asked about {type: <that type>,"
                         + " id: <collection>}, as about a single resource of that type with that id. Give collections"
                         + " a type that no single resource has"),
@@ -267,6 +270,20 @@ class AutoConfigurationTest {
         @GetMapping("/documents")
         String literal() {
             return "documents";
+        }
+
+        // A literal id keeps it a collection, which the type makes look like a single resource
+        @CheckPermission(resourceType = "folder", resourceId = "'drawers'")
+        @GetMapping("/drawers")
+        String named() {
+            return "drawers";
+        }
+
+        // A nested collection by its shape, but the explicit values name a single resource
+        @CheckPermission(action = "read", resourceType = "paper", resourceId = "#id")
+        @GetMapping("/papers/{id}/download")
+        String download() {
+            return "paper";
         }
 
         @CheckPermission(resourceType = "belge")
