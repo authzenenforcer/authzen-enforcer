@@ -41,6 +41,10 @@ PDP stops at the deciding item, and the items after it count as denies. `isPermi
 more decisions than the request had items, or fewer under `EXECUTE_ALL` (the default), the call fails
 with a `PdpProtocolException`.
 
+A request without items is a single evaluation of its defaults, as the specification defines, so
+`build()` then requires a default subject, action and resource. When the items come from data, such
+as the documents of a list to filter, skip the call if there are none.
+
 The endpoint comes from `access_evaluations_endpoint` in the metadata. If the PDP publishes metadata
 without it, the PDP does not offer this API: the call fails without contacting it, and the
 application can use `evaluate` for each item instead. Without metadata, the default path

@@ -77,3 +77,13 @@ belongs in the `properties` of the subject, resource or action, or in the contex
   validated before they become part of a request.
 - **Enforcing with evaluations.** A search result is not an access decision; check access with
   `evaluate` before acting on it.
+- **Filtering lists.** Enforcing `GET /documents` asks whether the caller may `list` the
+  collection. A permit lets the handler run and says nothing about the documents in it, so the
+  handler decides what it returns. To return only the documents the caller may read, ask the PDP
+  about them with [batch evaluations](evaluations.md#several-decisions-in-one-call), with the same
+  subject, action and context as reading one document, and filter before paging, or pages come back
+  short and totals count documents the caller cannot see. A decision per document needs a PDP that
+  can decide about each one: one that knows it, as Keycloak knows only its registered resources, or
+  one that gets the attributes its policy needs in the request. The
+  [spring-boot-mvc example](https://github.com/authzenenforcer/authzen-enforcer-examples/tree/main/spring-boot-mvc)
+  filters its list this way.

@@ -9,6 +9,9 @@ the API.
 
 ### Fixed
 
+- The documentation says that a `list` decision on a collection does not filter what the handler
+  returns, and how an application filters a list with batch evaluations; a batch without items is
+  a single evaluation of its defaults.
 - The Spring Boot starter no longer warns about a route shaped like a collection whose handler
   names a single resource with an explicit `action`, an explicit `resourceType` and a `resourceId`
   from the request, such as `GET /documents/{id}/download` with `action = "read"`,
