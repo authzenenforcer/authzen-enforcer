@@ -65,12 +65,15 @@ public final class ProtectedRoutesCheck implements SmartInitializingSingleton, E
     }
 
     // Explicit values that make a collection look like a single resource, or let callers name it.
-    // Neither is set, or both are: a type with an id from the request names a single resource, as
-    // GET /documents/{id}/download does with resourceType = "document" and resourceId = "#id"
+    // A type with an id from the request and an explicit action names a single resource, as
+    // GET /documents/{id}/download does with action = "read", resourceType = "document" and
+    // resourceId = "#id". Without the action, the action of a collection, such as list, is inferred
     private void checkCollection(HandlerPermission permission, String pattern, List<String> methods) {
         boolean type = permission.setsResourceType();
         boolean idFromRequest = permission.takesResourceIdFromRequest();
-        if (type == idFromRequest || methods.stream().noneMatch(method -> isCollection(method, pattern))) {
+        boolean namesSingleResource = type && idFromRequest && permission.setsAction();
+        if ((!type && !idFromRequest) || namesSingleResource
+                || methods.stream().noneMatch(method -> isCollection(method, pattern))) {
             return;
         }
         if (type) {

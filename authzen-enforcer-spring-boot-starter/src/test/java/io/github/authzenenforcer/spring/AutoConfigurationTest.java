@@ -183,7 +183,13 @@ class AutoConfigurationTest {
                         + " a type that no single resource has",
                 handlers + ".typed sets the type of the collection /papers: the PDP is asked about {type: <that type>,"
                         + " id: <collection>}, as about a single resource of that type with that id. Give collections"
-                        + " a type that no single resource has"),
+                        + " a type that no single resource has",
+                handlers + ".versions sets the type of the collection /papers/{id}/versions: the PDP is asked about"
+                        + " {type: <that type>, id: <collection>}, as about a single resource of that type with that id."
+                        + " Give collections a type that no single resource has",
+                handlers + ".versions takes the id of the collection /papers/{id}/versions from the request, so callers"
+                        + " choose which collection the PDP is asked about. Use a literal id, such as resourceId ="
+                        + " \"'documents'\""),
                 warnings.stream().sorted().toList());
     }
 
@@ -279,7 +285,14 @@ class AutoConfigurationTest {
             return "drawers";
         }
 
-        // A nested collection by its shape, but the explicit values name a single resource
+        // Without an explicit action, the shape still makes it a collection: list on {paper, <id>}
+        @CheckPermission(resourceType = "paper", resourceId = "#id")
+        @GetMapping("/papers/{id}/versions")
+        String versions() {
+            return "versions";
+        }
+
+        // A nested collection by its shape, but with the action the explicit values name a single resource
         @CheckPermission(action = "read", resourceType = "paper", resourceId = "#id")
         @GetMapping("/papers/{id}/download")
         String download() {
