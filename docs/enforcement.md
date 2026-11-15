@@ -198,6 +198,10 @@ ask the PDP the same question. Where such routes need different decisions, set t
 type explicitly or with a route override. A collection is never named with a `*` wildcard, which a PDP
 could read as "every resource".
 
+A `list` of a collection decides whether the caller may list it, not which of its members the
+caller may see: the handler runs and returns what it loads. Filtering the members is up to the
+application; see [Security model](security-model.md#what-the-application-is-responsible-for).
+
 Segments are used as they are. `ResourceInferrer.builder().singularize(true)` turns plurals into
 singular types (`documents` → `document`) with conservative rules that get irregular words wrong
 (`movies` → `movy`); `typeName("analyses", "analysis")` names a type for a segment, with or
