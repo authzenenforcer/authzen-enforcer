@@ -93,8 +93,12 @@ spring:
   while the others wait for it without blocking a thread. If the PDP answers `401`, the token is
   dropped and the request is repeated once with a new one.
 - The token is obtained on the thread that needs it first, which may be a thread of the HTTP
-  client, and the token request counts toward the request timeout. If it fails, the request fails
-  without being sent.
+  client. If the token request fails, or takes longer than `authzen.pdp.request-timeout`, the
+  requests waiting for it fail without being sent, and the next request starts another token
+  request. The thread that sent the hung one stays blocked until the token client gives up, and
+  Spring Security's default token client sets no timeout: give the application an
+  `OAuth2AccessTokenResponseClient<OAuth2ClientCredentialsGrantRequest>` bean whose `RestClient`
+  has connect and read timeouts.
 - The token is stored in the application's `OAuth2AuthorizedClientService`, under the principal
   `authzen-enforcer`. An `OAuth2AccessTokenResponseClient<OAuth2ClientCredentialsGrantRequest>` bean
   of the application obtains it, if there is one, for example to authenticate the client with

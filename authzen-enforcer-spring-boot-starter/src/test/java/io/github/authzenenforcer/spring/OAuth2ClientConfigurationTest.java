@@ -161,6 +161,14 @@ class OAuth2ClientConfigurationTest {
     }
 
     @Test
+    void failsToStartWhenThePropertyConfiguresNoCredential() {
+        runner.withPropertyValues("authzen.pdp.client-registration-id=false").run(context -> {
+            assertNotNull(context.getStartupFailure());
+            assertTrue(rootMessage(context.getStartupFailure()).contains("configured no credential"));
+        });
+    }
+
+    @Test
     void failsToStartWithoutSpringSecuritysOAuth2Client() {
         runner.withClassLoader(new FilteredClassLoader("org.springframework.security.oauth2.client"))
                 .run(context -> {

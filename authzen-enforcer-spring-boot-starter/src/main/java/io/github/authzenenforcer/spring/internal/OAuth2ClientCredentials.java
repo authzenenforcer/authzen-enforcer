@@ -15,7 +15,7 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.CompletionStage;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -24,8 +24,10 @@ import java.util.concurrent.locks.ReentrantLock;
  * obtained with the client credentials grant.
  *
  * <p>The token is cached until shortly before it expires. Then a single caller obtains a new one,
- * on its own thread, while the others wait for its result without blocking. When the PDP rejects
- * the token, the authorized client is removed, so that the next call obtains a new token.
+ * on its own thread, while the others wait for its result without blocking. A token request that
+ * takes longer than the refresh timeout fails the callers that wait for it, and the next call starts
+ * another one; the thread that sent it stays blocked until the token client gives up. When the PDP
+ * rejects the token, the authorized client is removed, so that the next call obtains a new token.
  *
  * <p>The manager must not depend on an HTTP request of the application: the client also asks for
  * the credential on its own threads, to repeat a request.
@@ -42,6 +44,7 @@ public final class OAuth2ClientCredentials implements CredentialProvider {
     private final String registrationId;
     private final OAuth2AuthorizedClientManager manager;
     private final OAuth2AuthorizedClientService clients;
+    private final Duration refreshTimeout;
     private final Clock clock;
     private final AtomicReference<Token> current = new AtomicReference<>();
     private final ReentrantLock lock = new ReentrantLock();
@@ -53,17 +56,23 @@ public final class OAuth2ClientCredentials implements CredentialProvider {
      * @param registrationId the client registration, with the client credentials grant
      * @param manager        obtains and stores the authorized client
      * @param clients        stores the authorized client, so that a rejected one can be removed
+     * @param refreshTimeout how long callers wait for a token request before another may start
+     * @throws IllegalArgumentException if the refresh timeout is not positive
      */
     public OAuth2ClientCredentials(String registrationId, OAuth2AuthorizedClientManager manager,
-            OAuth2AuthorizedClientService clients) {
-        this(registrationId, manager, clients, Clock.systemUTC());
+            OAuth2AuthorizedClientService clients, Duration refreshTimeout) {
+        this(registrationId, manager, clients, refreshTimeout, Clock.systemUTC());
     }
 
     OAuth2ClientCredentials(String registrationId, OAuth2AuthorizedClientManager manager,
-            OAuth2AuthorizedClientService clients, Clock clock) {
+            OAuth2AuthorizedClientService clients, Duration refreshTimeout, Clock clock) {
         this.registrationId = Objects.requireNonNull(registrationId, "registrationId must not be null");
         this.manager = Objects.requireNonNull(manager, "manager must not be null");
         this.clients = Objects.requireNonNull(clients, "clients must not be null");
+        this.refreshTimeout = Objects.requireNonNull(refreshTimeout, "refreshTimeout must not be null");
+        if (refreshTimeout.isNegative() || refreshTimeout.isZero()) {
+            throw new IllegalArgumentException("refreshTimeout must be positive");
+        }
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
     }
 
@@ -101,6 +110,9 @@ public final class OAuth2ClientCredentials implements CredentialProvider {
         } finally {
             lock.unlock();
         }
+        // A token request without a timeout of its own must not hold every later caller
+        CompletableFuture.delayedExecutor(refreshTimeout.toNanos(), TimeUnit.NANOSECONDS)
+                .execute(() -> abandon(pending));
         // Obtained outside the lock, which only guards the pending refresh
         AccessCredential credential = null;
         RuntimeException failure = null;
@@ -109,12 +121,7 @@ public final class OAuth2ClientCredentials implements CredentialProvider {
         } catch (RuntimeException e) {
             failure = e;
         } finally {
-            lock.lock();
-            try {
-                refresh = null;
-            } finally {
-                lock.unlock();
-            }
+            release(pending);
             // An error leaves the waiting callers without a result otherwise
             if (credential == null && failure == null) {
                 pending.completeExceptionally(new IllegalStateException("Obtaining the PEP's token failed"));
@@ -126,6 +133,27 @@ public final class OAuth2ClientCredentials implements CredentialProvider {
             pending.complete(credential);
         }
         return pending;
+    }
+
+    private void abandon(CompletableFuture<AccessCredential> pending) {
+        if (pending.isDone()) {
+            return;
+        }
+        release(pending);
+        pending.completeExceptionally(new IllegalStateException("The token request of the OAuth 2.0 client"
+                + " registration '" + registrationId + "' did not complete within " + refreshTimeout));
+    }
+
+    // Only this refresh: a later one may have started after this one was abandoned
+    private void release(CompletableFuture<AccessCredential> pending) {
+        lock.lock();
+        try {
+            if (refresh == pending) {
+                refresh = null;
+            }
+        } finally {
+            lock.unlock();
+        }
     }
 
     @Override
@@ -158,7 +186,16 @@ public final class OAuth2ClientCredentials implements CredentialProvider {
                     + registrationId + "' issued a " + accessToken.getTokenType().getValue()
                     + " token; only bearer tokens are supported");
         }
-        Token token = new Token(accessToken, AccessCredential.bearer(accessToken.getTokenValue()));
+        AccessCredential credential;
+        try {
+            credential = AccessCredential.bearer(accessToken.getTokenValue());
+        } catch (IllegalArgumentException e) {
+            // The manager stored it, and would return it until it expires
+            clients.removeAuthorizedClient(registrationId, PRINCIPAL);
+            throw new IllegalStateException("The token endpoint of the OAuth 2.0 client registration '"
+                    + registrationId + "' issued a token that is not a valid bearer token", e);
+        }
+        Token token = new Token(accessToken, credential);
         current.set(token);
         return token.credential();
     }

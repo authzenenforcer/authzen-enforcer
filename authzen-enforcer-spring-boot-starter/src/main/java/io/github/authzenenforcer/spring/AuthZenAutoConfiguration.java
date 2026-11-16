@@ -255,6 +255,12 @@ public class AuthZenAutoConfiguration {
             throw new IllegalStateException("authzen.pdp.client-registration-id needs Spring Security's OAuth 2.0"
                     + " client: add spring-boot-starter-security-oauth2-client");
         }
+        if (credentialProvider == null) {
+            // Such as the value false, which turns off the condition of the provider
+            throw new IllegalStateException("authzen.pdp.client-registration-id is set to '" + registrationId
+                    + "', but configured no credential: it must name a registration under"
+                    + " spring.security.oauth2.client.registration");
+        }
         if (!(credentialProvider instanceof OAuth2ClientCredentials)) {
             LOGGER.log(Level.WARNING, "authzen.pdp.client-registration-id is ignored: the CredentialProvider bean of"
                     + " the application supplies the PEP's credential");
@@ -320,7 +326,9 @@ public class AuthZenAutoConfiguration {
                         .clientCredentials(grant -> grant.accessTokenResponseClient(responseClient))
                         .build());
             }
-            return new OAuth2ClientCredentials(registrationId, manager, service);
+            // As long as a request waits for its credential at most
+            return new OAuth2ClientCredentials(registrationId, manager, service,
+                    properties.getPdp().getRequestTimeout());
         }
     }
 }
