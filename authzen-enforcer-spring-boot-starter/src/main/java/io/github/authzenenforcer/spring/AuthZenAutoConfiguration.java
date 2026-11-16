@@ -13,14 +13,30 @@ import io.github.authzenenforcer.core.model.Subject;
 import io.github.authzenenforcer.core.spi.JsonCodec;
 import io.github.authzenenforcer.core.spi.PepListener;
 import io.github.authzenenforcer.spring.internal.EnforcedHandlerTypes;
+import io.github.authzenenforcer.spring.internal.OAuth2ClientCredentials;
 import io.github.authzenenforcer.spring.internal.UnenforcedAnnotationsCheck;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.oauth2.client.AuthorizedClientServiceOAuth2AuthorizedClientManager;
+import org.springframework.security.oauth2.client.InMemoryOAuth2AuthorizedClientService;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClientProviderBuilder;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
+import org.springframework.security.oauth2.client.endpoint.OAuth2AccessTokenResponseClient;
+import org.springframework.security.oauth2.client.endpoint.OAuth2ClientCredentialsGrantRequest;
+import org.springframework.security.oauth2.client.registration.ClientRegistration;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.oauth2.core.AuthorizationGrantType;
+import org.springframework.util.ClassUtils;
+
+import java.lang.System.Logger.Level;
 
 /**
  * Auto-configuration of an {@link AuthZenClient} and an {@link Enforcer} from
@@ -30,10 +46,18 @@ import org.springframework.context.annotation.Bean;
  * application replaces both the default and the properties that configure it. The client sends the
  * credential of a {@link CredentialProvider} bean, uses a {@link JsonCodec} bean if there is one,
  * and reports to every {@link PepListener} bean, as does the enforcer.
+ *
+ * <p>With {@code authzen.pdp.client-registration-id}, the credential provider is a client
+ * registration of Spring Security's OAuth 2.0 client with the client credentials grant.
  */
 @AutoConfiguration
 @EnableConfigurationProperties(AuthZenProperties.class)
 public class AuthZenAutoConfiguration {
+
+    private static final System.Logger LOGGER = System.getLogger(AuthZenAutoConfiguration.class.getName());
+
+    private static final String OAUTH2_CLIENT =
+            "org.springframework.security.oauth2.client.OAuth2AuthorizedClientManager";
 
     /**
      * Creates the auto-configuration.
@@ -46,16 +70,20 @@ public class AuthZenAutoConfiguration {
      * Creates the client of the PDP.
      *
      * @param properties  the properties
-     * @param credentials the credential provider, if the application defines one
+     * @param credentials the credential provider, if there is one
      * @param jsonCodec   the JSON codec, if the application defines one
      * @param listeners   the listeners
+     * @param beans       the bean factory
      * @return the client
-     * @throws IllegalStateException if {@code authzen.pdp.url} is not set
+     * @throws IllegalStateException if {@code authzen.pdp.url} is not set, or if
+     *                               {@code authzen.pdp.client-registration-id} is set without Spring
+     *                               Security's OAuth 2.0 client
      */
     @Bean
     @ConditionalOnMissingBean
     public AuthZenClient authZenClient(AuthZenProperties properties, ObjectProvider<CredentialProvider> credentials,
-            ObjectProvider<JsonCodec> jsonCodec, ObjectProvider<PepListener> listeners) {
+            ObjectProvider<JsonCodec> jsonCodec, ObjectProvider<PepListener> listeners,
+            ConfigurableListableBeanFactory beans) {
         AuthZenProperties.Pdp pdp = properties.getPdp();
         String url = pdp.getUrl();
         // Starting without it would leave every protected endpoint without a decision
@@ -72,6 +100,9 @@ public class AuthZenAutoConfiguration {
         }
         // Two candidates fail the startup instead of leaving the client without one
         CredentialProvider credentialProvider = credentials.getIfAvailable();
+        if (pdp.getClientRegistrationId() != null) {
+            checkClientRegistration(credentialProvider, pdp.getClientRegistrationId(), beans.getBeanClassLoader());
+        }
         if (credentialProvider != null) {
             builder.credentials(credentialProvider);
         }
@@ -213,6 +244,34 @@ public class AuthZenAutoConfiguration {
         return new UnenforcedAnnotationsCheck(beans, enforced);
     }
 
+    // Without a credential the PDP rejects every request, so a registration that cannot be used
+    // fails the startup
+    private static void checkClientRegistration(CredentialProvider credentialProvider, String registrationId,
+            ClassLoader classLoader) {
+        if (registrationId.isBlank()) {
+            throw blankRegistrationId();
+        }
+        if (!ClassUtils.isPresent(OAUTH2_CLIENT, classLoader)) {
+            throw new IllegalStateException("authzen.pdp.client-registration-id needs Spring Security's OAuth 2.0"
+                    + " client: add spring-boot-starter-security-oauth2-client");
+        }
+        if (credentialProvider == null) {
+            // Such as the value false, which turns off the condition of the provider
+            throw new IllegalStateException("authzen.pdp.client-registration-id is set to '" + registrationId
+                    + "', but configured no credential: it must name a registration under"
+                    + " spring.security.oauth2.client.registration");
+        }
+        if (!(credentialProvider instanceof OAuth2ClientCredentials)) {
+            LOGGER.log(Level.WARNING, "authzen.pdp.client-registration-id is ignored: the CredentialProvider bean of"
+                    + " the application supplies the PEP's credential");
+        }
+    }
+
+    private static IllegalStateException blankRegistrationId() {
+        return new IllegalStateException("authzen.pdp.client-registration-id must name a registration under"
+                + " spring.security.oauth2.client.registration");
+    }
+
     private static String[] claimPath(String name, String path) {
         String[] members = path.split("\\.", -1);
         for (String member : members) {
@@ -222,5 +281,54 @@ public class AuthZenAutoConfiguration {
             }
         }
         return members;
+    }
+
+    /** The PEP's token from Spring Security's OAuth 2.0 client. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = OAUTH2_CLIENT)
+    @ConditionalOnProperty(prefix = "authzen.pdp", name = "client-registration-id")
+    static class OAuth2ClientConfiguration {
+
+        // Not the application's OAuth2AuthorizedClientManager: Spring Security's default one needs
+        // the current HTTP request, which the client's own threads do not have
+        @Bean
+        @ConditionalOnMissingBean
+        CredentialProvider authZenOAuth2ClientCredentials(AuthZenProperties properties,
+                ObjectProvider<ClientRegistrationRepository> registrations,
+                ObjectProvider<OAuth2AuthorizedClientService> clients,
+                ObjectProvider<OAuth2AccessTokenResponseClient<OAuth2ClientCredentialsGrantRequest>> tokenClient) {
+            String registrationId = properties.getPdp().getClientRegistrationId();
+            if (registrationId.isBlank()) {
+                throw blankRegistrationId();
+            }
+            ClientRegistrationRepository repository = registrations.getIfAvailable();
+            ClientRegistration registration = repository == null
+                    ? null
+                    : repository.findByRegistrationId(registrationId);
+            if (registration == null) {
+                throw new IllegalStateException("authzen.pdp.client-registration-id names '" + registrationId
+                        + "', but there is no such registration under spring.security.oauth2.client.registration");
+            }
+            if (!AuthorizationGrantType.CLIENT_CREDENTIALS.equals(registration.getAuthorizationGrantType())) {
+                throw new IllegalStateException("The OAuth 2.0 client registration '" + registrationId
+                        + "' of authzen.pdp.client-registration-id must use the client_credentials grant, not "
+                        + registration.getAuthorizationGrantType().getValue());
+            }
+            OAuth2AuthorizedClientService service =
+                    clients.getIfAvailable(() -> new InMemoryOAuth2AuthorizedClientService(repository));
+            AuthorizedClientServiceOAuth2AuthorizedClientManager manager =
+                    new AuthorizedClientServiceOAuth2AuthorizedClientManager(repository, service);
+            // As Spring Security does for its own manager, so that the client authentication can be changed
+            OAuth2AccessTokenResponseClient<OAuth2ClientCredentialsGrantRequest> responseClient =
+                    tokenClient.getIfAvailable();
+            if (responseClient != null) {
+                manager.setAuthorizedClientProvider(OAuth2AuthorizedClientProviderBuilder.builder()
+                        .clientCredentials(grant -> grant.accessTokenResponseClient(responseClient))
+                        .build());
+            }
+            // As long as a request waits for its credential at most
+            return new OAuth2ClientCredentials(registrationId, manager, service,
+                    properties.getPdp().getRequestTimeout());
+        }
     }
 }

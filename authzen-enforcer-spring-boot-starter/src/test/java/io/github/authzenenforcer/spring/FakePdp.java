@@ -22,7 +22,9 @@ final class FakePdp implements AutoCloseable {
 
     private final HttpServer server;
     private final List<Map<String, Object>> requests = new ArrayList<>();
+    private final List<String> authorizations = new ArrayList<>();
     private Predicate<Map<String, Object>> decision = request -> true;
+    private Predicate<String> authorized = authorization -> true;
     private int status = 200;
 
     FakePdp() {
@@ -49,6 +51,15 @@ final class FakePdp implements AutoCloseable {
         this.status = status;
     }
 
+    // Requests whose Authorization header does not match are answered with 401
+    synchronized void authorize(Predicate<String> authorized) {
+        this.authorized = authorized;
+    }
+
+    synchronized List<String> authorizations() {
+        return List.copyOf(authorizations);
+    }
+
     synchronized List<Map<String, Object>> requests() {
         return List.copyOf(requests);
     }
@@ -59,7 +70,9 @@ final class FakePdp implements AutoCloseable {
 
     synchronized void reset() {
         requests.clear();
+        authorizations.clear();
         decision = request -> true;
+        authorized = authorization -> true;
         status = 200;
     }
 
@@ -68,10 +81,12 @@ final class FakePdp implements AutoCloseable {
         Map<String, Object> request = JSON.readValue(exchange.getRequestBody().readAllBytes(), Map.class);
         boolean decided;
         int answer;
+        String authorization = exchange.getRequestHeaders().getFirst("Authorization");
         synchronized (this) {
             requests.add(request);
+            authorizations.add(authorization);
             decided = decision.test(request);
-            answer = status;
+            answer = authorized.test(authorization) ? status : 401;
         }
         respond(exchange, answer, answer == 200 ? "{\"decision\":" + decided + "}" : "{}");
     }

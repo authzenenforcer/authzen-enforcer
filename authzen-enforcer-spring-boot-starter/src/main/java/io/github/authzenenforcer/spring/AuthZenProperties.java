@@ -68,6 +68,13 @@ public class AuthZenProperties {
         private boolean discovery = true;
 
         /**
+         * Registration of Spring Security's OAuth 2.0 client, under
+         * spring.security.oauth2.client.registration, whose client credentials grant obtains the
+         * PEP's token for the PDP. A CredentialProvider bean of the application takes precedence.
+         */
+        private String clientRegistrationId;
+
+        /**
          * Returns the base URL of the PDP.
          *
          * @return the URL, or {@code null} if not set
@@ -155,6 +162,25 @@ public class AuthZenProperties {
          */
         public void setDiscovery(boolean discovery) {
             this.discovery = discovery;
+        }
+
+        /**
+         * Returns the registration of Spring Security's OAuth 2.0 client that obtains the PEP's
+         * token.
+         *
+         * @return the registration id, or {@code null} if not set
+         */
+        public String getClientRegistrationId() {
+            return clientRegistrationId;
+        }
+
+        /**
+         * Sets the registration of Spring Security's OAuth 2.0 client that obtains the PEP's token.
+         *
+         * @param clientRegistrationId the registration id
+         */
+        public void setClientRegistrationId(String clientRegistrationId) {
+            this.clientRegistrationId = clientRegistrationId;
         }
     }
 
