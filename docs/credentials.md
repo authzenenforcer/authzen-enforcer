@@ -14,6 +14,9 @@ AuthZenClient client = AuthZenClient.builder()
 Without a provider, requests carry no `Authorization` header. The metadata request never carries
 credentials.
 
+In Spring Boot, the starter can obtain the PEP's token with Spring Security's OAuth 2.0 client
+instead; see [Spring Boot](spring-boot.md#credentials).
+
 ## Writing a provider
 
 The client asks the provider before every request, including a repeated one, and the time the

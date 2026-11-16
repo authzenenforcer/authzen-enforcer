@@ -4,9 +4,8 @@ The `authzen-enforcer-spring-boot-starter` module configures an `AuthZenClient` 
 from properties, and enforces handler methods of Spring MVC annotated with `@CheckPermission`. It
 requires Spring Boot 4.0 or later and Java 17 or later.
 
-The starter is a preview, available since 0.2.0. WebFlux, an adapter for Spring Security's OAuth 2.0
-client and the auto-configuration of metrics follow; until then, give the PEP's credential as a
-`CredentialProvider` bean and bind metrics as described in [Observability](observability.md).
+The starter is a preview, available since 0.2.0. WebFlux and the auto-configuration of metrics
+follow; until then, bind metrics as described in [Observability](observability.md).
 
 ```xml
 <dependency>
@@ -37,6 +36,7 @@ authzen:
 | `authzen.pdp.request-timeout` | `5s` | Timeout of a call, including its retries. |
 | `authzen.pdp.max-retries` | client default | Retries of a call that failed transiently, 0 to 10. |
 | `authzen.pdp.discovery` | `true` | Whether to discover the endpoints from the PDP's metadata. |
+| `authzen.pdp.client-registration-id` | – | Registration of Spring Security's OAuth 2.0 client that obtains the PEP's token; see [Credentials](#credentials). |
 | `authzen.enforcer.enforce-all` | `false` | Enforce every handler method, not only annotated ones. |
 | `authzen.enforcer.exclude-paths` | – | Route patterns that `enforce-all` leaves out, such as `/public/**`. |
 | `authzen.enforcer.error-status` | `403` | Status of a request without a decision: `403` or `503`. |
@@ -64,6 +64,48 @@ authenticates with an identity of its own, such as a service account. The starte
 the caller's token to the PDP: the AuthZEN specification asks the PDP to authenticate the calling
 PEP (section 11.2) and to trust it for the values it sends, the subject included (section 11.4).
 A PDP that accepted the callers' tokens would let any caller ask it directly about any subject.
+
+An application that uses Spring Security's OAuth 2.0 client (`spring-boot-starter-security-oauth2-client`)
+names a client registration instead of writing a provider. The starter then obtains the PEP's token
+with the registration's client credentials grant:
+
+```yaml
+authzen:
+  pdp:
+    url: https://pdp.example.com
+    client-registration-id: pdp
+
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          pdp:
+            client-id: document-portal
+            client-secret: ${PDP_CLIENT_SECRET}
+            authorization-grant-type: client_credentials
+        provider:
+          pdp:
+            token-uri: https://idp.example.com/realms/demo/protocol/openid-connect/token
+```
+
+- The token is cached until a minute before it expires. Then a single request obtains a new one,
+  while the others wait for it without blocking a thread. If the PDP answers `401`, the token is
+  dropped and the request is repeated once with a new one.
+- The token is obtained on the thread that needs it first, which may be a thread of the HTTP
+  client, and the token request counts toward the request timeout. If it fails, the request fails
+  without being sent.
+- The token is stored in the application's `OAuth2AuthorizedClientService`, under the principal
+  `authzen-enforcer`. An `OAuth2AccessTokenResponseClient<OAuth2ClientCredentialsGrantRequest>` bean
+  of the application obtains it, if there is one, for example to authenticate the client with
+  `private_key_jwt`. The application's `OAuth2AuthorizedClientManager` is not used: Spring
+  Security's default one needs the current HTTP request, which the client's own threads do not
+  have.
+- Only bearer tokens are supported; a token of another type fails the request.
+- The application does not start if the property names no registration, a registration of another
+  grant, or if Spring Security's OAuth 2.0 client is missing: the PDP would reject every request. A
+  `CredentialProvider` bean of the application takes precedence over the property, and the starter
+  logs a warning.
 
 A `JsonCodec` bean replaces the internal JSON codec, and every `PepListener` bean is registered
 with both the client and the enforcer.

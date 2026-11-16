@@ -198,7 +198,7 @@ class AutoConfigurationTest {
     }
 
     // System.Logger writes to java.util.logging when no other logger finder is installed
-    private static List<String> warnings(Class<?> source, Runnable run) {
+    static List<String> warnings(Class<?> source, Runnable run) {
         Logger logger = Logger.getLogger(source.getName());
         List<String> warnings = new CopyOnWriteArrayList<>();
         Handler handler = new Handler() {
@@ -226,7 +226,7 @@ class AutoConfigurationTest {
         return warnings;
     }
 
-    private static String rootMessage(Throwable failure) {
+    static String rootMessage(Throwable failure) {
         StringBuilder messages = new StringBuilder();
         for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
             messages.append(cause.getMessage()).append('\n');

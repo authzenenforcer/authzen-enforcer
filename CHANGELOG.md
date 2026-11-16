@@ -7,6 +7,17 @@ the API.
 
 ## [Unreleased]
 
+### Added
+
+- The Spring Boot starter obtains the PEP's token with Spring Security's OAuth 2.0 client when
+  `authzen.pdp.client-registration-id` names a registration with the client credentials grant.
+  The token is cached until shortly before it expires, a single request renews it, and it is
+  dropped when the PDP answers `401`. An `OAuth2AccessTokenResponseClient` bean of the application
+  obtains it, if there is one. A registration that is missing, uses another grant or lacks Spring
+  Security's OAuth 2.0 client fails the startup; a `CredentialProvider` bean of the application
+  takes precedence, with a warning
+  ([#55](https://github.com/authzenenforcer/authzen-enforcer/issues/55)).
+
 ### Fixed
 
 - The documentation says that a `list` decision on a collection does not filter what the handler
