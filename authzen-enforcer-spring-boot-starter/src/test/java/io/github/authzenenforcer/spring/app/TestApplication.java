@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.lang.annotation.ElementType;
@@ -59,6 +60,12 @@ public class TestApplication {
         @PostMapping("/notes/share")
         public String share() {
             return "shared";
+        }
+
+        @CheckPermission(action = "share", resourceType = "note", resourceId = "#request.parameter('ref')")
+        @PostMapping("/parts/share")
+        public String sharePart(@RequestPart("ref") String ref) {
+            return "shared " + ref;
         }
 
         @Approve

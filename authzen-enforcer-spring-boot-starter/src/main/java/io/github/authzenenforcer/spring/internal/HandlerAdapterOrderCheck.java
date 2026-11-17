@@ -8,7 +8,10 @@ import org.springframework.web.reactive.HandlerAdapter;
 
 import java.lang.System.Logger.Level;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -41,18 +44,37 @@ public final class HandlerAdapterOrderCheck implements SmartInitializingSingleto
         List<HandlerAdapter> adapters = new ArrayList<>(BeanFactoryUtils
                 .beansOfTypeIncludingAncestors(beans, HandlerAdapter.class, true, false).values());
         AnnotationAwareOrderComparator.sort(adapters);
+        List<HandlerAdapter> before = adapters.subList(0, Math.max(0, indexOfEnforcement(adapters)));
+        Set<HandlerAdapter> warned = Collections.newSetFromMap(new IdentityHashMap<>());
         for (ProtectedRoutesCheck.Route route : routes.get()) {
-            for (HandlerAdapter adapter : adapters) {
-                if (adapter instanceof PermissionHandlerAdapter) {
-                    break;
+            for (HandlerAdapter adapter : before) {
+                if (warned.contains(adapter)) {
+                    continue;
                 }
-                if (adapter.supports(route.handler())) {
-                    LOGGER.log(Level.WARNING, "The handler adapter " + adapter.getClass().getName() + " runs "
-                            + route.handler() + " before enforcement can decide about it: order it after"
-                            + " PermissionHandlerAdapter, whose order is Ordered.HIGHEST_PRECEDENCE");
-                    return;
+                // The check only warns: an adapter that fails here is reported, not allowed to fail the startup
+                try {
+                    if (adapter.supports(route.handler())) {
+                        warned.add(adapter);
+                        LOGGER.log(Level.WARNING, "The handler adapter " + adapter.getClass().getName() + " runs "
+                                + route.handler() + " before enforcement can decide about it: order it after"
+                                + " PermissionHandlerAdapter, whose order is Ordered.HIGHEST_PRECEDENCE");
+                    }
+                } catch (RuntimeException e) {
+                    warned.add(adapter);
+                    LOGGER.log(Level.WARNING, "The handler adapter " + adapter.getClass().getName() + " failed with "
+                            + e.getClass().getName() + " when asked whether it runs " + route.handler()
+                            + "; if it does, it runs before enforcement can decide");
                 }
             }
         }
+    }
+
+    private static int indexOfEnforcement(List<HandlerAdapter> adapters) {
+        for (int i = 0; i < adapters.size(); i++) {
+            if (adapters.get(i) instanceof PermissionHandlerAdapter) {
+                return i;
+            }
+        }
+        return 0;
     }
 }

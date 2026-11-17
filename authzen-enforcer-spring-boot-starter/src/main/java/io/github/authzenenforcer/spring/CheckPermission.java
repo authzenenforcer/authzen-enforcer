@@ -39,8 +39,8 @@ import java.lang.annotation.Target;
  * Types, constructors, beans, other methods and assignments are not available, so that an
  * expression cannot reach credentials or change state. The request body is not available: the
  * check runs before it is read. Only the fields of a form body are, as parameters with those of the
- * query; a parameter with more than one value, or read from a multipart request in Spring WebFlux,
- * refuses the request. A request whose expressions fail, or whose resource id is not a
+ * query; a parameter with more than one value, or read from a multipart request, refuses the
+ * request. A request whose expressions fail, or whose resource id is not a
  * non-empty string or number within {@code authzen.enforcer.resource.max-id-length} and without
  * control characters, is denied without asking the PDP.
  *

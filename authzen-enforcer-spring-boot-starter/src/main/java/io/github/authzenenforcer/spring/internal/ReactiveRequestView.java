@@ -1,6 +1,6 @@
 package io.github.authzenenforcer.spring.internal;
 
-import org.springframework.http.MediaType;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.util.MultiValueMap;
 
@@ -52,22 +52,11 @@ final class ReactiveRequestView extends RequestView {
 
     @Override
     List<String> parameterValues(String name) {
-        MediaType contentType = request.getHeaders().getContentType();
-        if (contentType != null && "multipart".equalsIgnoreCase(contentType.getType())) {
+        if (isMultipart(request.getHeaders().getFirst(HttpHeaders.CONTENT_TYPE))) {
             throw new MultipartParameterException();
         }
         List<String> values = new ArrayList<>(request.getQueryParams().getOrDefault(name, List.of()));
         values.addAll(form.getOrDefault(name, List.of()));
         return values;
-    }
-
-    /** An expression read a parameter of a multipart request; the request is refused. */
-    static final class MultipartParameterException extends RuntimeException {
-
-        private static final long serialVersionUID = 1L;
-
-        MultipartParameterException() {
-            super("Parameters of multipart requests are not read", null, false, false);
-        }
     }
 }

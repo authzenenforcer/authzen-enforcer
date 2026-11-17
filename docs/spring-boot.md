@@ -166,8 +166,8 @@ void cancel(@PathVariable String id) { ... }
   request: handlers read such parameters differently, so the value the PDP is asked about would not
   be the one the handler acts on. Spring WebFlux's `@RequestParam` reads only the query, while its
   form data and data binding prefer the body; Spring MVC joins the values for a `String` argument.
-  In Spring WebFlux, an expression that reads a parameter of a multipart request refuses it too,
-  because multipart fields are not read. A value that the application chooses itself, such as a custom API key header, is not
+  An expression that reads a parameter of a multipart request refuses it too: a part that carries
+  a file name is no parameter, yet a handler can read it by name, as with `@RequestPart`. A value that the application chooses itself, such as a custom API key header, is not
   recognized as a credential: do not put such values into the context.
 - On a class, the annotation applies to all its handler methods. An annotation on the method wins
   attribute by attribute, and its context entries by name.

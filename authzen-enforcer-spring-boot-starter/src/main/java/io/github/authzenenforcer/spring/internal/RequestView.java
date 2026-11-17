@@ -57,6 +57,7 @@ public abstract class RequestView {
      * @param name the parameter name
      * @return the value, or {@code null} if there is none or it carries credentials
      * @throws AmbiguousParameterException if the parameter has more than one value
+     * @throws MultipartParameterException   if the request is a multipart request
      */
     public final String parameter(String name) {
         if (name == null || CREDENTIAL_PARAMETERS.contains(name)) {
@@ -71,12 +72,31 @@ public abstract class RequestView {
 
     abstract String headerValue(String name);
 
-    // The values of the query and then of the form
+    // The values of the query and then of the form; throws MultipartParameterException for a multipart
+    // request, whose parts a handler can read by name although they are no parameters
     abstract List<String> parameterValues(String name);
+
+    static boolean isMultipart(String contentType) {
+        return contentType != null && contentType.trim().toLowerCase(Locale.ROOT).startsWith("multipart/");
+    }
 
     @Override
     public String toString() {
         return "RequestView";
+    }
+
+    /**
+     * An expression read a parameter of a multipart request; the request is refused. Parts that
+     * carry a file name are no parameters, yet a handler can read them by name, as with
+     * {@code @RequestPart}.
+     */
+    public static final class MultipartParameterException extends RuntimeException {
+
+        private static final long serialVersionUID = 1L;
+
+        MultipartParameterException() {
+            super("Parameters of multipart requests are not read", null, false, false);
+        }
     }
 
     /** A parameter that an expression read has more than one value; the request is refused. */

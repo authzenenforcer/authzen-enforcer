@@ -17,8 +17,7 @@ the API.
   Claims come from the reactive security context; `ReactiveClaimsExtractor` and
   `ReactiveEnforcementResultHandler` beans replace the defaults. `#request.parameter` reads the
   fields of a form body with those of the query, as in Spring MVC; the form is read before the
-  decision only for handlers whose expressions read parameters, and an expression that reads a
-  parameter of a multipart request refuses it. A handler adapter of the application that would run
+  decision only for handlers whose expressions read parameters. A handler adapter of the application that would run
   handler methods before enforcement is logged as a warning at startup
   ([#54](https://github.com/authzenenforcer/authzen-enforcer/issues/54)).
 - The Spring Boot starter obtains the PEP's token with Spring Security's OAuth 2.0 client when
@@ -36,7 +35,9 @@ the API.
 - `#request.parameter` refuses a request whose parameter has more than one value, repeated or both
   in the query and in the form. The expression read the first value, while a handler could act on
   another: Spring MVC joins the values for a `String` argument, and Spring WebFlux's form data and
-  data binding prefer the body.
+  data binding prefer the body. An expression that reads a parameter of a multipart request
+  refuses it, in both stacks: a part with a file name is no parameter, yet `@RequestPart` reads it
+  by name.
 - The documentation says that a `list` decision on a collection does not filter what the handler
   returns, and how an application filters a list with batch evaluations; a batch without items is
   a single evaluation of its defaults.
