@@ -2,6 +2,8 @@ package io.github.authzenenforcer.spring.internal;
 
 import jakarta.servlet.http.HttpServletRequest;
 
+import java.util.List;
+
 /**
  * The view of a Spring MVC request. Parameters are those of the query and of a form body, which
  * the servlet container parses.
@@ -30,7 +32,8 @@ final class ServletRequestView extends RequestView {
     }
 
     @Override
-    String parameterValue(String name) {
-        return request.getParameter(name);
+    List<String> parameterValues(String name) {
+        String[] values = request.getParameterValues(name);
+        return values == null ? List.of() : List.of(values);
     }
 }

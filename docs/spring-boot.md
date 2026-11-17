@@ -160,9 +160,14 @@ void cancel(@PathVariable String id) { ... }
   An expression that uses anything else fails the startup. `#request` and `#claims` win over path
   variables of the same name. The request body is not available, because the check runs before it
   is read, except for the fields of a form (`application/x-www-form-urlencoded`), which
-  `#request.parameter` reads after those of the query. Spring WebFlux reads such a form before the
-  decision only for handlers whose expressions read parameters, and keeps it for the handler;
-  multipart fields are not read. A value that the application chooses itself, such as a custom API key header, is not
+  `#request.parameter` reads with those of the query. Spring WebFlux reads such a form before the
+  decision only for handlers whose expressions read parameters, and keeps it for the handler.
+  A parameter with more than one value, repeated or both in the query and in the form, refuses the
+  request: handlers read such parameters differently, so the value the PDP is asked about would not
+  be the one the handler acts on. Spring WebFlux's `@RequestParam` reads only the query, while its
+  form data and data binding prefer the body; Spring MVC joins the values for a `String` argument.
+  In Spring WebFlux, an expression that reads a parameter of a multipart request refuses it too,
+  because multipart fields are not read. A value that the application chooses itself, such as a custom API key header, is not
   recognized as a credential: do not put such values into the context.
 - On a class, the annotation applies to all its handler methods. An annotation on the method wins
   attribute by attribute, and its context entries by name.

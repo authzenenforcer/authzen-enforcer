@@ -1,14 +1,18 @@
 package io.github.authzenenforcer.spring.internal;
 
+import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.util.MultiValueMap;
 
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * The view of a Spring WebFlux request. Parameters are those of the query and, as with a servlet
- * container, then those of a form body, which is read before the request is decided only if an
- * expression of the handler reads parameters.
+ * The view of a Spring WebFlux request. Parameters are those of the query and of a form body,
+ * which is read before the request is decided only if an expression of the handler reads
+ * parameters. The fields of a multipart body are not read, so an expression that reads a parameter
+ * of a multipart request is refused: the handler could act on a field of the same name.
  */
 final class ReactiveRequestView extends RequestView {
 
@@ -47,8 +51,23 @@ final class ReactiveRequestView extends RequestView {
     }
 
     @Override
-    String parameterValue(String name) {
-        String value = request.getQueryParams().getFirst(name);
-        return value != null ? value : form.getFirst(name);
+    List<String> parameterValues(String name) {
+        MediaType contentType = request.getHeaders().getContentType();
+        if (contentType != null && "multipart".equalsIgnoreCase(contentType.getType())) {
+            throw new MultipartParameterException();
+        }
+        List<String> values = new ArrayList<>(request.getQueryParams().getOrDefault(name, List.of()));
+        values.addAll(form.getOrDefault(name, List.of()));
+        return values;
+    }
+
+    /** An expression read a parameter of a multipart request; the request is refused. */
+    static final class MultipartParameterException extends RuntimeException {
+
+        private static final long serialVersionUID = 1L;
+
+        MultipartParameterException() {
+            super("Parameters of multipart requests are not read", null, false, false);
+        }
     }
 }

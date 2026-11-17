@@ -142,6 +142,14 @@ class SecurityEnforcementTest {
     }
 
     @Test
+    void refusesARepeatedParameterWithoutAskingThePdp() throws Exception {
+        // Spring MVC gives a String argument "n-1,n-2", while the expression would read n-1
+        mvc.perform(post("/notes/share").with(alice()).param("ref", "n-1", "n-2")).andExpect(status().isForbidden());
+
+        assertTrue(PDP.requests().isEmpty());
+    }
+
+    @Test
     void decidesAnAsynchronousHandlerOnce() throws Exception {
         MvcResult started = mvc.perform(get("/exports/5").with(alice()))
                 .andExpect(request().asyncStarted())

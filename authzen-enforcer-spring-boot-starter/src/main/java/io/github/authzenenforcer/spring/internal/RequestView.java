@@ -1,5 +1,6 @@
 package io.github.authzenenforcer.spring.internal;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
@@ -45,21 +46,46 @@ public abstract class RequestView {
     }
 
     /**
-     * Returns the first value of a query or form parameter, unless it carries credentials.
+     * Returns the value of a query or form parameter, unless it carries credentials.
+     *
+     * <p>A parameter with more than one value, repeated or both in the query and in the form, is
+     * refused: handlers read such parameters differently, so the value an expression read would not
+     * be the one the handler acts on. Spring WebFlux's {@code @RequestParam} reads only the query,
+     * while its form data and data binding prefer the body; Spring MVC joins the values for a
+     * {@code String} argument.
      *
      * @param name the parameter name
      * @return the value, or {@code null} if there is none or it carries credentials
+     * @throws AmbiguousParameterException if the parameter has more than one value
      */
     public final String parameter(String name) {
-        return name == null || CREDENTIAL_PARAMETERS.contains(name) ? null : parameterValue(name);
+        if (name == null || CREDENTIAL_PARAMETERS.contains(name)) {
+            return null;
+        }
+        List<String> values = parameterValues(name);
+        if (values.size() > 1) {
+            throw new AmbiguousParameterException();
+        }
+        return values.isEmpty() ? null : values.get(0);
     }
 
     abstract String headerValue(String name);
 
-    abstract String parameterValue(String name);
+    // The values of the query and then of the form
+    abstract List<String> parameterValues(String name);
 
     @Override
     public String toString() {
         return "RequestView";
+    }
+
+    /** A parameter that an expression read has more than one value; the request is refused. */
+    public static final class AmbiguousParameterException extends RuntimeException {
+
+        private static final long serialVersionUID = 1L;
+
+        AmbiguousParameterException() {
+            super("The parameter has more than one value", null, false, false);
+        }
     }
 }

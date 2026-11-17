@@ -167,9 +167,14 @@ public final class HandlerPermission {
         try {
             return expression.getValue(variables);
         } catch (RuntimeException e) {
-            // Messages of expressions may quote values of the request, so only the type is named
+            // Messages of expressions may quote values of the request, so only the type is named,
+            // that of the innermost cause: SpEL wraps what a method of #request throws
+            Throwable cause = e;
+            while (cause.getCause() != null && cause.getCause() != cause) {
+                cause = cause.getCause();
+            }
             throw new ExpressionFailure("The " + attribute + " expression of " + handler + " failed with "
-                    + e.getClass().getName(), e);
+                    + cause.getClass().getName(), e);
         }
     }
 

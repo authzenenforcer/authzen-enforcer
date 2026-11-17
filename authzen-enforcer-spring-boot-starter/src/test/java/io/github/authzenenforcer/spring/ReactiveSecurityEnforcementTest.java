@@ -11,6 +11,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.MultipartBodyBuilder;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.oauth2.jwt.BadJwtException;
@@ -159,14 +160,35 @@ class ReactiveSecurityEnforcementTest {
     }
 
     @Test
-    void prefersTheQueryToTheFormAsAServletContainerDoes() {
+    void refusesAParameterInTheQueryAndTheFormWithoutAskingThePdp() {
+        // The handler reads the form, an @RequestParam the query: no single value is the one it acts on
         client.mutateWith(alice()).post().uri("/forms/share?ref=from-query")
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .body(BodyInserters.fromFormData("ref", "from-form"))
                 .exchange()
-                .expectStatus().isOk();
+                .expectStatus().isForbidden();
 
-        assertEquals(Map.of("type", "note", "id", "from-query"), PDP.lastRequest().get("resource"));
+        assertTrue(PDP.requests().isEmpty());
+    }
+
+    @Test
+    void refusesARepeatedParameterWithoutAskingThePdp() {
+        client.mutateWith(alice()).post().uri("/notes/share?ref=n-1&ref=n-2").exchange().expectStatus().isForbidden();
+
+        assertTrue(PDP.requests().isEmpty());
+    }
+
+    @Test
+    void refusesParametersOfAMultipartRequestWithoutAskingThePdp() {
+        MultipartBodyBuilder body = new MultipartBodyBuilder();
+        body.part("ref", "from-part");
+        client.mutateWith(alice()).post().uri("/forms/share?ref=from-query")
+                .contentType(MediaType.MULTIPART_FORM_DATA)
+                .body(BodyInserters.fromMultipartData(body.build()))
+                .exchange()
+                .expectStatus().isForbidden();
+
+        assertTrue(PDP.requests().isEmpty());
     }
 
     @Test
