@@ -109,8 +109,8 @@ public Document getDocument(@PathVariable String id) { ... }
 
 The subject comes from the caller's Spring Security authentication. The starter is a preview: it
 supports Spring MVC and Spring WebFlux on Spring Boot 4, and obtains the PEP's token with Spring
-Security's OAuth 2.0 client in Spring MVC; the same for WebFlux and the auto-configuration of
-metrics follow. See [Spring Boot](docs/spring-boot.md).
+Security's OAuth 2.0 client; the auto-configuration of metrics follows. See
+[Spring Boot](docs/spring-boot.md).
 
 ## Modules
 

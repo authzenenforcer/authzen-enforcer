@@ -111,6 +111,16 @@ spring:
   `CredentialProvider` bean of the application takes precedence over the property, and the starter
   logs a warning.
 
+In a Spring WebFlux application, Spring Boot creates the reactive OAuth 2.0 client instead, and the
+starter uses it the same way: the registration comes from the `ReactiveClientRegistrationRepository`,
+the token is stored in the `ReactiveOAuth2AuthorizedClientService`, and a
+`ReactiveOAuth2AccessTokenResponseClient<OAuth2ClientCredentialsGrantRequest>` bean of the
+application obtains it, if there is one. No thread waits for the token request. One that takes
+longer than `authzen.pdp.request-timeout` is cancelled, which matters because Spring Security's
+default reactive token client sets no response timeout. When the PDP rejects a token, the next
+token request starts once the rejected token is removed from the service. Where Spring Boot creates
+both clients, as in an application without a web server, the servlet one is used.
+
 A `JsonCodec` bean replaces the internal JSON codec, and every `PepListener` bean is registered
 with both the client and the enforcer.
 
@@ -272,7 +282,3 @@ adapter is logged as a warning at startup.
 
 When the subscription is cancelled, for example because the client went away, the call to the PDP
 is cancelled too, and listeners see a cancelled enforcement.
-
-`authzen.pdp.client-registration-id` needs the servlet `ClientRegistrationRepository`, which Spring
-Boot does not create in a reactive application. Until a reactive counterpart follows, a WebFlux
-application defines a `CredentialProvider` bean; see [Credentials](credentials.md).

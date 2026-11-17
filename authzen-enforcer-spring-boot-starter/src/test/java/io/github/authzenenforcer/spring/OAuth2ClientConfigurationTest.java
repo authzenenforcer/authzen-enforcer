@@ -77,6 +77,18 @@ class OAuth2ClientConfigurationTest {
     }
 
     @Test
+    void worksWithoutReactor() {
+        runner.withClassLoader(new FilteredClassLoader("reactor.")).run(context -> {
+            assertNull(context.getStartupFailure());
+            assertInstanceOf(OAuth2ClientCredentials.class, context.getBean(CredentialProvider.class));
+            assertTrue(context.getBean(AuthZenClient.class).evaluate(request()).getDecision());
+        });
+        runner.withClassLoader(new FilteredClassLoader("reactor."))
+                .withPropertyValues("authzen.pdp.client-registration-id=other")
+                .run(context -> assertTrue(rootMessage(context.getStartupFailure()).contains("no such registration")));
+    }
+
+    @Test
     void obtainsANewTokenWhenThePdpRejectsTheCurrentOne() {
         PDP.authorize("Bearer t2"::equals);
 

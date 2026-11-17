@@ -13,7 +13,9 @@ import io.github.authzenenforcer.core.model.Subject;
 import io.github.authzenenforcer.core.spi.JsonCodec;
 import io.github.authzenenforcer.core.spi.PepListener;
 import io.github.authzenenforcer.spring.internal.EnforcedHandlerTypes;
+import io.github.authzenenforcer.spring.internal.AbstractOAuth2ClientCredentials;
 import io.github.authzenenforcer.spring.internal.OAuth2ClientCredentials;
+import io.github.authzenenforcer.spring.internal.ReactiveOAuth2ClientCredentials;
 import io.github.authzenenforcer.spring.internal.UnenforcedAnnotationsCheck;
 
 import org.springframework.beans.factory.ObjectProvider;
@@ -26,6 +28,14 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.oauth2.client.AuthorizedClientServiceOAuth2AuthorizedClientManager;
+import org.springframework.beans.factory.config.DependencyDescriptor;
+import org.springframework.core.MethodParameter;
+import org.springframework.security.oauth2.client.AuthorizedClientServiceReactiveOAuth2AuthorizedClientManager;
+import org.springframework.security.oauth2.client.InMemoryReactiveOAuth2AuthorizedClientService;
+import org.springframework.security.oauth2.client.ReactiveOAuth2AuthorizedClientProviderBuilder;
+import org.springframework.security.oauth2.client.ReactiveOAuth2AuthorizedClientService;
+import org.springframework.security.oauth2.client.endpoint.ReactiveOAuth2AccessTokenResponseClient;
+import org.springframework.security.oauth2.client.registration.ReactiveClientRegistrationRepository;
 import org.springframework.security.oauth2.client.InMemoryOAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientProviderBuilder;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
@@ -35,8 +45,10 @@ import org.springframework.security.oauth2.client.registration.ClientRegistratio
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.util.ClassUtils;
+import org.springframework.util.ReflectionUtils;
 
 import java.lang.System.Logger.Level;
+import java.lang.reflect.Method;
 
 /**
  * Auto-configuration of an {@link AuthZenClient} and an {@link Enforcer} from
@@ -56,6 +68,7 @@ public class AuthZenAutoConfiguration {
 
     private static final System.Logger LOGGER = System.getLogger(AuthZenAutoConfiguration.class.getName());
 
+    private static final String REACTIVE_OAUTH2_CLIENT = "reactor.core.publisher.Mono";
     private static final String OAUTH2_CLIENT =
             "org.springframework.security.oauth2.client.OAuth2AuthorizedClientManager";
 
@@ -261,7 +274,7 @@ public class AuthZenAutoConfiguration {
                     + "', but configured no credential: it must name a registration under"
                     + " spring.security.oauth2.client.registration");
         }
-        if (!(credentialProvider instanceof OAuth2ClientCredentials)) {
+        if (!(credentialProvider instanceof AbstractOAuth2ClientCredentials)) {
             LOGGER.log(Level.WARNING, "authzen.pdp.client-registration-id is ignored: the CredentialProvider bean of"
                     + " the application supplies the PEP's credential");
         }
@@ -296,24 +309,23 @@ public class AuthZenAutoConfiguration {
         CredentialProvider authZenOAuth2ClientCredentials(AuthZenProperties properties,
                 ObjectProvider<ClientRegistrationRepository> registrations,
                 ObjectProvider<OAuth2AuthorizedClientService> clients,
-                ObjectProvider<OAuth2AccessTokenResponseClient<OAuth2ClientCredentialsGrantRequest>> tokenClient) {
+                ObjectProvider<OAuth2AccessTokenResponseClient<OAuth2ClientCredentialsGrantRequest>> tokenClient,
+                ConfigurableListableBeanFactory beans) {
             String registrationId = properties.getPdp().getClientRegistrationId();
             if (registrationId.isBlank()) {
                 throw blankRegistrationId();
             }
             ClientRegistrationRepository repository = registrations.getIfAvailable();
-            ClientRegistration registration = repository == null
+            // Spring Boot creates only the reactive repository in a reactive web application
+            if (repository == null && ClassUtils.isPresent(REACTIVE_OAUTH2_CLIENT, beans.getBeanClassLoader())) {
+                CredentialProvider reactive = ReactiveOAuth2Client.credentials(registrationId, properties, beans);
+                if (reactive != null) {
+                    return reactive;
+                }
+            }
+            checkRegistration(registrationId, repository == null
                     ? null
-                    : repository.findByRegistrationId(registrationId);
-            if (registration == null) {
-                throw new IllegalStateException("authzen.pdp.client-registration-id names '" + registrationId
-                        + "', but there is no such registration under spring.security.oauth2.client.registration");
-            }
-            if (!AuthorizationGrantType.CLIENT_CREDENTIALS.equals(registration.getAuthorizationGrantType())) {
-                throw new IllegalStateException("The OAuth 2.0 client registration '" + registrationId
-                        + "' of authzen.pdp.client-registration-id must use the client_credentials grant, not "
-                        + registration.getAuthorizationGrantType().getValue());
-            }
+                    : repository.findByRegistrationId(registrationId));
             OAuth2AuthorizedClientService service =
                     clients.getIfAvailable(() -> new InMemoryOAuth2AuthorizedClientService(repository));
             AuthorizedClientServiceOAuth2AuthorizedClientManager manager =
@@ -329,6 +341,69 @@ public class AuthZenAutoConfiguration {
             // As long as a request waits for its credential at most
             return new OAuth2ClientCredentials(registrationId, manager, service,
                     properties.getPdp().getRequestTimeout());
+        }
+    }
+
+    // Without one, the PDP rejects every request, so a registration that cannot be used fails the startup
+    private static void checkRegistration(String registrationId, ClientRegistration registration) {
+        if (registration == null) {
+            throw new IllegalStateException("authzen.pdp.client-registration-id names '" + registrationId
+                    + "', but there is no such registration under spring.security.oauth2.client.registration");
+        }
+        if (!AuthorizationGrantType.CLIENT_CREDENTIALS.equals(registration.getAuthorizationGrantType())) {
+            throw new IllegalStateException("The OAuth 2.0 client registration '" + registrationId
+                    + "' of authzen.pdp.client-registration-id must use the client_credentials grant, not "
+                    + registration.getAuthorizationGrantType().getValue());
+        }
+    }
+
+    /** The reactive OAuth 2.0 client, in a class of its own, so that the configuration loads without Reactor. */
+    private static final class ReactiveOAuth2Client {
+
+        private ReactiveOAuth2Client() {
+        }
+
+        // As the servlet one: not the application's manager, whose default needs the current exchange
+        static CredentialProvider credentials(String registrationId, AuthZenProperties properties,
+                ConfigurableListableBeanFactory beans) {
+            ReactiveClientRegistrationRepository repository =
+                    beans.getBeanProvider(ReactiveClientRegistrationRepository.class).getIfAvailable();
+            if (repository == null) {
+                return null;
+            }
+            // Spring Boot's repository holds the registrations in memory, so this does not wait
+            checkRegistration(registrationId, repository.findByRegistrationId(registrationId).block());
+            ReactiveOAuth2AuthorizedClientService service = beans
+                    .getBeanProvider(ReactiveOAuth2AuthorizedClientService.class)
+                    .getIfAvailable(() -> new InMemoryReactiveOAuth2AuthorizedClientService(repository));
+            AuthorizedClientServiceReactiveOAuth2AuthorizedClientManager manager =
+                    new AuthorizedClientServiceReactiveOAuth2AuthorizedClientManager(repository, service);
+            ReactiveOAuth2AccessTokenResponseClient<OAuth2ClientCredentialsGrantRequest> responseClient =
+                    tokenClient(beans).getIfAvailable();
+            if (responseClient != null) {
+                manager.setAuthorizedClientProvider(ReactiveOAuth2AuthorizedClientProviderBuilder.builder()
+                        .clientCredentials(grant -> grant.accessTokenResponseClient(responseClient))
+                        .build());
+            }
+            return new ReactiveOAuth2ClientCredentials(registrationId, manager, service,
+                    properties.getPdp().getRequestTimeout());
+        }
+
+        // Resolved as Spring injects the servlet token client, which also matches a bean whose type
+        // arguments are unknown, such as a lambda
+        @SuppressWarnings("unchecked")
+        private static ObjectProvider<ReactiveOAuth2AccessTokenResponseClient<OAuth2ClientCredentialsGrantRequest>>
+                tokenClient(ConfigurableListableBeanFactory beans) {
+            Method injectionPoint = ReflectionUtils.findMethod(ReactiveOAuth2Client.class, "injectionPoint",
+                    ObjectProvider.class);
+            return (ObjectProvider<ReactiveOAuth2AccessTokenResponseClient<OAuth2ClientCredentialsGrantRequest>>) beans
+                    .resolveDependency(new DependencyDescriptor(new MethodParameter(injectionPoint, 0), false), null);
+        }
+
+        // Only its parameter type is used
+        @SuppressWarnings("unused")
+        private static void injectionPoint(
+                ObjectProvider<ReactiveOAuth2AccessTokenResponseClient<OAuth2ClientCredentialsGrantRequest>> tokenClient) {
         }
     }
 }
