@@ -14,7 +14,7 @@ the API.
   of `401` as the servlet one. No thread waits for the token request, and one that takes longer
   than the request timeout is cancelled. A `ReactiveOAuth2AccessTokenResponseClient` bean of the
   application obtains the token, if there is one. Where Spring Boot creates both clients, the
-  servlet one is used.
+  servlet one is used ([#76](https://github.com/authzenenforcer/authzen-enforcer/issues/76)).
 - The Spring Boot starter enforces `@CheckPermission` in Spring WebFlux applications, with the same
   annotations, properties, inference and startup checks as in Spring MVC. A handler adapter ordered
   first decides after the request is mapped and before the handler's arguments are resolved. Every
