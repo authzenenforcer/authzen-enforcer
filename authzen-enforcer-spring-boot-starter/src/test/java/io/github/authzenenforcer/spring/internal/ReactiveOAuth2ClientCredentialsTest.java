@@ -236,22 +236,28 @@ class ReactiveOAuth2ClientCredentialsTest {
     @Test
     void recoversWhenTheRemovalOfARejectedTokenNeverCompletes() throws Exception {
         AtomicBoolean hang = new AtomicBoolean(true);
+        AtomicInteger cancelled = new AtomicInteger();
         // A store that stops answering, such as one on a half-open connection without a timeout
         ReactiveOAuth2AuthorizedClientService hanging = new Delegating(clients) {
             @Override
             public Mono<Void> removeAuthorizedClient(String registrationId, String principalName) {
-                return hang.get() ? Mono.never() : super.removeAuthorizedClient(registrationId, principalName);
+                return hang.get()
+                        ? Mono.<Void>never().doOnCancel(cancelled::incrementAndGet)
+                        : super.removeAuthorizedClient(registrationId, principalName);
             }
         };
+        // Long enough for the first token request of a cold HTTP client
         ReactiveOAuth2ClientCredentials removing = new ReactiveOAuth2ClientCredentials("pdp",
                 new AuthorizedClientServiceReactiveOAuth2AuthorizedClientManager(registrations, hanging), hanging,
-                Duration.ofMillis(200));
+                Duration.ofSeconds(2));
         AccessCredential rejected = removing.getCredential();
 
         removing.invalidate(rejected);
         ExecutionException failure = assertThrows(ExecutionException.class,
                 () -> removing.getCredentialAsync().get(5, TimeUnit.SECONDS));
         assertTrue(failure.getCause().getMessage().contains("did not complete within"));
+        // The store's operation is cancelled, not only waited for no longer
+        assertEquals(1, cancelled.get());
 
         // The store answers again: the stored token comes back until it is rejected and removed
         hang.set(false);

@@ -180,7 +180,8 @@ public abstract class AbstractOAuth2ClientCredentials implements CredentialProvi
             credential = AccessCredential.bearer(accessToken.getTokenValue());
         } catch (IllegalArgumentException e) {
             // The manager stored it, and would return it until it expires
-            remove(removeStored());
+            CompletableFuture<Void> removed = removeStored();
+            remove(removed, new AtomicReference<>(removed));
             throw new IllegalStateException("The token endpoint of the OAuth 2.0 client registration '"
                     + registrationId + "' issued a token that is not a valid bearer token", e);
         }
@@ -227,16 +228,32 @@ public abstract class AbstractOAuth2ClientCredentials implements CredentialProvi
         // Removed before the next token request, so that the manager does not return the rejected
         // token again; only if it is still the stored one
         String value = token.accessToken().getTokenValue();
-        remove(loadStored().thenCompose(stored -> stored != null
-                && stored.getAccessToken().getTokenValue().equals(value) ? removeStored() : DONE));
+        // The operation of the store in progress, so that the deadline cancels it rather than only the wait
+        AtomicReference<CompletableFuture<?>> operation = new AtomicReference<>();
+        CompletableFuture<OAuth2AuthorizedClient> loaded = loadStored();
+        operation.set(loaded);
+        remove(loaded.thenCompose(stored -> {
+            if (stored == null || !stored.getAccessToken().getTokenValue().equals(value)) {
+                return DONE;
+            }
+            CompletableFuture<Void> removed = removeStored();
+            operation.set(removed);
+            return removed;
+        }), operation);
         current.compareAndSet(token, null);
     }
 
     // The next token request waits for this removal as well as for any earlier one, for at most the
     // refresh timeout: a store that never answers must not hold every later token request
-    private void remove(CompletableFuture<Void> removed) {
-        CompletableFuture.delayedExecutor(refreshTimeout.toNanos(), TimeUnit.NANOSECONDS)
-                .execute(() -> removed.cancel(true));
+    private void remove(CompletableFuture<Void> removed, AtomicReference<CompletableFuture<?>> operation) {
+        CompletableFuture.delayedExecutor(refreshTimeout.toNanos(), TimeUnit.NANOSECONDS).execute(() -> {
+            // Cancelling a reactive operation cancels its subscription
+            CompletableFuture<?> pendingOperation = operation.get();
+            if (pendingOperation != null) {
+                pendingOperation.cancel(true);
+            }
+            removed.cancel(true);
+        });
         CompletableFuture<Void> bounded = removed.handle((done, failure) -> {
             if (failure == null) {
                 return null;
