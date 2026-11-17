@@ -1,2 +1,3 @@
 io.github.authzenenforcer.spring.AuthZenAutoConfiguration
 io.github.authzenenforcer.spring.servlet.AuthZenWebMvcAutoConfiguration
+io.github.authzenenforcer.spring.reactive.AuthZenWebFluxAutoConfiguration

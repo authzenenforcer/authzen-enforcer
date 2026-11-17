@@ -38,13 +38,14 @@ import java.lang.annotation.Target;
  * </ul>
  * Types, constructors, beans, other methods and assignments are not available, so that an
  * expression cannot reach credentials or change state. The request body is not available: the
- * check runs before it is read. A request whose expressions fail, or whose resource id is not a
+ * check runs before it is read. Only the fields of a form body are, as parameters after those of
+ * the query. A request whose expressions fail, or whose resource id is not a
  * non-empty string or number within {@code authzen.enforcer.resource.max-id-length} and without
  * control characters, is denied without asking the PDP.
  *
- * <p>Only handler methods of Spring MVC controllers are enforced. The annotation on any other
- * bean, or in an application without Spring MVC, such as a WebFlux application, has no effect and
- * is reported as a warning at startup.
+ * <p>Only handler methods of Spring MVC and Spring WebFlux controllers are enforced. The annotation
+ * on any other bean, or in an application with neither, has no effect and is reported as a warning
+ * at startup.
  */
 @Target({ElementType.TYPE, ElementType.METHOD, ElementType.ANNOTATION_TYPE})
 @Retention(RetentionPolicy.RUNTIME)

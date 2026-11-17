@@ -9,6 +9,7 @@ import io.github.authzenenforcer.spring.internal.PermissionInterceptor;
 import io.github.authzenenforcer.spring.internal.ProtectedRoutesCheck;
 import io.github.authzenenforcer.spring.internal.SecurityClaimsExtractor;
 import io.github.authzenenforcer.spring.internal.SecurityResultHandler;
+import io.github.authzenenforcer.spring.internal.ServletRoutes;
 import io.github.authzenenforcer.spring.internal.StatusResultHandler;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -95,7 +96,8 @@ public class AuthZenWebMvcAutoConfiguration {
     @Bean
     public ProtectedRoutesCheck authZenProtectedRoutesCheck(ListableBeanFactory beans, Enforcer enforcer,
             HandlerPermissions permissions, ObjectProvider<ResourceInferrer> resourceInferrer) {
-        return new ProtectedRoutesCheck(beans, enforcer, permissions, resourceInferrer.getIfUnique());
+        return new ProtectedRoutesCheck(() -> ServletRoutes.of(beans), enforcer, permissions,
+                resourceInferrer.getIfUnique());
     }
 
     /**

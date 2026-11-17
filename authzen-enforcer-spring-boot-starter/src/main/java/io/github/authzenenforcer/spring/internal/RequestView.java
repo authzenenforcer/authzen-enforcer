@@ -1,7 +1,5 @@
 package io.github.authzenenforcer.spring.internal;
 
-import jakarta.servlet.http.HttpServletRequest;
-
 import java.util.Locale;
 import java.util.Set;
 
@@ -10,7 +8,7 @@ import java.util.Set;
  * nothing that carries credentials, so that an expression cannot put them into an evaluation
  * request.
  */
-public final class RequestView {
+public abstract class RequestView {
 
     // Headers that carry credentials or session identifiers
     private static final Set<String> CREDENTIAL_HEADERS = Set.of("authorization", "proxy-authorization", "cookie",
@@ -18,15 +16,8 @@ public final class RequestView {
     // The form and query parameter of RFC 6750
     private static final Set<String> CREDENTIAL_PARAMETERS = Set.of("access_token");
 
-    private final HttpServletRequest request;
-
-    /**
-     * Creates the view.
-     *
-     * @param request the request
-     */
-    public RequestView(HttpServletRequest request) {
-        this.request = request;
+    // Only the views of this package
+    RequestView() {
     }
 
     /**
@@ -34,18 +25,14 @@ public final class RequestView {
      *
      * @return the method
      */
-    public String getMethod() {
-        return request.getMethod();
-    }
+    public abstract String getMethod();
 
     /**
      * Returns the address of the client or of the last proxy.
      *
      * @return the address
      */
-    public String getRemoteAddr() {
-        return request.getRemoteAddr();
-    }
+    public abstract String getRemoteAddr();
 
     /**
      * Returns the first value of a header, unless it carries credentials.
@@ -53,9 +40,8 @@ public final class RequestView {
      * @param name the header name
      * @return the value, or {@code null} if there is none or it carries credentials
      */
-    public String header(String name) {
-        return name == null || CREDENTIAL_HEADERS.contains(name.toLowerCase(Locale.ROOT)) ? null
-                : request.getHeader(name);
+    public final String header(String name) {
+        return name == null || CREDENTIAL_HEADERS.contains(name.toLowerCase(Locale.ROOT)) ? null : headerValue(name);
     }
 
     /**
@@ -64,9 +50,13 @@ public final class RequestView {
      * @param name the parameter name
      * @return the value, or {@code null} if there is none or it carries credentials
      */
-    public String parameter(String name) {
-        return name == null || CREDENTIAL_PARAMETERS.contains(name) ? null : request.getParameter(name);
+    public final String parameter(String name) {
+        return name == null || CREDENTIAL_PARAMETERS.contains(name) ? null : parameterValue(name);
     }
+
+    abstract String headerValue(String name);
+
+    abstract String parameterValue(String name);
 
     @Override
     public String toString() {

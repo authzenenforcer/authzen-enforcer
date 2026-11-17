@@ -9,6 +9,16 @@ the API.
 
 ### Added
 
+- The Spring Boot starter enforces `@CheckPermission` in Spring WebFlux applications, with the same
+  annotations, properties, inference and startup checks as in Spring MVC. A handler adapter ordered
+  first decides after the request is mapped and before the handler's arguments are resolved. Every
+  decision starts on Reactor's bounded elastic scheduler, so that a blocking credential provider or
+  listener cannot stall the event loop, and cancelling the request cancels the call to the PDP.
+  Claims come from the reactive security context; `ReactiveClaimsExtractor` and
+  `ReactiveEnforcementResultHandler` beans replace the defaults. `#request.parameter` reads the
+  fields of a form body after those of the query, as in Spring MVC; the form is read before the
+  decision only for handlers whose expressions read parameters
+  ([#54](https://github.com/authzenenforcer/authzen-enforcer/issues/54)).
 - The Spring Boot starter obtains the PEP's token with Spring Security's OAuth 2.0 client when
   `authzen.pdp.client-registration-id` names a registration with the client credentials grant.
   The token is cached until shortly before it expires, a single request renews it, and it is

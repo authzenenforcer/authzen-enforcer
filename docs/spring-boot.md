@@ -1,11 +1,11 @@
 # Spring Boot
 
 The `authzen-enforcer-spring-boot-starter` module configures an `AuthZenClient` and an `Enforcer`
-from properties, and enforces handler methods of Spring MVC annotated with `@CheckPermission`. It
-requires Spring Boot 4.0 or later and Java 17 or later.
+from properties, and enforces handler methods of Spring MVC and Spring WebFlux annotated with
+`@CheckPermission`. It requires Spring Boot 4.0 or later and Java 17 or later.
 
-The starter is a preview, available since 0.2.0. WebFlux and the auto-configuration of metrics
-follow; until then, bind metrics as described in [Observability](observability.md).
+The starter is a preview, available since 0.2.0. The auto-configuration of metrics follows; until
+then, bind metrics as described in [Observability](observability.md).
 
 ```xml
 <dependency>
@@ -15,8 +15,8 @@ follow; until then, bind metrics as described in [Observability](observability.m
 </dependency>
 ```
 
-The starter brings no Spring dependencies beyond `spring-boot-autoconfigure`: Spring MVC, and
-Spring Security if it is used, come from the application.
+The starter brings no Spring dependencies beyond `spring-boot-autoconfigure`: Spring MVC or Spring
+WebFlux, and Spring Security if it is used, come from the application.
 
 ## Configuration
 
@@ -159,7 +159,10 @@ void cancel(@PathVariable String id) { ... }
   cannot put the caller's token or other credentials into an evaluation request, nor change state.
   An expression that uses anything else fails the startup. `#request` and `#claims` win over path
   variables of the same name. The request body is not available, because the check runs before it
-  is read. A value that the application chooses itself, such as a custom API key header, is not
+  is read, except for the fields of a form (`application/x-www-form-urlencoded`), which
+  `#request.parameter` reads after those of the query. Spring WebFlux reads such a form before the
+  decision only for handlers whose expressions read parameters, and keeps it for the handler;
+  multipart fields are not read. A value that the application chooses itself, such as a custom API key header, is not
   recognized as a credential: do not put such values into the context.
 - On a class, the annotation applies to all its handler methods. An annotation on the method wins
   attribute by attribute, and its context entries by name.
@@ -175,8 +178,8 @@ context entries fail the startup.
 ### Which handlers are enforced
 
 By default, only handler methods annotated with `@CheckPermission`, on the method or the class.
-With `authzen.enforcer.enforce-all=true`, every handler method of Spring MVC is enforced, including
-the endpoints of Spring Boot Actuator, such as health probes, except:
+With `authzen.enforcer.enforce-all=true`, every handler method of Spring MVC or Spring WebFlux is
+enforced, including the endpoints of Spring Boot Actuator, such as health probes, except:
 
 - routes matching `authzen.enforcer.exclude-paths`. They are matched against the route pattern of
   the handler, such as `/public/{id}`, not against the request path, so that the decision does not
@@ -186,16 +189,15 @@ the endpoints of Spring Boot Actuator, such as health probes, except:
 
 Exclude the Actuator endpoints that must stay reachable, such as `/actuator/health/**`. The
 annotation nearest to the method wins; a method or class annotated with both does not start.
-Only handler methods are enforced: static resources and functional routes are not. Error dispatches
-and the second dispatch of an asynchronous request to the handler that was let through on the first one
-are not enforced again; an asynchronous dispatch that a filter starts before any handler ran is
-enforced. `OPTIONS` requests are
-not enforced (CORS preflight), whether a handler or Spring MVC itself answers them.
+Only handler methods are enforced: static resources and functional routes are not. In Spring MVC,
+error dispatches and the second dispatch of an asynchronous request to the handler that was let
+through on the first one are not enforced again; an asynchronous dispatch that a filter starts
+before any handler ran is enforced. `OPTIONS` requests are not enforced (CORS preflight), whether a
+handler or Spring itself answers them.
 
-Only handler methods of Spring MVC controllers are enforced. `@CheckPermission` on any other bean,
-such as a service, on a method of a controller that is no handler, or in an application without
-Spring MVC, such as a WebFlux application, has no effect; such annotations are logged as warnings at
-startup. Annotations are read from the class
+Only handler methods of controllers are enforced. `@CheckPermission` on any other bean, such as a
+service, on a method of a controller that is no handler, or in an application with neither Spring
+MVC nor Spring WebFlux has no effect; such annotations are logged as warnings at startup. Annotations are read from the class
 of the bean: a controller behind a JDK interface proxy is only enforced through annotations on the
 interface. With a separate management port (`management.server.port`), the Actuator endpoints are
 enforced like the others, but they are not part of the startup check.
@@ -209,14 +211,20 @@ or a `RouteOverrides` bean.
 | Outcome | With Spring Security | Without Spring Security |
 |---|---|---|
 | Permitted, not enforced, failed open | The handler runs | The handler runs |
-| Anonymous caller | `AuthenticationCredentialsNotFoundException`: the entry point answers `401` with its challenge | `401` with `WWW-Authenticate: Bearer` |
+| Anonymous caller | Spring MVC: `AuthenticationCredentialsNotFoundException`; Spring WebFlux: `AccessDeniedException`. The entry point answers `401` with its challenge | `401` with `WWW-Authenticate: Bearer` |
 | Denied, refused, failed with `403` | `AccessDeniedException`: the access denied handler answers | `403` |
 | Failed with `503` | `503` | `503` |
 
 The PDP's reason, if its response carries one, is not sent to the client. An
-`EnforcementResultHandler` bean answers instead of the default, for example to log the reason. A
-handler that neither throws nor sends an error status does not let the request through: the status
-of the result is sent for it.
+`EnforcementResultHandler` bean (Spring WebFlux: `ReactiveEnforcementResultHandler`) answers
+instead of the default, for example to log the reason. A handler that neither throws nor sends an
+error status does not let the request through: the status of the result is sent for it.
+
+Spring Security's reactive exception handling handles only `AccessDeniedException`, and tells
+anonymous callers from authenticated ones by the principal of the request: it answers `401` if
+there is none. A `ReactiveClaimsExtractor` of the application that finds no claims for an
+authenticated principal therefore gets `403`, not `401`. Without Spring Security, Spring WebFlux
+answers with a `ResponseStatusException`, which the error handling of Spring Boot renders.
 
 With Spring Security, the exceptions reach its filters only if no `@ExceptionHandler` of the
 application handles them first; an `@ExceptionHandler(Exception.class)` must rethrow
@@ -230,6 +238,29 @@ With Spring Security, the subject is inferred from the claims of the `Authentica
 - an opaque token, or an OAuth 2.0 or OpenID Connect login: the attributes of the principal;
 - any other authentication: only `sub`, set to the name of the principal.
 
-Anonymous authentications have no claims. Without Spring Security, every caller is anonymous
-unless the application defines a `ClaimsExtractor` bean. Expressions see the same claims as
+In Spring WebFlux, the `Authentication` is that of the reactive security context. Anonymous
+authentications have no claims. Without Spring Security, every caller is anonymous unless the
+application defines a `ClaimsExtractor` bean (Spring WebFlux: `ReactiveClaimsExtractor`). Expressions see the same claims as
 `#claims`, never the token itself.
+
+## Spring WebFlux
+
+In a reactive web application, the starter registers a handler adapter that the dispatcher picks
+first for handler methods. It decides where a Spring MVC interceptor does: after the request is
+mapped, so that it decides about the handler that runs, and before arguments are resolved and the
+body is read. Its exceptions reach `@ExceptionHandler` methods and then Spring Security's filters,
+as in Spring MVC.
+
+Every decision starts on Reactor's bounded elastic scheduler, not on the event loop: the components
+that the application plugs into it, such as a `CredentialProvider` whose `getCredential` obtains a
+token, a `SubjectResolver` or a `PepListener`, may then block without stalling other requests. The
+handler runs on the thread that completed the decision, usually one of the HTTP client's. The
+`ReactiveClaimsExtractor` and `ReactiveEnforcementResultHandler` beans run on the request's thread
+and must not block.
+
+When the subscription is cancelled, for example because the client went away, the call to the PDP
+is cancelled too, and listeners see a cancelled enforcement.
+
+`authzen.pdp.client-registration-id` needs the servlet `ClientRegistrationRepository`, which Spring
+Boot does not create in a reactive application. Until a reactive counterpart follows, a WebFlux
+application defines a `CredentialProvider` bean; see [Credentials](credentials.md).

@@ -38,6 +38,7 @@ public final class HandlerPermission {
     private final Map<String, Expression> context;
     private final Predicate<String> excluded;
     private final int maxIdLength;
+    private final boolean readsParameters;
 
     HandlerPermission(String handler, Source source, PermissionSpec literals, Expression resourceId,
             Map<String, Expression> context, Predicate<String> excluded, int maxIdLength) {
@@ -48,6 +49,8 @@ public final class HandlerPermission {
         this.context = context;
         this.excluded = excluded;
         this.maxIdLength = maxIdLength;
+        this.readsParameters = (resourceId != null && Expressions.readsParameters(resourceId))
+                || context.values().stream().anyMatch(Expressions::readsParameters);
     }
 
     /**
@@ -107,6 +110,15 @@ public final class HandlerPermission {
      */
     public boolean takesResourceIdFromRequest() {
         return resourceId instanceof SpelExpression expression && !(expression.getAST() instanceof Literal);
+    }
+
+    /**
+     * Returns whether an expression of the handler reads a parameter of the request.
+     *
+     * @return {@code true} if one does
+     */
+    public boolean readsParameters() {
+        return readsParameters;
     }
 
     /**

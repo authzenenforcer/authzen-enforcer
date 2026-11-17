@@ -77,6 +77,29 @@ final class Expressions {
     }
 
     /**
+     * Returns whether an expression that {@link #parse} accepted reads a parameter of the request.
+     *
+     * @param expression the expression
+     * @return {@code true} if it calls {@code #request.parameter}
+     */
+    static boolean readsParameters(Expression expression) {
+        return expression instanceof SpelExpression spel && callsParameter(spel.getAST());
+    }
+
+    // parse lets methods be called only on #request, so any call of that name is one
+    private static boolean callsParameter(SpelNode node) {
+        if (node instanceof MethodReference method && "parameter".equals(method.getName())) {
+            return true;
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            if (callsParameter(node.getChild(i))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Creates the variables of the expressions for a request.
      *
      * @param pathVariables the path variables

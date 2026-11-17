@@ -5,19 +5,16 @@ import io.github.authzenenforcer.core.enforce.InferenceException;
 import io.github.authzenenforcer.core.enforce.RequestDescription;
 import io.github.authzenenforcer.core.enforce.ResourceInferrer;
 
-import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.SmartInitializingSingleton;
-import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.method.HandlerMethod;
-import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
-import org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMapping;
 import org.springframework.web.util.UriTemplate;
 
 import java.lang.System.Logger.Level;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Checks every enforced route once the application context is ready: it fails the startup for
@@ -30,7 +27,7 @@ public final class ProtectedRoutesCheck implements SmartInitializingSingleton, E
     // The methods a mapping without a method condition is checked for; OPTIONS is never enforced
     private static final List<String> ALL_METHODS = List.of("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE");
 
-    private final ListableBeanFactory beans;
+    private final Supplier<? extends Collection<Route>> routes;
     private final Enforcer enforcer;
     private final HandlerPermissions permissions;
     private final ResourceInferrer resourceInferrer;
@@ -38,14 +35,14 @@ public final class ProtectedRoutesCheck implements SmartInitializingSingleton, E
     /**
      * Creates the check.
      *
-     * @param beans       the bean factory that holds the handler mappings
-     * @param enforcer    the enforcer
+     * @param routes           the routes of the handler mappings, read once the context is ready
+     * @param enforcer         the enforcer
      * @param permissions      how handlers are enforced
      * @param resourceInferrer tells which routes are collections, or {@code null} not to check that
      */
-    public ProtectedRoutesCheck(ListableBeanFactory beans, Enforcer enforcer, HandlerPermissions permissions,
-            ResourceInferrer resourceInferrer) {
-        this.beans = beans;
+    public ProtectedRoutesCheck(Supplier<? extends Collection<Route>> routes, Enforcer enforcer,
+            HandlerPermissions permissions, ResourceInferrer resourceInferrer) {
+        this.routes = routes;
         this.enforcer = enforcer;
         this.permissions = permissions;
         this.resourceInferrer = resourceInferrer;
@@ -53,14 +50,11 @@ public final class ProtectedRoutesCheck implements SmartInitializingSingleton, E
 
     @Override
     public void afterSingletonsInstantiated() {
-        int routes = 0;
-        for (RequestMappingInfoHandlerMapping mapping : beans.getBeansOfType(RequestMappingInfoHandlerMapping.class)
-                .values()) {
-            for (Map.Entry<RequestMappingInfo, HandlerMethod> entry : mapping.getHandlerMethods().entrySet()) {
-                routes += check(entry.getKey(), entry.getValue());
-            }
+        int enforced = 0;
+        for (Route route : routes.get()) {
+            enforced += check(route);
         }
-        int checked = routes;
+        int checked = enforced;
         LOGGER.log(Level.DEBUG, () -> "Checked " + checked + " enforced routes");
     }
 
@@ -106,32 +100,37 @@ public final class ProtectedRoutesCheck implements SmartInitializingSingleton, E
     @Override
     public Set<Handler> handlers() {
         Set<Handler> handlers = new HashSet<>();
-        for (RequestMappingInfoHandlerMapping mapping : beans.getBeansOfType(RequestMappingInfoHandlerMapping.class)
-                .values()) {
-            mapping.getHandlerMethods().values()
-                    .forEach(handler -> handlers.add(new Handler(handler.getBeanType(), handler.getMethod())));
+        for (Route route : routes.get()) {
+            handlers.add(new Handler(route.handler().getBeanType(), route.handler().getMethod()));
         }
         return handlers;
     }
 
-    private int check(RequestMappingInfo info, HandlerMethod handler) {
-        HandlerPermission permission = permissions.get(handler);
-        Set<RequestMethod> declared = info.getMethodsCondition().getMethods();
-        List<String> methods = declared.isEmpty()
-                ? ALL_METHODS
-                : declared.stream().map(RequestMethod::name).toList();
-        int routes = 0;
-        for (String pattern : info.getPatternValues()) {
+    private int check(Route route) {
+        HandlerPermission permission = permissions.get(route.handler());
+        List<String> methods = route.methods().isEmpty() ? ALL_METHODS : route.methods();
+        int enforced = 0;
+        for (String pattern : route.patterns()) {
             if (!permission.enforces(pattern)) {
                 continue;
             }
-            routes++;
+            enforced++;
             for (String method : methods) {
                 enforcer.check(method, pattern, permission.staticSpec()).ifPresent(reason -> LOGGER.log(Level.WARNING,
                         "Requests to " + permission.getHandler() + " will be denied: " + reason));
             }
             checkCollection(permission, pattern, methods);
         }
-        return routes;
+        return enforced;
+    }
+
+    /**
+     * A request mapping of a handler method.
+     *
+     * @param handler  the handler method
+     * @param methods  the HTTP methods it is mapped to, empty for every method
+     * @param patterns its route patterns
+     */
+    public record Route(HandlerMethod handler, List<String> methods, Collection<String> patterns) {
     }
 }

@@ -2,8 +2,6 @@ package io.github.authzenenforcer.spring.internal;
 
 import io.github.authzenenforcer.core.enforce.EnforcementResult;
 import io.github.authzenenforcer.core.enforce.Enforcer;
-import io.github.authzenenforcer.core.enforce.PermissionSpec;
-import io.github.authzenenforcer.core.enforce.RequestDescription;
 import io.github.authzenenforcer.spring.servlet.ClaimsExtractor;
 import io.github.authzenenforcer.spring.servlet.EnforcementResultHandler;
 
@@ -16,13 +14,9 @@ import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.util.pattern.PathPattern;
 
-import java.lang.System.Logger.Level;
 import java.lang.reflect.Method;
-import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Asks the {@link Enforcer} before an enforced handler method runs, and lets the
@@ -31,10 +25,6 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class PermissionInterceptor implements HandlerInterceptor {
 
     private static final System.Logger LOGGER = System.getLogger(PermissionInterceptor.class.getName());
-
-    // Messages name handlers and exception types, never request values, so there are only as many
-    // as there are handlers; the cap only guards against a custom claims extractor
-    private static final int MAX_WARNED = 1000;
 
     // The handler, route and path variables a request was let through to; request attributes cannot be
     // set by the caller
@@ -49,7 +39,7 @@ public final class PermissionInterceptor implements HandlerInterceptor {
     private final HandlerPermissions permissions;
     private final ClaimsExtractor claimsExtractor;
     private final EnforcementResultHandler resultHandler;
-    private final Set<String> warned = ConcurrentHashMap.newKeySet();
+    private final PermissionRequests requests = new PermissionRequests(LOGGER);
 
     /**
      * Creates the interceptor.
@@ -103,40 +93,17 @@ public final class PermissionInterceptor implements HandlerInterceptor {
 
     private EnforcementResult enforce(HttpServletRequest request, HandlerPermission permission, String routePattern) {
         if (routePattern == null) {
-            return refused("No route pattern is known for a request to " + permission.getHandler());
+            return requests.noRoutePattern(permission);
         }
-        Map<String, String> pathVariables = pathVariables(request);
-        // Exceptions are named by their type only, also at debug level: their messages may quote
-        // claim values or values of the request
         Optional<Map<String, Object>> claims;
         try {
             claims = claimsExtractor.extract(request);
         } catch (RuntimeException e) {
-            return refused("Extracting the caller's claims failed with " + e.getClass().getName());
+            return requests.claimsFailed(e);
         }
-        PermissionSpec spec;
-        try {
-            spec = permission.spec(Expressions.context(pathVariables, new RequestView(request),
-                    claims.map(Collections::unmodifiableMap).orElse(null)));
-        } catch (HandlerPermission.ExpressionFailure e) {
-            return refused(e.getMessage());
-        }
-        RequestDescription.Builder description = RequestDescription.builder()
-                .method(request.getMethod())
-                .routePattern(routePattern)
-                .pathVariables(pathVariables);
-        claims.ifPresent(description::claims);
-        return enforcer.enforce(description.build(), spec);
-    }
-
-    private EnforcementResult refused(String reason) {
-        if (warned.size() < MAX_WARNED && warned.add(reason)) {
-            LOGGER.log(Level.WARNING, "Denied without asking the PDP: " + reason
-                    + " (logged once; later occurrences at debug level)");
-        } else {
-            LOGGER.log(Level.DEBUG, () -> "Denied without asking the PDP: " + reason);
-        }
-        return EnforcementResult.refused(reason);
+        PermissionRequests.Prepared prepared = requests.prepare(permission, request.getMethod(), routePattern,
+                pathVariables(request), new ServletRequestView(request), claims);
+        return prepared.refusal() != null ? prepared.refusal() : enforcer.enforce(prepared.description(), prepared.spec());
     }
 
     private static String routePattern(HttpServletRequest request) {
