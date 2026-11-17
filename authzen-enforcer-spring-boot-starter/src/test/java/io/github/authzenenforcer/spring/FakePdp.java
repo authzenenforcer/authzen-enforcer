@@ -26,6 +26,7 @@ final class FakePdp implements AutoCloseable {
     private Predicate<Map<String, Object>> decision = request -> true;
     private Predicate<String> authorized = authorization -> true;
     private int status = 200;
+    private long delayMillis;
 
     FakePdp() {
         try {
@@ -51,6 +52,11 @@ final class FakePdp implements AutoCloseable {
         this.status = status;
     }
 
+    // Answers every request only after the delay
+    synchronized void delay(long millis) {
+        this.delayMillis = millis;
+    }
+
     // Requests whose Authorization header does not match are answered with 401
     synchronized void authorize(Predicate<String> authorized) {
         this.authorized = authorized;
@@ -74,6 +80,7 @@ final class FakePdp implements AutoCloseable {
         decision = request -> true;
         authorized = authorization -> true;
         status = 200;
+        delayMillis = 0;
     }
 
     @SuppressWarnings("unchecked")
@@ -81,12 +88,21 @@ final class FakePdp implements AutoCloseable {
         Map<String, Object> request = JSON.readValue(exchange.getRequestBody().readAllBytes(), Map.class);
         boolean decided;
         int answer;
+        long delay;
         String authorization = exchange.getRequestHeaders().getFirst("Authorization");
         synchronized (this) {
             requests.add(request);
             authorizations.add(authorization);
             decided = decision.test(request);
             answer = authorized.test(authorization) ? status : 401;
+            delay = delayMillis;
+        }
+        if (delay > 0) {
+            try {
+                Thread.sleep(delay);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
         respond(exchange, answer, answer == 200 ? "{\"decision\":" + decided + "}" : "{}");
     }

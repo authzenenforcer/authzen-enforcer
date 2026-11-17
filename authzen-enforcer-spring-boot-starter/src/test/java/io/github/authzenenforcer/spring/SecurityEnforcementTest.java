@@ -17,6 +17,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -33,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -138,6 +140,28 @@ class SecurityEnforcementTest {
             mvc.perform(post("/notes/share").with(alice()).param("ref", ref)).andExpect(status().isForbidden());
         }
         mvc.perform(post("/notes/share").with(alice())).andExpect(status().isForbidden());
+        assertTrue(PDP.requests().isEmpty());
+    }
+
+    @Test
+    void refusesARepeatedParameterWithoutAskingThePdp() throws Exception {
+        // Spring MVC gives a String argument "n-1,n-2", while the expression would read n-1
+        mvc.perform(post("/notes/share").with(alice()).param("ref", "n-1", "n-2")).andExpect(status().isForbidden());
+
+        assertTrue(PDP.requests().isEmpty());
+    }
+
+    @Test
+    void refusesParametersOfAMultipartRequestWithoutAskingThePdp() throws Exception {
+        // A part with a file name is no parameter, so the expression would read only the query's A,
+        // while @RequestPart gives the handler the part's B
+        mvc.perform(multipart("/parts/share").file(new MockMultipartFile("ref", "x", "text/plain", "B".getBytes()))
+                        .param("ref", "A").with(alice()))
+                .andExpect(status().isForbidden());
+        mvc.perform(multipart("/parts/share").file(new MockMultipartFile("ref", "x", "text/plain", "B".getBytes()))
+                        .with(alice()))
+                .andExpect(status().isForbidden());
+
         assertTrue(PDP.requests().isEmpty());
     }
 

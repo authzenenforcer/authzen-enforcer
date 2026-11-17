@@ -7,17 +7,28 @@ import io.github.authzenenforcer.core.enforce.EnforcementPolicy;
 import io.github.authzenenforcer.core.enforce.Enforcer;
 import io.github.authzenenforcer.core.enforce.SubjectResolver;
 import io.github.authzenenforcer.core.model.Subject;
+import io.github.authzenenforcer.spring.internal.HandlerAdapterOrderCheck;
 import io.github.authzenenforcer.spring.internal.ProtectedRoutesCheck;
 import io.github.authzenenforcer.spring.internal.UnenforcedAnnotationsCheck;
+import io.github.authzenenforcer.spring.reactive.AuthZenWebFluxAutoConfiguration;
 import io.github.authzenenforcer.spring.servlet.AuthZenWebMvcAutoConfiguration;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.test.context.runner.ReactiveWebApplicationContextRunner;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
+import org.springframework.boot.webflux.autoconfigure.WebFluxAutoConfiguration;
 import org.springframework.boot.webmvc.autoconfigure.WebMvcAutoConfiguration;
+import org.springframework.core.PriorityOrdered;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.method.HandlerMethod;
+import org.springframework.web.reactive.HandlerAdapter;
+import org.springframework.web.reactive.HandlerResult;
+import org.springframework.web.server.ServerWebExchange;
+
+import reactor.core.publisher.Mono;
 
 import java.util.List;
 import java.util.Map;
@@ -140,13 +151,13 @@ class AutoConfigurationTest {
     }
 
     @Test
-    void warnsAboutAnnotationsOutsideSpringMvc() {
+    void warnsAboutAnnotationsOfApplicationsWithoutWebEnforcement() {
         List<String> warnings = warnings(() -> runner.withPropertyValues("authzen.pdp.url=https://pdp.example.com")
                 .withUserConfiguration(Service.class)
                 .run(context -> assertNull(context.getStartupFailure())));
 
         assertEquals(List.of("@CheckPermission on " + Service.class.getName() + ".approve is not enforced: this application"
-                + " has no Spring MVC (servlet) enforcement; WebFlux is not supported yet"), warnings);
+                + " has no Spring MVC or Spring WebFlux enforcement"), warnings);
     }
 
     @Test
@@ -160,9 +171,9 @@ class AutoConfigurationTest {
 
         assertEquals(List.of(
                 "@CheckPermission on " + Service.class.getName() + ".approve is not enforced: only handler methods"
-                        + " of Spring MVC controllers are enforced",
+                        + " of controllers are enforced",
                 "@CheckPermission on " + Controller.class.getName() + ".helper is not enforced: only handler methods"
-                        + " of Spring MVC controllers are enforced"), warnings);
+                        + " of controllers are enforced"), warnings);
     }
 
     @Test
@@ -191,6 +202,79 @@ class AutoConfigurationTest {
                         + " choose which collection the PDP is asked about. Use a literal id, such as resourceId ="
                         + " \"'documents'\""),
                 warnings.stream().sorted().toList());
+    }
+
+    @Test
+    void checksWebFluxRoutesAtStartupAsSpringMvcRoutes() {
+        reactive().withUserConfiguration(InvalidExpression.class).run(context -> {
+            assertNotNull(context.getStartupFailure());
+            assertTrue(rootMessage(context.getStartupFailure()).contains("expression"));
+        });
+        reactive().withUserConfiguration(Contradiction.class).run(context -> {
+            assertNotNull(context.getStartupFailure());
+            assertTrue(rootMessage(context.getStartupFailure()).contains("both"));
+        });
+
+        List<String> warnings = warnings(ProtectedRoutesCheck.class, () -> reactive()
+                .withUserConfiguration(Collections.class)
+                .run(context -> assertNull(context.getStartupFailure())));
+        assertEquals(5, warnings.size());
+        assertTrue(warnings.stream().allMatch(warning -> warning.startsWith(Collections.class.getName())), warnings::toString);
+    }
+
+    @Test
+    void warnsAboutAnnotatedBeansThatAreNotWebFluxControllers() {
+        List<String> warnings = warnings(() -> reactive()
+                .withUserConfiguration(Service.class, Controller.class)
+                .run(context -> assertNull(context.getStartupFailure())));
+
+        assertEquals(List.of(
+                "@CheckPermission on " + Service.class.getName() + ".approve is not enforced: only handler methods"
+                        + " of controllers are enforced",
+                "@CheckPermission on " + Controller.class.getName() + ".helper is not enforced: only handler methods"
+                        + " of controllers are enforced"), warnings);
+    }
+
+    @Test
+    void warnsAboutAHandlerAdapterOrderedBeforeEnforcement() {
+        List<String> warnings = warnings(HandlerAdapterOrderCheck.class, () -> reactive()
+                .withUserConfiguration(Controller.class)
+                .withBean(HandlerAdapter.class, FirstAdapter::new)
+                .run(context -> assertNull(context.getStartupFailure())));
+
+        assertEquals(1, warnings.size());
+        assertTrue(warnings.get(0).startsWith("The handler adapter " + FirstAdapter.class.getName() + " runs "),
+                warnings.get(0));
+
+        assertTrue(warnings(HandlerAdapterOrderCheck.class, () -> reactive()
+                .withUserConfiguration(Controller.class)
+                .run(context -> assertNull(context.getStartupFailure()))).isEmpty());
+    }
+
+    /** Runs handler methods ahead of every ordered adapter. */
+    static class FirstAdapter implements HandlerAdapter, PriorityOrdered {
+
+        @Override
+        public int getOrder() {
+            return 0;
+        }
+
+        @Override
+        public boolean supports(Object handler) {
+            return handler instanceof HandlerMethod;
+        }
+
+        @Override
+        public Mono<HandlerResult> handle(ServerWebExchange exchange, Object handler) {
+            return Mono.empty();
+        }
+    }
+
+    private static ReactiveWebApplicationContextRunner reactive() {
+        return new ReactiveWebApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(WebFluxAutoConfiguration.class, AuthZenAutoConfiguration.class,
+                        AuthZenWebFluxAutoConfiguration.class))
+                .withPropertyValues("authzen.pdp.url=https://pdp.example.com");
     }
 
     private static List<String> warnings(Runnable run) {

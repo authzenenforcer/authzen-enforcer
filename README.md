@@ -30,7 +30,7 @@ requests to a Policy Decision Point (PDP) and returns the decision to your appli
   authorization server. You supply the token, plus the signing key for DPoP. Bearer is available;
   DPoP is planned.
 - **Fail-closed by default.** Any error results in a deny.
-- **Framework integrations:** a Spring Boot starter (a preview for Spring MVC) and a Quarkus
+- **Framework integrations:** a Spring Boot starter (a preview for Spring MVC and WebFlux) and a Quarkus
   extension (planned), both with a `@CheckPermission` annotation that can infer the action and
   resource from the HTTP method and the route. Without them, the client is used directly from
   application code.
@@ -84,7 +84,7 @@ Treat it as a deny.
 
 ## Spring Boot
 
-The starter asks the PDP before every Spring MVC handler annotated with `@CheckPermission`. What
+The starter asks the PDP before every Spring MVC or WebFlux handler annotated with `@CheckPermission`. What
 the annotation does not give is inferred from the request:
 
 ```xml
@@ -108,15 +108,16 @@ public Document getDocument(@PathVariable String id) { ... }
 ```
 
 The subject comes from the caller's Spring Security authentication. The starter is a preview: it
-supports Spring MVC on Spring Boot 4; WebFlux, an adapter for Spring Security's OAuth 2.0 client
-and the auto-configuration of metrics follow. See [Spring Boot](docs/spring-boot.md).
+supports Spring MVC and Spring WebFlux on Spring Boot 4, and obtains the PEP's token with Spring
+Security's OAuth 2.0 client in Spring MVC; the same for WebFlux and the auto-configuration of
+metrics follow. See [Spring Boot](docs/spring-boot.md).
 
 ## Modules
 
 | Artifact | Java | Status | Description |
 |---|---|---|---|
 | `authzen-enforcer-core` | 17+ | Available | PDP client, model, Bearer, enforcement of HTTP requests. No dependencies. DPoP is planned. |
-| `authzen-enforcer-spring-boot-starter` | 17+ | Preview | Spring Boot 4 auto-configuration and `@CheckPermission` for Spring MVC; WebFlux is planned |
+| `authzen-enforcer-spring-boot-starter` | 17+ | Preview | Spring Boot 4 auto-configuration and `@CheckPermission` for Spring MVC and Spring WebFlux |
 | `authzen-enforcer-quarkus` | 17+ | Planned | Quarkus 3 extension |
 | `authzen-enforcer-micrometer` | 17+ | Available | Micrometer metrics for the client |
 | `authzen-enforcer-opentelemetry` | 17+ | Available | OpenTelemetry tracing for the client |

@@ -38,6 +38,7 @@ public final class HandlerPermission {
     private final Map<String, Expression> context;
     private final Predicate<String> excluded;
     private final int maxIdLength;
+    private final boolean readsParameters;
 
     HandlerPermission(String handler, Source source, PermissionSpec literals, Expression resourceId,
             Map<String, Expression> context, Predicate<String> excluded, int maxIdLength) {
@@ -48,6 +49,8 @@ public final class HandlerPermission {
         this.context = context;
         this.excluded = excluded;
         this.maxIdLength = maxIdLength;
+        this.readsParameters = (resourceId != null && Expressions.readsParameters(resourceId))
+                || context.values().stream().anyMatch(Expressions::readsParameters);
     }
 
     /**
@@ -110,6 +113,15 @@ public final class HandlerPermission {
     }
 
     /**
+     * Returns whether an expression of the handler reads a parameter of the request.
+     *
+     * @return {@code true} if one does
+     */
+    public boolean readsParameters() {
+        return readsParameters;
+    }
+
+    /**
      * Returns the explicit values for a request.
      *
      * @param variables the variables of the expressions
@@ -155,9 +167,14 @@ public final class HandlerPermission {
         try {
             return expression.getValue(variables);
         } catch (RuntimeException e) {
-            // Messages of expressions may quote values of the request, so only the type is named
+            // Messages of expressions may quote values of the request, so only the type is named,
+            // that of the innermost cause: SpEL wraps what a method of #request throws
+            Throwable cause = e;
+            while (cause.getCause() != null && cause.getCause() != cause) {
+                cause = cause.getCause();
+            }
             throw new ExpressionFailure("The " + attribute + " expression of " + handler + " failed with "
-                    + e.getClass().getName(), e);
+                    + cause.getClass().getName(), e);
         }
     }
 

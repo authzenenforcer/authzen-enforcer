@@ -17,8 +17,8 @@ import java.util.Set;
 
 /**
  * Warns at startup about beans annotated with {@link CheckPermission} that nothing enforces: beans
- * that are not Spring MVC controllers, and every bean of an application without Spring MVC
- * enforcement, such as a WebFlux application.
+ * that are not controllers, and every bean of an application without Spring MVC or Spring WebFlux
+ * enforcement.
  */
 public final class UnenforcedAnnotationsCheck implements SmartInitializingSingleton {
 
@@ -44,8 +44,8 @@ public final class UnenforcedAnnotationsCheck implements SmartInitializingSingle
         EnforcedHandlerTypes integration = enforced.getIfAvailable();
         Set<EnforcedHandlerTypes.Handler> handlers = integration != null ? integration.handlers() : Set.of();
         String why = integration != null
-                ? "only handler methods of Spring MVC controllers are enforced"
-                : "this application has no Spring MVC (servlet) enforcement; WebFlux is not supported yet";
+                ? "only handler methods of controllers are enforced"
+                : "this application has no Spring MVC or Spring WebFlux enforcement";
         Arrays.stream(beans.getBeanDefinitionNames())
                 .map(this::type)
                 .filter(type -> type != null && !type.getName().startsWith("org.springframework."))

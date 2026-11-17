@@ -87,13 +87,13 @@ class ExpressionsTest {
 
     @Test
     void readsClaimsOfAnAnonymousCallerNullSafely() {
-        EvaluationContext anonymous = Expressions.context(Map.of(), new RequestView(new MockHttpServletRequest()), null);
+        EvaluationContext anonymous = Expressions.context(Map.of(), new ServletRequestView(new MockHttpServletRequest()), null);
 
         assertEquals(false, Expressions.parse("the test expression", "#claims?.['acr'] == 'mfa'").getValue(anonymous));
     }
 
     private static EvaluationContext context(MockHttpServletRequest request) {
-        return Expressions.context(Map.of("id", "42", "request", "spoofed"), new RequestView(request),
+        return Expressions.context(Map.of("id", "42", "request", "spoofed"), new ServletRequestView(request),
                 Map.of("sub", "alice"));
     }
 
