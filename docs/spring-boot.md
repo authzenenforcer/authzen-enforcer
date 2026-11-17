@@ -118,7 +118,8 @@ the token is stored in the `ReactiveOAuth2AuthorizedClientService`, and a
 application obtains it, if there is one. No thread waits for the token request. One that takes
 longer than `authzen.pdp.request-timeout` is cancelled, which matters because Spring Security's
 default reactive token client sets no response timeout. When the PDP rejects a token, the next
-token request starts once the rejected token is removed from the service. Where Spring Boot creates
+token request starts once the rejected token is removed from the service; a removal that takes
+longer than the request timeout is cancelled and fails only that token request. Where Spring Boot creates
 both clients, as in an application without a web server, the servlet one is used.
 
 A `JsonCodec` bean replaces the internal JSON codec, and every `PepListener` bean is registered

@@ -10,6 +10,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
@@ -231,12 +232,30 @@ public abstract class AbstractOAuth2ClientCredentials implements CredentialProvi
         current.compareAndSet(token, null);
     }
 
-    // The next token request waits for this removal as well as for any earlier one
+    // The next token request waits for this removal as well as for any earlier one, for at most the
+    // refresh timeout: a store that never answers must not hold every later token request
     private void remove(CompletableFuture<Void> removed) {
+        CompletableFuture.delayedExecutor(refreshTimeout.toNanos(), TimeUnit.NANOSECONDS)
+                .execute(() -> removed.cancel(true));
+        CompletableFuture<Void> bounded = removed.handle((done, failure) -> {
+            if (failure == null) {
+                return null;
+            }
+            Throwable cause = failure instanceof CompletionException && failure.getCause() != null
+                    ? failure.getCause()
+                    : failure;
+            if (cause instanceof CancellationException) {
+                throw new IllegalStateException("Removing the rejected token of the OAuth 2.0 client registration '"
+                        + registrationId + "' did not complete within " + refreshTimeout);
+            }
+            throw cause instanceof RuntimeException runtime
+                    ? runtime
+                    : new IllegalStateException("Removing the rejected token failed", cause);
+        });
         lock.lock();
         try {
             CompletableFuture<Void> earlier = removal;
-            removal = earlier.thenCombine(removed, (a, b) -> null);
+            removal = earlier.thenCombine(bounded, (a, b) -> null);
         } finally {
             lock.unlock();
         }

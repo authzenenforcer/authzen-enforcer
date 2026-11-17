@@ -371,8 +371,10 @@ public class AuthZenAutoConfiguration {
             if (repository == null) {
                 return null;
             }
-            // Spring Boot's repository holds the registrations in memory, so this does not wait
-            checkRegistration(registrationId, repository.findByRegistrationId(registrationId).block());
+            // Spring Boot's repository holds the registrations in memory; another one is waited for
+            // as long as a request waits for its credential
+            checkRegistration(registrationId, repository.findByRegistrationId(registrationId)
+                    .block(properties.getPdp().getRequestTimeout()));
             ReactiveOAuth2AuthorizedClientService service = beans
                     .getBeanProvider(ReactiveOAuth2AuthorizedClientService.class)
                     .getIfAvailable(() -> new InMemoryReactiveOAuth2AuthorizedClientService(repository));
