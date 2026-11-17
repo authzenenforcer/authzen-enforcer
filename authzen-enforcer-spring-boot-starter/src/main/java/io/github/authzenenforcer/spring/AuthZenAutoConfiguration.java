@@ -381,7 +381,7 @@ public class AuthZenAutoConfiguration {
             AuthorizedClientServiceReactiveOAuth2AuthorizedClientManager manager =
                     new AuthorizedClientServiceReactiveOAuth2AuthorizedClientManager(repository, service);
             ReactiveOAuth2AccessTokenResponseClient<OAuth2ClientCredentialsGrantRequest> responseClient =
-                    tokenClient(beans).getIfAvailable();
+                    tokenClient(beans);
             if (responseClient != null) {
                 manager.setAuthorizedClientProvider(ReactiveOAuth2AuthorizedClientProviderBuilder.builder()
                         .clientCredentials(grant -> grant.accessTokenResponseClient(responseClient))
@@ -394,12 +394,18 @@ public class AuthZenAutoConfiguration {
         // Resolved as Spring injects the servlet token client, which also matches a bean whose type
         // arguments are unknown, such as a lambda
         @SuppressWarnings("unchecked")
-        private static ObjectProvider<ReactiveOAuth2AccessTokenResponseClient<OAuth2ClientCredentialsGrantRequest>>
-                tokenClient(ConfigurableListableBeanFactory beans) {
+        private static ReactiveOAuth2AccessTokenResponseClient<OAuth2ClientCredentialsGrantRequest> tokenClient(
+                ConfigurableListableBeanFactory beans) {
             Method injectionPoint = ReflectionUtils.findMethod(ReactiveOAuth2Client.class, "injectionPoint",
                     ObjectProvider.class);
-            return (ObjectProvider<ReactiveOAuth2AccessTokenResponseClient<OAuth2ClientCredentialsGrantRequest>>) beans
-                    .resolveDependency(new DependencyDescriptor(new MethodParameter(injectionPoint, 0), false), null);
+            Object provider = injectionPoint == null
+                    ? null
+                    : beans.resolveDependency(new DependencyDescriptor(new MethodParameter(injectionPoint, 0), false),
+                            null);
+            return provider instanceof ObjectProvider<?> tokenClients
+                    ? (ReactiveOAuth2AccessTokenResponseClient<OAuth2ClientCredentialsGrantRequest>) tokenClients
+                            .getIfAvailable()
+                    : null;
         }
 
         // Only its parameter type is used
