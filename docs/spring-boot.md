@@ -261,7 +261,14 @@ that the application plugs into it, such as a `CredentialProvider` whose `getCre
 token, a `SubjectResolver` or a `PepListener`, may then block without stalling other requests. The
 handler runs on the thread that completed the decision, usually one of the HTTP client's. The
 `ReactiveClaimsExtractor` and `ReactiveEnforcementResultHandler` beans run on the request's thread
-and must not block.
+and must not block. The bounded elastic scheduler is shared with Spring Security and the
+application, which may use it for other blocking work, such as password hashing: a credential
+provider that blocks for long, for example while it obtains a token, holds one of its threads for
+that time.
+
+The handler adapter's order is `Ordered.HIGHEST_PRECEDENCE`. A handler adapter of the application
+that supports handler methods and is sorted before it runs them without a decision; such an
+adapter is logged as a warning at startup.
 
 When the subscription is cancelled, for example because the client went away, the call to the PDP
 is cancelled too, and listeners see a cancelled enforcement.

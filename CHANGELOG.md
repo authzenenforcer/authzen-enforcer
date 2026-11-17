@@ -18,7 +18,8 @@ the API.
   `ReactiveEnforcementResultHandler` beans replace the defaults. `#request.parameter` reads the
   fields of a form body with those of the query, as in Spring MVC; the form is read before the
   decision only for handlers whose expressions read parameters, and an expression that reads a
-  parameter of a multipart request refuses it
+  parameter of a multipart request refuses it. A handler adapter of the application that would run
+  handler methods before enforcement is logged as a warning at startup
   ([#54](https://github.com/authzenenforcer/authzen-enforcer/issues/54)).
 - The Spring Boot starter obtains the PEP's token with Spring Security's OAuth 2.0 client when
   `authzen.pdp.client-registration-id` names a registration with the client credentials grant.

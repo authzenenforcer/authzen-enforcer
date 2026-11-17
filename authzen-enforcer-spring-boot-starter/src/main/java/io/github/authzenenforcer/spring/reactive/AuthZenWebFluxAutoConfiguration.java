@@ -4,6 +4,7 @@ import io.github.authzenenforcer.core.enforce.Enforcer;
 import io.github.authzenenforcer.core.enforce.ResourceInferrer;
 import io.github.authzenenforcer.spring.AuthZenAutoConfiguration;
 import io.github.authzenenforcer.spring.AuthZenProperties;
+import io.github.authzenenforcer.spring.internal.HandlerAdapterOrderCheck;
 import io.github.authzenenforcer.spring.internal.HandlerPermissions;
 import io.github.authzenenforcer.spring.internal.PermissionHandlerAdapter;
 import io.github.authzenenforcer.spring.internal.ProtectedRoutesCheck;
@@ -102,6 +103,18 @@ public class AuthZenWebFluxAutoConfiguration {
             HandlerPermissions permissions, ObjectProvider<ResourceInferrer> resourceInferrer) {
         return new ProtectedRoutesCheck(() -> ReactiveRoutes.of(beans), enforcer, permissions,
                 resourceInferrer.getIfUnique());
+    }
+
+    /**
+     * Creates the check, at startup, that no handler adapter of the application runs handler methods
+     * before the one that decides about them.
+     *
+     * @param beans the bean factory
+     * @return the check
+     */
+    @Bean
+    public HandlerAdapterOrderCheck authZenHandlerAdapterOrderCheck(ListableBeanFactory beans) {
+        return new HandlerAdapterOrderCheck(beans, () -> ReactiveRoutes.of(beans));
     }
 
     /**

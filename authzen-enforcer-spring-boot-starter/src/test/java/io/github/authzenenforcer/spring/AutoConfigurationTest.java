@@ -7,6 +7,7 @@ import io.github.authzenenforcer.core.enforce.EnforcementPolicy;
 import io.github.authzenenforcer.core.enforce.Enforcer;
 import io.github.authzenenforcer.core.enforce.SubjectResolver;
 import io.github.authzenenforcer.core.model.Subject;
+import io.github.authzenenforcer.spring.internal.HandlerAdapterOrderCheck;
 import io.github.authzenenforcer.spring.internal.ProtectedRoutesCheck;
 import io.github.authzenenforcer.spring.internal.UnenforcedAnnotationsCheck;
 import io.github.authzenenforcer.spring.reactive.AuthZenWebFluxAutoConfiguration;
@@ -19,8 +20,15 @@ import org.springframework.boot.test.context.runner.ReactiveWebApplicationContex
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.boot.webflux.autoconfigure.WebFluxAutoConfiguration;
 import org.springframework.boot.webmvc.autoconfigure.WebMvcAutoConfiguration;
+import org.springframework.core.PriorityOrdered;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.method.HandlerMethod;
+import org.springframework.web.reactive.HandlerAdapter;
+import org.springframework.web.reactive.HandlerResult;
+import org.springframework.web.server.ServerWebExchange;
+
+import reactor.core.publisher.Mono;
 
 import java.util.List;
 import java.util.Map;
@@ -225,6 +233,41 @@ class AutoConfigurationTest {
                         + " of controllers are enforced",
                 "@CheckPermission on " + Controller.class.getName() + ".helper is not enforced: only handler methods"
                         + " of controllers are enforced"), warnings);
+    }
+
+    @Test
+    void warnsAboutAHandlerAdapterOrderedBeforeEnforcement() {
+        List<String> warnings = warnings(HandlerAdapterOrderCheck.class, () -> reactive()
+                .withUserConfiguration(Controller.class)
+                .withBean(HandlerAdapter.class, FirstAdapter::new)
+                .run(context -> assertNull(context.getStartupFailure())));
+
+        assertEquals(1, warnings.size());
+        assertTrue(warnings.get(0).startsWith("The handler adapter " + FirstAdapter.class.getName() + " runs "),
+                warnings.get(0));
+
+        assertTrue(warnings(HandlerAdapterOrderCheck.class, () -> reactive()
+                .withUserConfiguration(Controller.class)
+                .run(context -> assertNull(context.getStartupFailure()))).isEmpty());
+    }
+
+    /** Runs handler methods ahead of every ordered adapter. */
+    static class FirstAdapter implements HandlerAdapter, PriorityOrdered {
+
+        @Override
+        public int getOrder() {
+            return 0;
+        }
+
+        @Override
+        public boolean supports(Object handler) {
+            return handler instanceof HandlerMethod;
+        }
+
+        @Override
+        public Mono<HandlerResult> handle(ServerWebExchange exchange, Object handler) {
+            return Mono.empty();
+        }
     }
 
     private static ReactiveWebApplicationContextRunner reactive() {
