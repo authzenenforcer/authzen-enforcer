@@ -256,7 +256,13 @@ class ReactiveOAuth2ClientCredentialsTest {
         ExecutionException failure = assertThrows(ExecutionException.class,
                 () -> removing.getCredentialAsync().get(5, TimeUnit.SECONDS));
         assertTrue(failure.getCause().getMessage().contains("did not complete within"));
-        // The store's operation is cancelled, not only waited for no longer
+        // The store's operation is cancelled, not only waited for no longer. The deadline of the
+        // removal and that of the token request run on the common pool in no fixed order, so the
+        // request may fail first
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (cancelled.get() == 0 && System.nanoTime() - deadline < 0) {
+            Thread.sleep(10);
+        }
         assertEquals(1, cancelled.get());
 
         // The store answers again: the stored token comes back until it is rejected and removed
