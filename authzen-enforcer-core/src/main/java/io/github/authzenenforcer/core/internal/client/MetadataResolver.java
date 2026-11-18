@@ -4,6 +4,7 @@ import io.github.authzenenforcer.core.AuthZenException;
 import io.github.authzenenforcer.core.PdpCommunicationException;
 import io.github.authzenenforcer.core.PdpProtocolException;
 import io.github.authzenenforcer.core.client.DiscoveryOptions;
+import io.github.authzenenforcer.core.event.BreakerTransition;
 import io.github.authzenenforcer.core.event.MetadataRefresh;
 import io.github.authzenenforcer.core.event.Operation;
 import io.github.authzenenforcer.core.internal.event.CallTrace;
@@ -81,6 +82,7 @@ final class MetadataResolver {
     private CircuitBreaker.Permit pendingPermit;
     // Whether the last result the PDP gave was published metadata; survives dropping the cache
     private boolean lastPublished;
+    private MetadataRefresh lastRefresh;
 
     /**
      * Creates a resolver.
@@ -171,7 +173,7 @@ final class MetadataResolver {
         try {
             breaker.announce(permit);
         } catch (Error e) {
-            abandon(result, e);
+            abandon(result, e, null);
             throw e;
         }
         // Started outside the lock, since the transport may complete synchronously
@@ -266,12 +268,15 @@ final class MetadataResolver {
     }
 
     // Clears the fetch without changing the cache and gives the permit back, so that the next call tries again
-    private void abandon(CompletableFuture<Optional<PdpMetadata>> result, Throwable failure) {
+    private void abandon(CompletableFuture<Optional<PdpMetadata>> result, Throwable failure, MetadataRefresh refresh) {
         CircuitBreaker.Permit permit;
         lock.lock();
         try {
             pending = null;
             permit = pendingPermit;
+            if (refresh != null) {
+                lastRefresh = refresh;
+            }
         } finally {
             lock.unlock();
         }
@@ -286,8 +291,9 @@ final class MetadataResolver {
             now = now();
         } catch (AuthZenException e) {
             // Nothing changed yet; clear the fetch so that the next call tries again
-            abandon(result, e);
-            trace.refreshed(failed(e));
+            MetadataRefresh refresh = failed(e).time(Instant.now()).build();
+            abandon(result, e, refresh);
+            trace.refreshed(refresh);
             return;
         }
         // Only read when failure stays null, and both branches that leave it null assign it
@@ -298,6 +304,7 @@ final class MetadataResolver {
         boolean droppedStale = false;
         boolean droppedUnusable = false;
         Runnable breakerLog = () -> { };
+        MetadataRefresh refresh;
         lock.lock();
         try {
             pending = null;
@@ -334,12 +341,19 @@ final class MetadataResolver {
                             : new AuthZenException("PDP metadata discovery failed unexpectedly", cause);
                 }
             }
+            // Under the lock, so that a later fetch cannot be overwritten by this one
+            refresh = (failure != null ? failed(failure) : refreshed(value, keptPrevious ? unwrap(error) : null))
+                    .time(Instant.now())
+                    .build();
+            lastRefresh = refresh;
         } catch (RuntimeException e) {
             // pending is already cleared, so the waiting callers must be completed in any case
             failure = new AuthZenException("PDP metadata discovery failed unexpectedly", e);
             keptPrevious = false;
             droppedStale = false;
             droppedUnusable = false;
+            refresh = failed(failure).time(Instant.now()).build();
+            lastRefresh = refresh;
         } finally {
             lock.unlock();
         }
@@ -347,7 +361,7 @@ final class MetadataResolver {
         if (failure != null) {
             result.completeExceptionally(failure);
             breakerLog.run();
-            trace.refreshed(failed(failure));
+            trace.refreshed(refresh);
             if (droppedStale) {
                 LOGGER.log(Level.WARNING, "PDP metadata from " + location + " expired more than maxStale ago and "
                         + "could not be refreshed; requests fail until a refresh succeeds: " + failure.getMessage());
@@ -361,7 +375,7 @@ final class MetadataResolver {
         }
         result.complete(value);
         breakerLog.run();
-        trace.refreshed(refreshed(value, keptPrevious ? unwrap(error) : null));
+        trace.refreshed(refresh);
         if (keptPrevious) {
             LOGGER.log(Level.WARNING, "Refreshing the PDP metadata from " + location
                     + " failed; keeping the previous result: " + unwrap(error).getMessage());
@@ -390,6 +404,30 @@ final class MetadataResolver {
             return clock.getAsLong();
         } catch (RuntimeException e) {
             throw new AuthZenException("Clock of the PDP metadata cache failed", e);
+        }
+    }
+
+    /**
+     * Returns the state of the breaker that suspends fetches.
+     *
+     * @param now the current time on the resolver's clock
+     * @return the state
+     */
+    BreakerTransition.State breakerState(long now) {
+        return breaker.state(now);
+    }
+
+    /**
+     * Returns the last refresh, whether it succeeded or not.
+     *
+     * @return the refresh, or empty if none has completed yet
+     */
+    Optional<MetadataRefresh> lastRefresh() {
+        lock.lock();
+        try {
+            return Optional.ofNullable(lastRefresh);
+        } finally {
+            lock.unlock();
         }
     }
 

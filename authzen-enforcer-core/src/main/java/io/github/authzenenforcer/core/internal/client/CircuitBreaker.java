@@ -229,6 +229,28 @@ final class CircuitBreaker {
         }
     }
 
+    /**
+     * Returns the state the next call meets: an open breaker whose interval has passed lets a probe
+     * through, so it counts as half-open.
+     *
+     * @param now the current time on the same clock as {@link #acquire(long)}
+     * @return the state
+     */
+    BreakerTransition.State state(long now) {
+        if (!enabled) {
+            return BreakerTransition.State.CLOSED;
+        }
+        lock.lock();
+        try {
+            if (state == State.OPEN) {
+                return now - openUntilNanos < 0 ? BreakerTransition.State.OPEN : BreakerTransition.State.HALF_OPEN;
+            }
+            return state == State.HALF_OPEN ? BreakerTransition.State.HALF_OPEN : BreakerTransition.State.CLOSED;
+        } finally {
+            lock.unlock();
+        }
+    }
+
     // Called with the lock held
     private Runnable open(long now) {
         State previous = state;

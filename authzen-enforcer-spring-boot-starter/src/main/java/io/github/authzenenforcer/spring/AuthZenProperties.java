@@ -25,6 +25,8 @@ public class AuthZenProperties {
 
     private final Pdp pdp = new Pdp();
     private final Enforcer enforcer = new Enforcer();
+    private final Metrics metrics = new Metrics();
+    private final Tracing tracing = new Tracing();
 
     /**
      * Returns the properties of the PDP connection.
@@ -42,6 +44,24 @@ public class AuthZenProperties {
      */
     public Enforcer getEnforcer() {
         return enforcer;
+    }
+
+    /**
+     * Returns the properties of the Micrometer metrics.
+     *
+     * @return the properties
+     */
+    public Metrics getMetrics() {
+        return metrics;
+    }
+
+    /**
+     * Returns the properties of the OpenTelemetry traces.
+     *
+     * @return the properties
+     */
+    public Tracing getTracing() {
+        return tracing;
     }
 
     /**
@@ -561,6 +581,149 @@ public class AuthZenProperties {
          */
         public void setTypeNames(Map<String, String> typeNames) {
             this.typeNames = typeNames;
+        }
+    }
+
+    /**
+     * Properties of the Micrometer metrics, under {@code authzen.metrics}. They apply when
+     * authzen-enforcer-micrometer is present and the application has a MeterRegistry bean.
+     */
+    public static class Metrics {
+
+        /** Whether to record metrics of the client and the enforcer. */
+        private boolean enabled = true;
+
+        /**
+         * Whether to tag authzen.client.calls with resource.type; only for few and fixed resource
+         * types.
+         */
+        private boolean resourceTypeTag;
+
+        /** Whether to tag authzen.client.calls with action.name; only for few and fixed action names. */
+        private boolean actionNameTag;
+
+        /**
+         * Returns whether metrics are recorded.
+         *
+         * @return {@code true} if they are
+         */
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        /**
+         * Sets whether metrics are recorded.
+         *
+         * @param enabled whether they are
+         */
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        /**
+         * Returns whether calls are tagged with the resource type.
+         *
+         * @return {@code true} if they are
+         */
+        public boolean isResourceTypeTag() {
+            return resourceTypeTag;
+        }
+
+        /**
+         * Sets whether calls are tagged with the resource type.
+         *
+         * @param resourceTypeTag whether they are
+         */
+        public void setResourceTypeTag(boolean resourceTypeTag) {
+            this.resourceTypeTag = resourceTypeTag;
+        }
+
+        /**
+         * Returns whether calls are tagged with the action name.
+         *
+         * @return {@code true} if they are
+         */
+        public boolean isActionNameTag() {
+            return actionNameTag;
+        }
+
+        /**
+         * Sets whether calls are tagged with the action name.
+         *
+         * @param actionNameTag whether they are
+         */
+        public void setActionNameTag(boolean actionNameTag) {
+            this.actionNameTag = actionNameTag;
+        }
+    }
+
+    /**
+     * Properties of the OpenTelemetry traces, under {@code authzen.tracing}. They apply when
+     * authzen-enforcer-opentelemetry is present and the application has an OpenTelemetry bean.
+     */
+    public static class Tracing {
+
+        /** Whether to trace the calls to the PDP and send their trace context to it. */
+        private boolean enabled = true;
+
+        /** Whether spans carry authzen.resource.type. */
+        private boolean resourceTypeAttribute = true;
+
+        /** Whether spans carry authzen.action.name. */
+        private boolean actionNameAttribute = true;
+
+        /**
+         * Returns whether calls are traced.
+         *
+         * @return {@code true} if they are
+         */
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        /**
+         * Sets whether calls are traced.
+         *
+         * @param enabled whether they are
+         */
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        /**
+         * Returns whether spans carry the resource type.
+         *
+         * @return {@code true} if they do
+         */
+        public boolean isResourceTypeAttribute() {
+            return resourceTypeAttribute;
+        }
+
+        /**
+         * Sets whether spans carry the resource type.
+         *
+         * @param resourceTypeAttribute whether they do
+         */
+        public void setResourceTypeAttribute(boolean resourceTypeAttribute) {
+            this.resourceTypeAttribute = resourceTypeAttribute;
+        }
+
+        /**
+         * Returns whether spans carry the action name.
+         *
+         * @return {@code true} if they do
+         */
+        public boolean isActionNameAttribute() {
+            return actionNameAttribute;
+        }
+
+        /**
+         * Sets whether spans carry the action name.
+         *
+         * @param actionNameAttribute whether they do
+         */
+        public void setActionNameAttribute(boolean actionNameAttribute) {
+            this.actionNameAttribute = actionNameAttribute;
         }
     }
 }

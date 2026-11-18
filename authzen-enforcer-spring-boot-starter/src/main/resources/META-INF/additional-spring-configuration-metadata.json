@@ -1,0 +1,10 @@
+{
+  "properties": [
+    {
+      "name": "management.health.authzen.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether to add the health indicator of the PDP client, which reads the state of its circuit breakers and its last metadata refresh without contacting the PDP.",
+      "defaultValue": false
+    }
+  ]
+}

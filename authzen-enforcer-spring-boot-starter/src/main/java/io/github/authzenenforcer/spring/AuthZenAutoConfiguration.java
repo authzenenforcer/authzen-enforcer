@@ -12,6 +12,7 @@ import io.github.authzenenforcer.core.enforce.SubjectResolver;
 import io.github.authzenenforcer.core.model.Subject;
 import io.github.authzenenforcer.core.spi.JsonCodec;
 import io.github.authzenenforcer.core.spi.PepListener;
+import io.github.authzenenforcer.core.spi.PepTracer;
 import io.github.authzenenforcer.spring.internal.EnforcedHandlerTypes;
 import io.github.authzenenforcer.spring.internal.AbstractOAuth2ClientCredentials;
 import io.github.authzenenforcer.spring.internal.OAuth2ClientCredentials;
@@ -57,7 +58,8 @@ import java.lang.reflect.Method;
  * <p>Each bean is created only if the application defines none of its type, so that a bean of the
  * application replaces both the default and the properties that configure it. The client sends the
  * credential of a {@link CredentialProvider} bean, uses a {@link JsonCodec} bean if there is one,
- * and reports to every {@link PepListener} bean, as does the enforcer.
+ * and reports to every {@link PepListener} bean, as does the enforcer. A {@link PepTracer} bean is
+ * the client's tracer rather than one of its listeners.
  *
  * <p>With {@code authzen.pdp.client-registration-id}, the credential provider is a client
  * registration of Spring Security's OAuth 2.0 client with the client credentials grant.
@@ -85,6 +87,7 @@ public class AuthZenAutoConfiguration {
      * @param properties  the properties
      * @param credentials the credential provider, if there is one
      * @param jsonCodec   the JSON codec, if the application defines one
+     * @param tracer      the tracer, if there is one
      * @param listeners   the listeners
      * @param beans       the bean factory
      * @return the client
@@ -95,7 +98,7 @@ public class AuthZenAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public AuthZenClient authZenClient(AuthZenProperties properties, ObjectProvider<CredentialProvider> credentials,
-            ObjectProvider<JsonCodec> jsonCodec, ObjectProvider<PepListener> listeners,
+            ObjectProvider<JsonCodec> jsonCodec, ObjectProvider<PepTracer> tracer, ObjectProvider<PepListener> listeners,
             ConfigurableListableBeanFactory beans) {
         AuthZenProperties.Pdp pdp = properties.getPdp();
         String url = pdp.getUrl();
@@ -123,7 +126,12 @@ public class AuthZenAutoConfiguration {
         if (codec != null) {
             builder.jsonCodec(codec);
         }
-        listeners.orderedStream().forEach(builder::listener);
+        // The client registers its tracer as a listener after the others, so that it ends the spans last
+        PepTracer pepTracer = tracer.getIfAvailable();
+        if (pepTracer != null) {
+            builder.tracer(pepTracer);
+        }
+        listeners.orderedStream().filter(listener -> listener != pepTracer).forEach(builder::listener);
         return builder.build();
     }
 

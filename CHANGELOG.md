@@ -9,6 +9,15 @@ the API.
 
 ### Added
 
+- The Spring Boot starter configures Micrometer metrics and OpenTelemetry traces when
+  `authzen-enforcer-micrometer` or `authzen-enforcer-opentelemetry` is present with a
+  `MeterRegistry` or `OpenTelemetry` bean, and, with `management.health.authzen.enabled=true`, a
+  health indicator that is `DOWN` while calls deny at once, without contacting the PDP per probe.
+  `authzen.metrics.*` and `authzen.tracing.*` turn them off or choose the opt-in tags and
+  attributes; beans of the application replace the defaults. A `PepTracer` bean is the client's
+  tracer ([#56](https://github.com/authzenenforcer/authzen-enforcer/issues/56)).
+- `AuthZenClient.status()` returns the state of the circuit breakers and the last metadata
+  refresh, without contacting the PDP.
 - In Spring WebFlux applications, `authzen.pdp.client-registration-id` obtains the PEP's token with
   Spring Security's reactive OAuth 2.0 client, with the same caching, single renewal and handling
   of `401` as the servlet one. No thread waits for the token request, and one that takes longer

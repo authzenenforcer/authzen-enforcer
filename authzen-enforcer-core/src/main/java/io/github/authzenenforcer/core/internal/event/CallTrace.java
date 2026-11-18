@@ -208,13 +208,13 @@ public final class CallTrace {
      *
      * @param refresh the refresh
      */
-    public void refreshed(MetadataRefresh.Builder refresh) {
+    public void refreshed(MetadataRefresh refresh) {
         if (!isActive()) {
             return;
         }
         try {
             publishAttempts();
-            dispatcher.publish(refresh.time(Instant.now()).build(), responseBytes);
+            dispatcher.publish(refresh, responseBytes);
         } catch (RuntimeException e) {
             LOGGER.log(Level.WARNING, "Publishing a metadata refresh to the PEP listeners failed", e);
         }

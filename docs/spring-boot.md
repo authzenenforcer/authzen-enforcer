@@ -4,8 +4,7 @@ The `authzen-enforcer-spring-boot-starter` module configures an `AuthZenClient` 
 from properties, and enforces handler methods of Spring MVC and Spring WebFlux annotated with
 `@CheckPermission`. It requires Spring Boot 4.0 or later and Java 17 or later.
 
-The starter is a preview, available since 0.2.0. The auto-configuration of metrics follows; until
-then, bind metrics as described in [Observability](observability.md).
+The starter is a preview, available since 0.2.0.
 
 ```xml
 <dependency>
@@ -55,6 +54,9 @@ A bean of the application replaces the default and the properties that configure
 `AuthZenClient`, `Enforcer`, `RequestInferrer`, `ActionMapper`, `ResourceInferrer`,
 `SubjectResolver`, `RouteOverrides` or `EnforcementPolicy`. Overrides of single routes are
 given as a `RouteOverrides` bean.
+
+Metrics, traces and a health indicator are configured when their libraries are present; see
+[Observability](#observability).
 
 ### Credentials
 
@@ -283,3 +285,67 @@ adapter is logged as a warning at startup.
 
 When the subscription is cancelled, for example because the client went away, the call to the PDP
 is cancelled too, and listeners see a cancelled enforcement.
+
+## Observability
+
+The starter configures metrics and traces when their module of authzen-enforcer and their library
+are present, and a health indicator on request. Add the modules you use; the starter does not bring
+them along.
+
+```xml
+<dependency>
+    <groupId>io.github.authzenenforcer</groupId>
+    <artifactId>authzen-enforcer-micrometer</artifactId>
+</dependency>
+<dependency>
+    <groupId>io.github.authzenenforcer</groupId>
+    <artifactId>authzen-enforcer-opentelemetry</artifactId>
+</dependency>
+```
+
+| Property | Default | Description |
+|---|---|---|
+| `authzen.metrics.enabled` | `true` | Record Micrometer metrics, when `authzen-enforcer-micrometer` is present and there is a `MeterRegistry` bean. |
+| `authzen.metrics.resource-type-tag` / `.action-name-tag` | `false` | Tag `authzen.client.calls` with `resource.type` and `action.name`; only for few and fixed types and names. |
+| `authzen.tracing.enabled` | `true` | Trace calls to the PDP, when `authzen-enforcer-opentelemetry` is present and there is an `OpenTelemetry` bean. |
+| `authzen.tracing.resource-type-attribute` / `.action-name-attribute` | `true` | Give spans `authzen.resource.type` and `authzen.action.name`. |
+| `management.health.authzen.enabled` | `false` | Add the health indicator `authzen`. |
+
+- **Metrics:** a `MicrometerPepListener` bean records the meters listed in
+  [Observability](observability.md#metrics-with-micrometer) for the client and the enforcer, and
+  `AuthZenClientMetrics` and `EnforcerMetrics` beans expose their listener drops. With Spring Boot
+  Actuator, the registry comes from `spring-boot-starter-actuator` and a registry such as
+  `micrometer-registry-prometheus`. Tags that every meter of the application carries come from
+  `management.metrics.tags.*`.
+- **Traces:** a `PepTracer` bean, the `OpenTelemetryTracing` of the `OpenTelemetry` bean, such as
+  the one of `spring-boot-starter-opentelemetry`, traces the calls and sends their trace context
+  to the PDP; see [Observability](observability.md#tracing-with-opentelemetry). A `PepTracer` bean
+  of the application replaces it.
+- **Health:** the indicator reads the client's state without contacting the PDP, so a probe never
+  causes a call. It is `DOWN` while calls deny at once: while the breaker of the authorization API
+  is open, or after the last metadata refresh failed. A half-open breaker and stale metadata are
+  `UP`. The details give the state of each breaker and the result and time of the last metadata
+  refresh, with the class of its failure, never its message.
+
+```json
+{
+  "status": "DOWN",
+  "details": {
+    "breakers": { "authorizationApi": "open", "metadataDiscovery": "closed" },
+    "metadata": { "result": "default_paths", "time": "2026-11-18T10:15:30Z" }
+  }
+}
+```
+
+The indicator is opt-in and not part of the liveness and readiness groups: every instance shares
+the PDP, so an outage of the PDP would take all of them out of service at once, while
+enforcement already denies on its own. It does count towards the overall status of
+`/actuator/health`, so let load balancers and orchestrators probe `/actuator/health/liveness` and
+`/actuator/health/readiness`, not the overall status. Add it to a group of your own, or to
+readiness, only if that is what you want. If the client's state cannot be read, the indicator is
+`DOWN` with the class of the exception as `error`.
+
+The beans of the application win: a `MicrometerPepListener`, `AuthZenClientMetrics`,
+`EnforcerMetrics`, `PepTracer` or a bean named `authzenHealthIndicator` replaces the default. An
+`AuthZenClient` or `Enforcer` bean of the application gets neither the listener nor the tracer;
+register them in its builder.

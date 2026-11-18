@@ -47,9 +47,30 @@ AuthZenClient client = AuthZenClient.builder()
 - `client.listenerDrops()` and `enforcer.listenerDrops()` tell how many events each listener lost,
   per event type.
 
+## Client status
+
+`client.status()` returns the state of the circuit breakers and the last metadata refresh, for
+example for a health check. It does not contact the PDP and does not start a refresh, and unlike
+the events, it is never late or lost.
+
+```java
+ClientStatus status = client.status().orElseThrow();
+boolean denyingAtOnce = status.getAuthorizationApiBreaker() == BreakerTransition.State.OPEN
+        || status.getLastMetadataRefresh()
+                .map(refresh -> refresh.getResult() == MetadataRefresh.Result.FAILED)
+                .orElse(false);
+```
+
+An open breaker whose interval has passed lets the next call through as a probe, so it is reported
+as half-open. The metadata breaker and the last refresh are empty when discovery is off; the last
+refresh is also empty until the first one completes. Its failure keeps its whole cause chain, so
+export it by class name. The Spring Boot starter turns it into a health indicator; see
+[Spring Boot](spring-boot.md#observability).
+
 ## Metrics with Micrometer
 
-`authzen-enforcer-micrometer` records the events as Micrometer meters:
+`authzen-enforcer-micrometer` records the events as Micrometer meters. The Spring Boot starter
+configures it on its own; see [Spring Boot](spring-boot.md#observability).
 
 ```java
 MicrometerPepListener metrics = MicrometerPepListener.builder(registry)
@@ -90,6 +111,9 @@ module does not bring Micrometer along: it uses the `micrometer-core` of your ap
 newer, which a registry such as `micrometer-registry-prometheus` already provides.
 
 ## Tracing with OpenTelemetry
+
+The Spring Boot starter configures this module on its own; see
+[Spring Boot](spring-boot.md#observability).
 
 `authzen-enforcer-opentelemetry` records every call as a span and every HTTP exchange with the
 PDP, retries included, as a child span, and sends the exchange's W3C trace context to the PDP in

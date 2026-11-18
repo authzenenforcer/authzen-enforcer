@@ -404,6 +404,19 @@ public interface AuthZenClient {
     }
 
     /**
+     * Returns the state of the circuit breakers and the last metadata refresh, for example for a
+     * health check. It does not contact the PDP and does not start a metadata refresh.
+     *
+     * <p>The default implementation reports nothing, for clients that do not track it.
+     *
+     * @return a snapshot of the state, or empty if the client does not track it
+     * @throws AuthZenException if the state cannot be read, such as when the client's clock fails
+     */
+    default Optional<ClientStatus> status() {
+        return Optional.empty();
+    }
+
+    /**
      * Returns a new builder.
      *
      * @return the builder
