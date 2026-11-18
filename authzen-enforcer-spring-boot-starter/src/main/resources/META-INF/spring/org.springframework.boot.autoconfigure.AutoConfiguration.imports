@@ -1,3 +1,6 @@
 io.github.authzenenforcer.spring.AuthZenAutoConfiguration
 io.github.authzenenforcer.spring.servlet.AuthZenWebMvcAutoConfiguration
 io.github.authzenenforcer.spring.reactive.AuthZenWebFluxAutoConfiguration
+io.github.authzenenforcer.spring.observability.AuthZenMetricsAutoConfiguration
+io.github.authzenenforcer.spring.observability.AuthZenTracingAutoConfiguration
+io.github.authzenenforcer.spring.observability.AuthZenHealthAutoConfiguration

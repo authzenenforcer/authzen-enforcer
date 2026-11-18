@@ -23,6 +23,7 @@ final class FakePdp implements AutoCloseable {
     private final HttpServer server;
     private final List<Map<String, Object>> requests = new ArrayList<>();
     private final List<String> authorizations = new ArrayList<>();
+    private final List<String> traceparents = new ArrayList<>();
     private Predicate<Map<String, Object>> decision = request -> true;
     private Predicate<String> authorized = authorization -> true;
     private int status = 200;
@@ -66,6 +67,10 @@ final class FakePdp implements AutoCloseable {
         return List.copyOf(authorizations);
     }
 
+    synchronized List<String> traceparents() {
+        return List.copyOf(traceparents);
+    }
+
     synchronized List<Map<String, Object>> requests() {
         return List.copyOf(requests);
     }
@@ -77,6 +82,7 @@ final class FakePdp implements AutoCloseable {
     synchronized void reset() {
         requests.clear();
         authorizations.clear();
+        traceparents.clear();
         decision = request -> true;
         authorized = authorization -> true;
         status = 200;
@@ -93,6 +99,7 @@ final class FakePdp implements AutoCloseable {
         synchronized (this) {
             requests.add(request);
             authorizations.add(authorization);
+            traceparents.add(exchange.getRequestHeaders().getFirst("traceparent"));
             decided = decision.test(request);
             answer = authorized.test(authorization) ? status : 401;
             delay = delayMillis;

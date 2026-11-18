@@ -7,6 +7,7 @@ import io.github.authzenenforcer.core.PdpProtocolException;
 import io.github.authzenenforcer.core.auth.CredentialProvider;
 import io.github.authzenenforcer.core.client.AuthZenClient;
 import io.github.authzenenforcer.core.client.CircuitBreakerOptions;
+import io.github.authzenenforcer.core.client.ClientStatus;
 import io.github.authzenenforcer.core.client.DiscoveryOptions;
 import io.github.authzenenforcer.core.client.PaginationOptions;
 import io.github.authzenenforcer.core.event.BreakerTransition;
@@ -522,6 +523,17 @@ public final class DefaultAuthZenClient implements AuthZenClient {
     @Override
     public ListenerDrops listenerDrops() {
         return events.drops();
+    }
+
+    @Override
+    public Optional<ClientStatus> status() {
+        long now = now();
+        ClientStatus.Builder status = ClientStatus.builder().authorizationApiBreaker(breaker.state(now));
+        if (metadata != null) {
+            status.metadataDiscoveryBreaker(metadata.breakerState(now));
+            metadata.lastRefresh().ifPresent(status::lastMetadataRefresh);
+        }
+        return Optional.of(status.build());
     }
 
     private CompletableFuture<Optional<PdpMetadata>> discovered() {

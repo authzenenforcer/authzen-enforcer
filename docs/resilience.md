@@ -74,7 +74,8 @@ AuthZenClient client = AuthZenClient.builder()
 ```
 
 `CircuitBreakerOptions.disabled()` turns the breakers off. Breaker transitions are reported to
-listeners and as metrics; see [Observability](observability.md).
+listeners and as metrics, and `client.status()` tells the current state of each breaker; see
+[Observability](observability.md).
 
 ## Cancellation
 

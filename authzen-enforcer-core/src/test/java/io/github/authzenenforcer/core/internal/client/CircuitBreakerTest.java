@@ -1,6 +1,7 @@
 package io.github.authzenenforcer.core.internal.client;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -8,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.authzenenforcer.core.PdpCommunicationException;
 import io.github.authzenenforcer.core.client.CircuitBreakerOptions;
+import io.github.authzenenforcer.core.event.BreakerTransition;
 
 import java.time.Duration;
 
@@ -200,5 +202,33 @@ class CircuitBreakerTest {
         fail(breaker, 50);
 
         assertDoesNotThrow(() -> breaker.acquire(now));
+    }
+
+    @Test
+    void reportsItsStateAsTheNextCallMeetsIt() {
+        CircuitBreaker breaker = breaker();
+        assertEquals(BreakerTransition.State.CLOSED, breaker.state(now));
+        fail(breaker, 3);
+        assertEquals(BreakerTransition.State.OPEN, breaker.state(now));
+        advance(OPEN.minusNanos(1_000_000));
+        assertEquals(BreakerTransition.State.OPEN, breaker.state(now));
+
+        // No call yet, but the next one probes
+        advance(Duration.ofMillis(1));
+        assertEquals(BreakerTransition.State.HALF_OPEN, breaker.state(now));
+        CircuitBreaker.Permit probe = breaker.acquire(now);
+        assertEquals(BreakerTransition.State.HALF_OPEN, breaker.state(now));
+
+        breaker.succeeded(probe).run();
+        assertEquals(BreakerTransition.State.CLOSED, breaker.state(now));
+    }
+
+    @Test
+    void reportsADisabledBreakerAsClosed() {
+        CircuitBreaker breaker = new CircuitBreaker("PDP authorization API", CircuitBreakerOptions.disabled(), () -> jitter);
+
+        fail(breaker, 10);
+
+        assertEquals(BreakerTransition.State.CLOSED, breaker.state(now));
     }
 }
