@@ -31,6 +31,8 @@ jobs:
       - name: Build and test
         run: mvn -B -ntp verify
 
+  # The latest-release jobs read Maven Central's metadata with curl. Central sometimes answers 429 or
+  # a short-lived 404, so curl retries every error for up to two minutes before the job fails
   micrometer-latest:
     # The module compiles against the oldest supported Micrometer; this checks the newest release
     name: Micrometer (latest)
@@ -45,7 +47,7 @@ jobs:
       - name: Find the latest Micrometer release
         id: micrometer
         run: |
-          version=$(curl -fsS https://repo.maven.apache.org/maven2/io/micrometer/micrometer-core/maven-metadata.xml \
+          version=$(curl -fsS --retry 5 --retry-all-errors --retry-delay 10 --retry-max-time 120 https://repo.maven.apache.org/maven2/io/micrometer/micrometer-core/maven-metadata.xml \
             | grep -oE '<version>[0-9]+\.[0-9]+\.[0-9]+</version>' | sed -E 's/<\/?version>//g' | sort -V | tail -n 1)
           test -n "$version"
           echo "Micrometer $version"
@@ -67,7 +69,7 @@ jobs:
       - name: Find the latest OpenTelemetry release
         id: opentelemetry
         run: |
-          version=$(curl -fsS https://repo.maven.apache.org/maven2/io/opentelemetry/opentelemetry-api/maven-metadata.xml \
+          version=$(curl -fsS --retry 5 --retry-all-errors --retry-delay 10 --retry-max-time 120 https://repo.maven.apache.org/maven2/io/opentelemetry/opentelemetry-api/maven-metadata.xml \
             | grep -oE '<version>[0-9]+\.[0-9]+\.[0-9]+</version>' | sed -E 's/<\/?version>//g' | sort -V | tail -n 1)
           test -n "$version"
           echo "OpenTelemetry $version"
@@ -89,7 +91,7 @@ jobs:
       - name: Find the latest Spring Boot release
         id: spring-boot
         run: |
-          version=$(curl -fsS https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-dependencies/maven-metadata.xml \
+          version=$(curl -fsS --retry 5 --retry-all-errors --retry-delay 10 --retry-max-time 120 https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-dependencies/maven-metadata.xml \
             | grep -oE '<version>[0-9]+\.[0-9]+\.[0-9]+</version>' | sed -E 's/<\/?version>//g' | sort -V | tail -n 1)
           test -n "$version"
           echo "Spring Boot $version"
