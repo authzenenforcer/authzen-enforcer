@@ -85,6 +85,18 @@ final class PermissionRequests {
      */
     Prepared prepare(HandlerPermission permission, String method, String routePattern,
             Map<String, String> pathVariables, RequestView view, Optional<Map<String, Object>> claims) {
+        if (permission.bindsData()) {
+            String conflict;
+            try {
+                conflict = DataBinding.conflict(permission, pathVariables, view.valueNames(), view.headerNames());
+            } catch (RuntimeException e) {
+                conflict = "Reading the parameters of a request to " + permission.getHandler() + " failed with "
+                        + e.getClass().getName();
+            }
+            if (conflict != null) {
+                return new Prepared(null, null, refused(conflict));
+            }
+        }
         PermissionSpec spec;
         try {
             spec = permission.spec(Expressions.context(pathVariables, view,

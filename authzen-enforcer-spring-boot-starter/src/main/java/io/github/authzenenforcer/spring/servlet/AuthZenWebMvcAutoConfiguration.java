@@ -20,6 +20,7 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.HandlerInterceptor;
@@ -76,12 +77,14 @@ public class AuthZenWebMvcAutoConfiguration {
      * Creates the record of how handler methods are enforced.
      *
      * @param properties the properties
+     * @param context    the application context, for the controller advice
      * @return the permissions
      */
     @Bean
-    public HandlerPermissions authZenHandlerPermissions(AuthZenProperties properties) {
+    public HandlerPermissions authZenHandlerPermissions(AuthZenProperties properties, ApplicationContext context) {
         return new HandlerPermissions(properties.getEnforcer().isEnforceAll(),
-                properties.getEnforcer().getExcludePaths(), properties.getEnforcer().getResource().getMaxIdLength());
+                properties.getEnforcer().getExcludePaths(), properties.getEnforcer().getResource().getMaxIdLength(),
+                HandlerPermissions.controllerAdvice(context));
     }
 
     /**

@@ -1,5 +1,6 @@
 package io.github.authzenenforcer.spring.internal;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -36,13 +37,24 @@ public abstract class RequestView {
     public abstract String getRemoteAddr();
 
     /**
-     * Returns the first value of a header, unless it carries credentials.
+     * Returns the value of a header, unless it carries credentials.
+     *
+     * <p>A header that the request repeats is refused, as a repeated parameter is: a handler that
+     * takes the header with {@code @RequestHeader} or through data binding gets all its values.
      *
      * @param name the header name
      * @return the value, or {@code null} if there is none or it carries credentials
+     * @throws AmbiguousHeaderException if the request repeats the header
      */
     public final String header(String name) {
-        return name == null || CREDENTIAL_HEADERS.contains(name.toLowerCase(Locale.ROOT)) ? null : headerValue(name);
+        if (name == null || CREDENTIAL_HEADERS.contains(name.toLowerCase(Locale.ROOT))) {
+            return null;
+        }
+        List<String> values = headerValues(name);
+        if (values.size() > 1) {
+            throw new AmbiguousHeaderException();
+        }
+        return values.isEmpty() ? null : values.get(0);
     }
 
     /**
@@ -70,7 +82,12 @@ public abstract class RequestView {
         return values.isEmpty() ? null : values.get(0);
     }
 
-    abstract String headerValue(String name);
+    abstract List<String> headerValues(String name);
+
+    // The names of the query and form parameters and of the multipart parts, as data binding sees them
+    abstract Collection<String> valueNames();
+
+    abstract Collection<String> headerNames();
 
     // The values of the query and then of the form; throws MultipartParameterException for a multipart
     // request, whose parts a handler can read by name although they are no parameters
@@ -96,6 +113,16 @@ public abstract class RequestView {
 
         MultipartParameterException() {
             super("Parameters of multipart requests are not read", null, false, false);
+        }
+    }
+
+    /** A header that an expression read is repeated; the request is refused. */
+    public static final class AmbiguousHeaderException extends RuntimeException {
+
+        private static final long serialVersionUID = 1L;
+
+        AmbiguousHeaderException() {
+            super("The header is repeated", null, false, false);
         }
     }
 

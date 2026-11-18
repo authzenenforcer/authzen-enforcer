@@ -4,9 +4,12 @@ import io.github.authzenenforcer.core.enforce.PermissionSpec;
 import io.github.authzenenforcer.spring.CheckPermission;
 import io.github.authzenenforcer.spring.SkipPermissionCheck;
 
+import org.springframework.context.ApplicationContext;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.expression.Expression;
 import org.springframework.http.server.PathContainer;
+import org.springframework.util.function.SingletonSupplier;
+import org.springframework.web.method.ControllerAdviceBean;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.util.pattern.PathPattern;
 import org.springframework.web.util.pattern.PathPatternParser;
@@ -17,7 +20,10 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
@@ -29,6 +35,7 @@ public final class HandlerPermissions {
     private final boolean enforceAll;
     private final List<PathPattern> excludePaths;
     private final int maxIdLength;
+    private final Function<Class<?>, List<Class<?>>> advice;
     // As many entries as there are handler methods and route patterns, which requests cannot add to
     private final Map<Key, HandlerPermission> permissions = new ConcurrentHashMap<>();
     private final Map<String, Boolean> excluded = new ConcurrentHashMap<>();
@@ -42,9 +49,42 @@ public final class HandlerPermissions {
      * @throws IllegalStateException if an exclude path is not a valid pattern
      */
     public HandlerPermissions(boolean enforceAll, List<String> excludePaths, int maxIdLength) {
+        this(enforceAll, excludePaths, maxIdLength, type -> List.of());
+    }
+
+    /**
+     * Creates the permissions.
+     *
+     * @param enforceAll   whether every handler is enforced
+     * @param excludePaths the route patterns that enforce-all leaves out
+     * @param maxIdLength  the maximum length of a resource id that an expression gives
+     * @param advice       the types of the controller advice that applies to a controller type,
+     *                     whose {@code @ModelAttribute} methods bind data for its handlers
+     * @throws IllegalStateException if an exclude path is not a valid pattern
+     */
+    public HandlerPermissions(boolean enforceAll, List<String> excludePaths, int maxIdLength,
+            Function<Class<?>, List<Class<?>>> advice) {
+        this.advice = advice;
         this.enforceAll = enforceAll;
         this.maxIdLength = maxIdLength;
         this.excludePaths = excludePaths.stream().map(HandlerPermissions::pathPattern).toList();
+    }
+
+    /**
+     * Returns the controller advice of an application context that applies to a controller type,
+     * looked up when it is first needed, after the context is refreshed.
+     *
+     * @param context the application context
+     * @return the types of the advice beans that apply to a controller type
+     */
+    public static Function<Class<?>, List<Class<?>>> controllerAdvice(ApplicationContext context) {
+        SingletonSupplier<List<ControllerAdviceBean>> advice =
+                SingletonSupplier.of(() -> ControllerAdviceBean.findAnnotatedBeans(context));
+        return type -> advice.obtain().stream()
+                .filter(bean -> bean.isApplicableToBeanType(type))
+                .<Class<?>>map(ControllerAdviceBean::getBeanType)
+                .filter(Objects::nonNull)
+                .toList();
     }
 
     /**
@@ -67,15 +107,17 @@ public final class HandlerPermissions {
         Class<?> type = handler.getBeanType();
         CheckPermission onType = annotation(type, type.getName());
         boolean typeSkipped = onType == null && skipped(type);
+        Set<String> bindsData = DataBinding.boundArguments(handler.getBeanType(), handler.getMethod(),
+                advice.apply(handler.getBeanType()));
         if (onMethod != null) {
-            return annotated(name, onMethod, typeSkipped ? null : onType);
+            return annotated(name, onMethod, typeSkipped ? null : onType, bindsData);
         }
         if (onType != null) {
-            return annotated(name, onType, null);
+            return annotated(name, onType, null, bindsData);
         }
         if (enforceAll && !typeSkipped) {
             return new HandlerPermission(name, HandlerPermission.Source.ENFORCE_ALL, PermissionSpec.none(), null,
-                    Map.of(), this::excluded, maxIdLength);
+                    Map.of(), this::excluded, maxIdLength, bindsData);
         }
         return none(name);
     }
@@ -95,11 +137,12 @@ public final class HandlerPermissions {
 
     private static HandlerPermission none(String name) {
         return new HandlerPermission(name, HandlerPermission.Source.NONE, PermissionSpec.none(), null, Map.of(),
-                route -> true, 0);
+                route -> true, 0, Set.of());
     }
 
     // The method's values win attribute by attribute, and its context entries by name
-    private HandlerPermission annotated(String name, CheckPermission onMethod, CheckPermission onType) {
+    private HandlerPermission annotated(String name, CheckPermission onMethod, CheckPermission onType,
+            Set<String> bindsData) {
         PermissionSpec.Builder literals = PermissionSpec.builder();
         String action = attribute(onMethod.action(), onType == null ? "" : onType.action());
         if (!action.isEmpty()) {
@@ -121,7 +164,7 @@ public final class HandlerPermissions {
         context.putAll(context(name, onMethod.context()));
         return new HandlerPermission(name, HandlerPermission.Source.ANNOTATION, literals.build(),
                 resourceId.isEmpty() ? null : parse(name, "resourceId", resourceId),
-                Collections.unmodifiableMap(context), route -> false, maxIdLength);
+                Collections.unmodifiableMap(context), route -> false, maxIdLength, bindsData);
     }
 
     private static String attribute(String onMethod, String onType) {

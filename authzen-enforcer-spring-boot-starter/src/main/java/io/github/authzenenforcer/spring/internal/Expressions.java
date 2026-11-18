@@ -26,6 +26,7 @@ import org.springframework.expression.spel.standard.SpelExpressionParser;
 import org.springframework.expression.spel.support.MapAccessor;
 import org.springframework.expression.spel.support.SimpleEvaluationContext;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -84,6 +85,32 @@ final class Expressions {
      */
     static boolean readsParameters(Expression expression) {
         return expression instanceof SpelExpression spel && callsParameter(spel.getAST());
+    }
+
+    /**
+     * Returns the names that an expression that {@link #parse} accepted reads with a method of
+     * {@code #request}; parse requires them to be literals.
+     *
+     * @param expression the expression
+     * @param method     {@code "parameter"} or {@code "header"}
+     * @return the names
+     */
+    static Set<String> readNames(Expression expression, String method) {
+        Set<String> names = new LinkedHashSet<>();
+        if (expression instanceof SpelExpression spel) {
+            collectNames(spel.getAST(), method, names);
+        }
+        return names;
+    }
+
+    private static void collectNames(SpelNode node, String method, Set<String> names) {
+        if (node instanceof MethodReference reference && method.equals(reference.getName())
+                && reference.getChildCount() == 1 && reference.getChild(0) instanceof StringLiteral literal) {
+            names.add(String.valueOf(literal.getLiteralValue().getValue()));
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            collectNames(node.getChild(i), method, names);
+        }
     }
 
     // parse lets methods be called only on #request, so any call of that name is one
