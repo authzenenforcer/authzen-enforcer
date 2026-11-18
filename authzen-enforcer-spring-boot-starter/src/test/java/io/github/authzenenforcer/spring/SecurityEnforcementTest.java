@@ -12,6 +12,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.oauth2.jwt.BadJwtException;
@@ -36,6 +37,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
@@ -140,6 +142,63 @@ class SecurityEnforcementTest {
             mvc.perform(post("/notes/share").with(alice()).param("ref", ref)).andExpect(status().isForbidden());
         }
         mvc.perform(post("/notes/share").with(alice())).andExpect(status().isForbidden());
+        assertTrue(PDP.requests().isEmpty());
+    }
+
+    @Test
+    void bindsThePathVariableWhenNoOtherValueHasItsName() throws Exception {
+        mvc.perform(put("/drafts/7").with(alice()))
+                .andExpect(status().isOk())
+                .andExpect(content().string("updated 7"));
+        assertEquals(Map.of("type", "drafts", "id", "7"), PDP.lastRequest().get("resource"));
+    }
+
+    @Test
+    void refusesAValueThatDataBindingWouldPreferToThePathVariable() throws Exception {
+        // Without the refusal, the handler would update draft 8 after the PDP was asked about 7
+        mvc.perform(put("/drafts/7").param("id", "8").with(alice())).andExpect(status().isForbidden());
+        for (String name : List.of("Id", "!id", "_id", "id[0]", "id.value")) {
+            mvc.perform(put("/drafts/7").param(name, "8").with(alice())).andExpect(status().isForbidden());
+        }
+        mvc.perform(multipart(HttpMethod.PUT, "/drafts/7")
+                        .file(new MockMultipartFile("id", "x", "text/plain", "8".getBytes()))
+                        .with(alice()))
+                .andExpect(status().isForbidden());
+
+        assertTrue(PDP.requests().isEmpty());
+    }
+
+    @Test
+    void letsAValueNamedLikeAPathVariableThroughToAHandlerWithoutDataBinding() throws Exception {
+        mvc.perform(put("/letters/7").param("id", "8").with(alice()))
+                .andExpect(status().isOk())
+                .andExpect(content().string("letter 7"));
+    }
+
+    @Test
+    void asksAboutTheValuesThatDataBindingUses() throws Exception {
+        mvc.perform(put("/memos/7").param("level", "low").header("Tenant", "t1").with(alice()))
+                .andExpect(status().isOk())
+                .andExpect(content().string("classified 7 low t1"));
+
+        Map<String, Object> context = new HashMap<>();
+        context.put("level", "low");
+        context.put("tenant", "t1");
+        assertEquals(context, PDP.lastRequest().get("context"));
+    }
+
+    @Test
+    void refusesAnExpressionValueThatDataBindingWouldTakeFromAnotherSource() throws Exception {
+        // The PDP would see no level, while data binding fills it from the header
+        mvc.perform(put("/memos/7").header("Level", "secret").with(alice())).andExpect(status().isForbidden());
+        // Both names bind the property level
+        mvc.perform(put("/memos/7").param("level", "low").param("Level", "high").with(alice()))
+                .andExpect(status().isForbidden());
+        // The parameter wins over the header that the expression read
+        mvc.perform(put("/memos/7").param("level", "low").param("tenant", "t2").header("Tenant", "t1")
+                        .with(alice()))
+                .andExpect(status().isForbidden());
+
         assertTrue(PDP.requests().isEmpty());
     }
 

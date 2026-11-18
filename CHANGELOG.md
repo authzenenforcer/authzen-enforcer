@@ -47,6 +47,14 @@ the API.
 
 ### Fixed
 
+- The Spring Boot starter refuses a request whose values data binding would take from another
+  source than the PDP saw, for handlers with a `@ModelAttribute` or otherwise bound argument: a
+  parameter or multipart part named like a path variable of the route, as in
+  `PUT /documents/{id}?id=8`, and a parameter or header that an expression reads while data binding
+  could fill the same name from another parameter, a path variable or a header. The handler acted
+  on the other value after the PDP was asked about the path variable or the expression's value. In
+  Spring WebFlux, the form and the parts of a request to such a handler are read before the
+  decision ([#73](https://github.com/authzenenforcer/authzen-enforcer/issues/73)).
 - `#request.parameter` refuses a request whose parameter has more than one value, repeated or both
   in the query and in the form. The expression read the first value, while a handler could act on
   another: Spring MVC joins the values for a `String` argument, and Spring WebFlux's form data and

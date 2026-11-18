@@ -5,9 +5,12 @@ import io.github.authzenenforcer.spring.SkipPermissionCheck;
 
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -109,6 +112,53 @@ public class TestApplication {
         public String open() {
             return "public";
         }
+    }
+
+    /** Handlers whose arguments data binding fills. */
+    @RestController
+    public static class Bindings {
+
+        @CheckPermission
+        @PutMapping("/drafts/{id}")
+        public String update(Draft draft) {
+            return "updated " + draft.getId();
+        }
+
+        @CheckPermission(context = {"level=#request.parameter('level')", "tenant=#request.header('Tenant')"})
+        @PutMapping("/memos/{id}")
+        public String classify(@ModelAttribute Memo memo) {
+            return "classified " + memo.id() + " " + memo.level() + " " + memo.tenant();
+        }
+
+        @CheckPermission
+        @PutMapping("/letters/{id}")
+        public String letter(@PathVariable String id, @RequestParam(required = false) String note) {
+            return "letter " + id;
+        }
+    }
+
+    /** Bound through its setters. */
+    public static class Draft {
+
+        private String id;
+
+        public String getId() {
+            return id;
+        }
+
+        public void setId(String id) {
+            this.id = id;
+        }
+    }
+
+    /**
+     * Bound through its constructor.
+     *
+     * @param id     the id
+     * @param level  the level
+     * @param tenant the tenant, also from the header Tenant
+     */
+    public record Memo(String id, String level, String tenant) {
     }
 
     /** A meta-annotation. */

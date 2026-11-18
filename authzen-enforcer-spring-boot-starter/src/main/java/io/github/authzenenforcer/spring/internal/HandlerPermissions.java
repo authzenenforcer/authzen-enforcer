@@ -67,15 +67,16 @@ public final class HandlerPermissions {
         Class<?> type = handler.getBeanType();
         CheckPermission onType = annotation(type, type.getName());
         boolean typeSkipped = onType == null && skipped(type);
+        boolean bindsData = DataBinding.binds(handler.getMethod());
         if (onMethod != null) {
-            return annotated(name, onMethod, typeSkipped ? null : onType);
+            return annotated(name, onMethod, typeSkipped ? null : onType, bindsData);
         }
         if (onType != null) {
-            return annotated(name, onType, null);
+            return annotated(name, onType, null, bindsData);
         }
         if (enforceAll && !typeSkipped) {
             return new HandlerPermission(name, HandlerPermission.Source.ENFORCE_ALL, PermissionSpec.none(), null,
-                    Map.of(), this::excluded, maxIdLength);
+                    Map.of(), this::excluded, maxIdLength, bindsData);
         }
         return none(name);
     }
@@ -95,11 +96,12 @@ public final class HandlerPermissions {
 
     private static HandlerPermission none(String name) {
         return new HandlerPermission(name, HandlerPermission.Source.NONE, PermissionSpec.none(), null, Map.of(),
-                route -> true, 0);
+                route -> true, 0, false);
     }
 
     // The method's values win attribute by attribute, and its context entries by name
-    private HandlerPermission annotated(String name, CheckPermission onMethod, CheckPermission onType) {
+    private HandlerPermission annotated(String name, CheckPermission onMethod, CheckPermission onType,
+            boolean bindsData) {
         PermissionSpec.Builder literals = PermissionSpec.builder();
         String action = attribute(onMethod.action(), onType == null ? "" : onType.action());
         if (!action.isEmpty()) {
@@ -121,7 +123,7 @@ public final class HandlerPermissions {
         context.putAll(context(name, onMethod.context()));
         return new HandlerPermission(name, HandlerPermission.Source.ANNOTATION, literals.build(),
                 resourceId.isEmpty() ? null : parse(name, "resourceId", resourceId),
-                Collections.unmodifiableMap(context), route -> false, maxIdLength);
+                Collections.unmodifiableMap(context), route -> false, maxIdLength, bindsData);
     }
 
     private static String attribute(String onMethod, String onType) {

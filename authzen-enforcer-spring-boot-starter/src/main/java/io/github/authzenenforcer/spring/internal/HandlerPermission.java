@@ -7,7 +7,10 @@ import org.springframework.expression.Expression;
 import org.springframework.expression.spel.ast.Literal;
 import org.springframework.expression.spel.standard.SpelExpression;
 
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Predicate;
 
 /**
@@ -39,9 +42,12 @@ public final class HandlerPermission {
     private final Predicate<String> excluded;
     private final int maxIdLength;
     private final boolean readsParameters;
+    private final boolean bindsData;
+    private final Set<String> readParameters;
+    private final Set<String> readHeaders;
 
     HandlerPermission(String handler, Source source, PermissionSpec literals, Expression resourceId,
-            Map<String, Expression> context, Predicate<String> excluded, int maxIdLength) {
+            Map<String, Expression> context, Predicate<String> excluded, int maxIdLength, boolean bindsData) {
         this.handler = handler;
         this.source = source;
         this.literals = literals;
@@ -51,6 +57,18 @@ public final class HandlerPermission {
         this.maxIdLength = maxIdLength;
         this.readsParameters = (resourceId != null && Expressions.readsParameters(resourceId))
                 || context.values().stream().anyMatch(Expressions::readsParameters);
+        this.bindsData = bindsData;
+        this.readParameters = readNames(resourceId, context, "parameter");
+        this.readHeaders = readNames(resourceId, context, "header");
+    }
+
+    private static Set<String> readNames(Expression resourceId, Map<String, Expression> context, String method) {
+        Set<String> names = new LinkedHashSet<>();
+        if (resourceId != null) {
+            names.addAll(Expressions.readNames(resourceId, method));
+        }
+        context.values().forEach(expression -> names.addAll(Expressions.readNames(expression, method)));
+        return Collections.unmodifiableSet(names);
     }
 
     /**
@@ -119,6 +137,34 @@ public final class HandlerPermission {
      */
     public boolean readsParameters() {
         return readsParameters;
+    }
+
+    /**
+     * Returns whether the handler method may have an argument that data binding fills, so that a
+     * request must have no other source for the values the PDP sees.
+     *
+     * @return {@code true} if it may
+     */
+    public boolean bindsData() {
+        return bindsData;
+    }
+
+    /**
+     * Returns the names of the parameters that the handler's expressions read.
+     *
+     * @return the names
+     */
+    Set<String> getReadParameters() {
+        return readParameters;
+    }
+
+    /**
+     * Returns the names of the headers that the handler's expressions read.
+     *
+     * @return the names
+     */
+    Set<String> getReadHeaders() {
+        return readHeaders;
     }
 
     /**

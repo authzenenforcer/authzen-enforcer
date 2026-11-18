@@ -172,6 +172,72 @@ class ReactiveSecurityEnforcementTest {
     }
 
     @Test
+    void bindsThePathVariableWhenNoOtherValueHasItsName() {
+        client.mutateWith(alice()).put().uri("/drafts/7").exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class).isEqualTo("updated 7");
+        assertEquals(Map.of("type", "drafts", "id", "7"), PDP.lastRequest().get("resource"));
+    }
+
+    @Test
+    void refusesAValueThatDataBindingWouldPreferToThePathVariable() {
+        // Without the refusal, the handler would update draft 8 after the PDP was asked about 7
+        for (String name : List.of("id", "Id", "!id", "_id", "id[0]", "id.value")) {
+            client.mutateWith(alice()).put().uri(uri -> uri.path("/drafts/7").queryParam("{name}", "8").build(name))
+                    .exchange()
+                    .expectStatus().isForbidden();
+        }
+        client.mutateWith(alice()).put().uri("/drafts/7")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .body(BodyInserters.fromFormData("id", "8"))
+                .exchange()
+                .expectStatus().isForbidden();
+        MultipartBodyBuilder body = new MultipartBodyBuilder();
+        body.part("id", "8");
+        client.mutateWith(alice()).put().uri("/drafts/7")
+                .contentType(MediaType.MULTIPART_FORM_DATA)
+                .body(BodyInserters.fromMultipartData(body.build()))
+                .exchange()
+                .expectStatus().isForbidden();
+
+        assertTrue(PDP.requests().isEmpty());
+    }
+
+    @Test
+    void letsAValueNamedLikeAPathVariableThroughToAHandlerWithoutDataBinding() {
+        client.mutateWith(alice()).put().uri("/letters/7?id=8").exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class).isEqualTo("letter 7");
+    }
+
+    @Test
+    void asksAboutTheValuesThatDataBindingUses() {
+        client.mutateWith(alice()).put().uri("/memos/7?level=low").header("Tenant", "t1").exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class).isEqualTo("classified 7 low t1");
+
+        Map<String, Object> context = new HashMap<>();
+        context.put("level", "low");
+        context.put("tenant", "t1");
+        assertEquals(context, PDP.lastRequest().get("context"));
+    }
+
+    @Test
+    void refusesAnExpressionValueThatDataBindingWouldTakeFromAnotherSource() {
+        // The PDP would see no level, while data binding fills it from the header
+        client.mutateWith(alice()).put().uri("/memos/7").header("Level", "secret").exchange()
+                .expectStatus().isForbidden();
+        // Both names bind the property level
+        client.mutateWith(alice()).put().uri("/memos/7?level=low&Level=high").exchange()
+                .expectStatus().isForbidden();
+        // The parameter wins over the header that the expression read
+        client.mutateWith(alice()).put().uri("/memos/7?level=low&tenant=t2").header("Tenant", "t1").exchange()
+                .expectStatus().isForbidden();
+
+        assertTrue(PDP.requests().isEmpty());
+    }
+
+    @Test
     void refusesARepeatedParameterWithoutAskingThePdp() {
         client.mutateWith(alice()).post().uri("/notes/share?ref=n-1&ref=n-2").exchange().expectStatus().isForbidden();
 

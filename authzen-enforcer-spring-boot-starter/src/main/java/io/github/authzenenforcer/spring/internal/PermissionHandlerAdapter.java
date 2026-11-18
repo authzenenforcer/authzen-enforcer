@@ -23,6 +23,7 @@ import reactor.core.scheduler.Scheduler;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Asks the {@link Enforcer} before an enforced handler method runs, and lets the
@@ -43,6 +44,7 @@ public final class PermissionHandlerAdapter implements HandlerAdapter, Ordered {
             "org.springframework.web.reactive.result.method.RequestMappingInfoHandlerMapping$HttpOptionsHandler";
 
     private static final MultiValueMap<String, String> NO_FORM = new LinkedMultiValueMap<>(0);
+    private static final Body NO_BODY = new Body(NO_FORM, Set.of());
 
     private final Enforcer enforcer;
     private final HandlerPermissions permissions;
@@ -110,27 +112,32 @@ public final class PermissionHandlerAdapter implements HandlerAdapter, Ordered {
                 .defaultIfEmpty(Optional.empty())
                 .onErrorMap(e -> new Refusal(requests.claimsFailed(e)));
         return claims
-                .zipWith(form(exchange, permission))
+                .zipWith(body(exchange, permission))
                 .flatMap(values -> ask(exchange, permission, routePattern, values.getT1(), values.getT2()))
                 .onErrorResume(Refusal.class, refusal -> Mono.just(refusal.result));
     }
 
-    // Read only for expressions that read parameters: the form is the body, read in full. Spring
-    // WebFlux caches it, and reads form bodies only this way, so that handlers still get it
-    private Mono<MultiValueMap<String, String>> form(ServerWebExchange exchange, HandlerPermission permission) {
-        if (!permission.readsParameters()) {
-            return Mono.just(NO_FORM);
+    // Read only for expressions that read parameters, and for handlers that bind data, which read
+    // the form and the parts anyway: the body is read in full. Spring WebFlux caches both, and data
+    // binding and handlers read them only this way, so that they still get them
+    private Mono<Body> body(ServerWebExchange exchange, HandlerPermission permission) {
+        if (!permission.readsParameters() && !permission.bindsData()) {
+            return Mono.just(NO_BODY);
         }
-        return exchange.getFormData().onErrorMap(e -> new Refusal(requests.refused("Reading the form of a request"
-                + " to " + permission.getHandler() + " failed with " + e.getClass().getName())));
+        Mono<Set<String>> parts = permission.bindsData()
+                ? exchange.getMultipartData().map(data -> Set.copyOf(data.keySet()))
+                : Mono.just(Set.of());
+        return exchange.getFormData().zipWith(parts, Body::new).onErrorMap(e -> new Refusal(requests.refused(
+                "Reading the body of a request to " + permission.getHandler() + " failed with "
+                        + e.getClass().getName())));
     }
 
     private Mono<EnforcementResult> ask(ServerWebExchange exchange, HandlerPermission permission,
-            String routePattern, Optional<Map<String, Object>> claims, MultiValueMap<String, String> form) {
+            String routePattern, Optional<Map<String, Object>> claims, Body body) {
         return Mono.defer(() -> {
             PermissionRequests.Prepared prepared = requests.prepare(permission,
                     exchange.getRequest().getMethod().name(), routePattern, pathVariables(exchange),
-                    new ReactiveRequestView(exchange.getRequest(), form), claims);
+                    new ReactiveRequestView(exchange.getRequest(), body.form(), body.partNames()), claims);
             if (prepared.refusal() != null) {
                 return Mono.just(prepared.refusal());
             }
@@ -168,6 +175,10 @@ public final class PermissionHandlerAdapter implements HandlerAdapter, Ordered {
     public String toString() {
         return "PermissionHandlerAdapter{enforcer=" + enforcer + ", claimsExtractor=" + claimsExtractor
                 + ", resultHandler=" + resultHandler + "}";
+    }
+
+    // The form fields and the names of the multipart parts of a request
+    private record Body(MultiValueMap<String, String> form, Set<String> partNames) {
     }
 
     // Carries a refusal past the steps after the one that refused; never leaves this class

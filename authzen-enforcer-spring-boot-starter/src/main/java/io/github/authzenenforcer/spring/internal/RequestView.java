@@ -1,5 +1,6 @@
 package io.github.authzenenforcer.spring.internal;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -71,6 +72,11 @@ public abstract class RequestView {
     }
 
     abstract String headerValue(String name);
+
+    // The names of the query and form parameters and of the multipart parts, as data binding sees them
+    abstract Collection<String> valueNames();
+
+    abstract Collection<String> headerNames();
 
     // The values of the query and then of the form; throws MultipartParameterException for a multipart
     // request, whose parts a handler can read by name although they are no parameters
