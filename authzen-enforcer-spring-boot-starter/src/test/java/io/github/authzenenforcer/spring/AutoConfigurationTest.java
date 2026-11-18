@@ -4,6 +4,9 @@ import io.github.authzenenforcer.core.auth.AccessCredential;
 import io.github.authzenenforcer.core.auth.CredentialProvider;
 import io.github.authzenenforcer.core.client.AuthZenClient;
 import io.github.authzenenforcer.core.enforce.EnforcementPolicy;
+import io.github.authzenenforcer.core.model.Resource;
+import io.github.authzenenforcer.core.enforce.ResourceInferrer;
+import io.github.authzenenforcer.core.enforce.RequestDescription;
 import io.github.authzenenforcer.core.enforce.Enforcer;
 import io.github.authzenenforcer.core.enforce.SubjectResolver;
 import io.github.authzenenforcer.core.model.Subject;
@@ -106,6 +109,28 @@ class AutoConfigurationTest {
                             "client_id", "billing", "groups", List.of("ops")));
                     assertEquals("client", subject.getType());
                     assertEquals(Map.of("groups", List.of("ops")), subject.getProperties());
+                });
+    }
+
+    @Test
+    void setsTheTypeOfCollections() {
+        runner.withPropertyValues("authzen.pdp.url=https://pdp.example.com",
+                        "authzen.enforcer.resource.collection-type=folder")
+                .run(context -> {
+                    Resource resource = context.getBean(ResourceInferrer.class).infer(RequestDescription.builder()
+                            .method("GET").routePattern("/documents").build(), false).getResource();
+                    assertEquals("folder", resource.getType());
+                    assertEquals("documents", resource.getId());
+                });
+    }
+
+    @Test
+    void refusesABlankCollectionType() {
+        runner.withPropertyValues("authzen.pdp.url=https://pdp.example.com",
+                        "authzen.enforcer.resource.collection-type= ")
+                .run(context -> {
+                    assertNotNull(context.getStartupFailure());
+                    assertTrue(rootMessage(context.getStartupFailure()).contains("collection-type"));
                 });
     }
 

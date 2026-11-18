@@ -49,6 +49,7 @@ authzen:
 | `authzen.enforcer.resource.singularize` | `false` | Turn plural route segments into singular resource types. |
 | `authzen.enforcer.resource.max-id-length` | `1024` | Longer resource ids from path variables or expressions are denied. |
 | `authzen.enforcer.resource.type-names.<segment>` | – | Resource type of a route segment, such as `analyses: analysis`. |
+| `authzen.enforcer.resource.collection-type` | `collection` | Resource type of a collection route such as `GET /documents`, whose id is the type of its resources: `{type: "collection", id: "documents"}`. Use a type that no single resource has. |
 
 A bean of the application replaces the default and the properties that configure it: an
 `AuthZenClient`, `Enforcer`, `RequestInferrer`, `ActionMapper`, `ResourceInferrer`,

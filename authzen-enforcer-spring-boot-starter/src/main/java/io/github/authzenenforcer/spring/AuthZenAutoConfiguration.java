@@ -151,14 +151,20 @@ public class AuthZenAutoConfiguration {
      *
      * @param properties the properties
      * @return the inferrer
+     * @throws IllegalStateException if {@code authzen.enforcer.resource.collection-type} is blank
      */
     @Bean
     @ConditionalOnMissingBean
     public ResourceInferrer authZenResourceInferrer(AuthZenProperties properties) {
         AuthZenProperties.Resource resource = properties.getEnforcer().getResource();
+        // An empty type would ask the PDP about {type: "", id: "documents"}
+        if (resource.getCollectionType() == null || resource.getCollectionType().isBlank()) {
+            throw new IllegalStateException("authzen.enforcer.resource.collection-type must not be blank");
+        }
         ResourceInferrer.Builder builder = ResourceInferrer.builder()
                 .singularize(resource.isSingularize())
-                .maxIdLength(resource.getMaxIdLength());
+                .maxIdLength(resource.getMaxIdLength())
+                .collectionType(resource.getCollectionType());
         resource.getTypeNames().forEach(builder::typeName);
         return builder.build();
     }
