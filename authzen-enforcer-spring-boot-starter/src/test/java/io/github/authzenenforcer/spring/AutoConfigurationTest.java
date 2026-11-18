@@ -24,6 +24,7 @@ import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.boot.webflux.autoconfigure.WebFluxAutoConfiguration;
 import org.springframework.boot.webmvc.autoconfigure.WebMvcAutoConfiguration;
 import org.springframework.core.PriorityOrdered;
+import org.springframework.core.env.MapPropertySource;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.method.HandlerMethod;
@@ -125,13 +126,17 @@ class AutoConfigurationTest {
     }
 
     @Test
-    void refusesABlankCollectionType() {
-        runner.withPropertyValues("authzen.pdp.url=https://pdp.example.com",
-                        "authzen.enforcer.resource.collection-type= ")
-                .run(context -> {
-                    assertNotNull(context.getStartupFailure());
-                    assertTrue(rootMessage(context.getStartupFailure()).contains("collection-type"));
-                });
+    void refusesABlankOrPaddedCollectionType() {
+        for (String type : List.of(" ", "collection ", "folder\t")) {
+            runner.withPropertyValues("authzen.pdp.url=https://pdp.example.com")
+                    .withInitializer(context -> context.getEnvironment().getPropertySources().addFirst(
+                            new MapPropertySource("padded", Map.of("authzen.enforcer.resource.collection-type", type))))
+                    .run(context -> {
+                        assertNotNull(context.getStartupFailure(), type);
+                        assertTrue(rootMessage(context.getStartupFailure()).contains("collection-type"),
+                                rootMessage(context.getStartupFailure()));
+                    });
+        }
     }
 
     @Test

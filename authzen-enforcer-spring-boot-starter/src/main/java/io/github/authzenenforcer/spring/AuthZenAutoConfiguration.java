@@ -151,20 +151,25 @@ public class AuthZenAutoConfiguration {
      *
      * @param properties the properties
      * @return the inferrer
-     * @throws IllegalStateException if {@code authzen.enforcer.resource.collection-type} is blank
+     * @throws IllegalStateException if {@code authzen.enforcer.resource.collection-type} is blank, starts or
+     *                               ends with whitespace, or contains control characters
      */
     @Bean
     @ConditionalOnMissingBean
     public ResourceInferrer authZenResourceInferrer(AuthZenProperties properties) {
         AuthZenProperties.Resource resource = properties.getEnforcer().getResource();
-        // An empty type would ask the PDP about {type: "", id: "documents"}
-        if (resource.getCollectionType() == null || resource.getCollectionType().isBlank()) {
-            throw new IllegalStateException("authzen.enforcer.resource.collection-type must not be blank");
+        // An empty type would ask the PDP about {type: "", id: "documents"}, and surrounding spaces
+        // would defeat the check that no route infers the same type for a single resource
+        String collectionType = resource.getCollectionType();
+        if (collectionType == null || collectionType.isBlank() || !collectionType.strip().equals(collectionType)
+                || collectionType.codePoints().anyMatch(Character::isISOControl)) {
+            throw new IllegalStateException("authzen.enforcer.resource.collection-type must not be blank, start or"
+                    + " end with whitespace, or contain control characters");
         }
         ResourceInferrer.Builder builder = ResourceInferrer.builder()
                 .singularize(resource.isSingularize())
                 .maxIdLength(resource.getMaxIdLength())
-                .collectionType(resource.getCollectionType());
+                .collectionType(collectionType);
         resource.getTypeNames().forEach(builder::typeName);
         return builder.build();
     }

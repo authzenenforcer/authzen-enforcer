@@ -11,7 +11,7 @@ the API.
 
 - `authzen.enforcer.resource.collection-type` sets the resource type of collection routes in the
   Spring Boot starter, `collection` by default, without replacing the `ResourceInferrer` bean; a
-  blank value fails the startup ([#58](https://github.com/authzenenforcer/authzen-enforcer/issues/58)).
+  blank value, surrounding whitespace or a control character fails the startup ([#58](https://github.com/authzenenforcer/authzen-enforcer/issues/58)).
 - The Spring Boot starter configures Micrometer metrics and OpenTelemetry traces when
   `authzen-enforcer-micrometer` or `authzen-enforcer-opentelemetry` is present with a
   `MeterRegistry` or `OpenTelemetry` bean, and, with `management.health.authzen.enabled=true`, a
