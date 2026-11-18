@@ -42,7 +42,8 @@ public final class ClientStatus {
     /**
      * Returns the state of the breaker shared by evaluations, batch evaluations and searches. An
      * open breaker whose interval has passed lets the next call through as a probe, so it is
-     * reported as half-open.
+     * reported as half-open. While a probe runs, the breaker stays half-open and the other calls
+     * fail at once until the probe completes.
      *
      * @return the state
      */

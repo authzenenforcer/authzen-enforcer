@@ -410,6 +410,7 @@ public interface AuthZenClient {
      * <p>The default implementation reports nothing, for clients that do not track it.
      *
      * @return a snapshot of the state, or empty if the client does not track it
+     * @throws AuthZenException if the state cannot be read, such as when the client's clock fails
      */
     default Optional<ClientStatus> status() {
         return Optional.empty();

@@ -1,5 +1,6 @@
 package io.github.authzenenforcer.spring;
 
+import io.github.authzenenforcer.core.AuthZenException;
 import io.github.authzenenforcer.core.client.AuthZenClient;
 import io.github.authzenenforcer.core.client.CircuitBreakerOptions;
 import io.github.authzenenforcer.core.enforce.Enforcer;
@@ -295,6 +296,22 @@ class ObservabilityAutoConfigurationTest {
                     assertEquals("io.github.authzenenforcer.core.PdpCommunicationException", metadata.get("failure"));
                     assertFalse(health.toString().contains(url));
                 });
+    }
+
+    @Test
+    void reportsAClientWhoseStateCannotBeReadAsDownWithoutTheMessage() {
+        AuthZenClient client = (AuthZenClient) Proxy.newProxyInstance(AuthZenClient.class.getClassLoader(),
+                new Class<?>[] {AuthZenClient.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("status")) {
+                        throw new AuthZenException("secret detail");
+                    }
+                    return InvocationHandler.invokeDefault(proxy, method, args);
+                });
+
+        Health health = new AuthZenHealthIndicator(client).health();
+
+        assertEquals(Status.DOWN, health.getStatus());
+        assertEquals(Map.of("error", AuthZenException.class.getName()), health.getDetails());
     }
 
     @Test

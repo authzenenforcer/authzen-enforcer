@@ -339,8 +339,11 @@ them along.
 
 The indicator is opt-in and not part of the liveness and readiness groups: every instance shares
 the PDP, so an outage of the PDP would take all of them out of service at once, while
-enforcement already denies on its own. Add it to a group of your own, or to readiness, only if
-that is what you want.
+enforcement already denies on its own. It does count towards the overall status of
+`/actuator/health`, so let load balancers and orchestrators probe `/actuator/health/liveness` and
+`/actuator/health/readiness`, not the overall status. Add it to a group of your own, or to
+readiness, only if that is what you want. If the client's state cannot be read, the indicator is
+`DOWN` with the class of the exception as `error`.
 
 The beans of the application win: a `MicrometerPepListener`, `AuthZenClientMetrics`,
 `EnforcerMetrics`, `PepTracer` or a bean named `authzenHealthIndicator` replaces the default. An

@@ -20,7 +20,8 @@ import java.util.Optional;
  *
  * <p>It is {@code DOWN} while calls deny at once: while the breaker of the authorization API is
  * open, or after the last metadata refresh failed. A half-open breaker and stale metadata are
- * {@code UP}, since calls go on. A client that does not track its state is {@code UNKNOWN}.
+ * {@code UP}, since calls go on. A client that does not track its state is {@code UNKNOWN}, and
+ * one whose state cannot be read, such as after its clock failed, is {@code DOWN}.
  *
  * <p>The details name the states of the breakers, and the result and time of the last metadata
  * refresh with the class of its failure; never a failure message, which may come from the PDP or
@@ -41,7 +42,13 @@ public final class AuthZenHealthIndicator implements HealthIndicator {
 
     @Override
     public Health health() {
-        Optional<ClientStatus> current = client.status();
+        Optional<ClientStatus> current;
+        try {
+            current = client.status();
+        } catch (RuntimeException e) {
+            // Calls fail as well then; the class only, as for refresh failures
+            return Health.down().withDetail("error", e.getClass().getName()).build();
+        }
         if (current.isEmpty()) {
             return Health.unknown().build();
         }
