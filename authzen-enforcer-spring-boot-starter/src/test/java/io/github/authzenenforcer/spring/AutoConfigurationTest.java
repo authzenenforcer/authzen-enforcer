@@ -4,6 +4,9 @@ import io.github.authzenenforcer.core.auth.AccessCredential;
 import io.github.authzenenforcer.core.auth.CredentialProvider;
 import io.github.authzenenforcer.core.client.AuthZenClient;
 import io.github.authzenenforcer.core.enforce.EnforcementPolicy;
+import io.github.authzenenforcer.core.model.Resource;
+import io.github.authzenenforcer.core.enforce.ResourceInferrer;
+import io.github.authzenenforcer.core.enforce.RequestDescription;
 import io.github.authzenenforcer.core.enforce.Enforcer;
 import io.github.authzenenforcer.core.enforce.SubjectResolver;
 import io.github.authzenenforcer.core.model.Subject;
@@ -21,6 +24,7 @@ import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.boot.webflux.autoconfigure.WebFluxAutoConfiguration;
 import org.springframework.boot.webmvc.autoconfigure.WebMvcAutoConfiguration;
 import org.springframework.core.PriorityOrdered;
+import org.springframework.core.env.MapPropertySource;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.method.HandlerMethod;
@@ -107,6 +111,32 @@ class AutoConfigurationTest {
                     assertEquals("client", subject.getType());
                     assertEquals(Map.of("groups", List.of("ops")), subject.getProperties());
                 });
+    }
+
+    @Test
+    void setsTheTypeOfCollections() {
+        runner.withPropertyValues("authzen.pdp.url=https://pdp.example.com",
+                        "authzen.enforcer.resource.collection-type=folder")
+                .run(context -> {
+                    Resource resource = context.getBean(ResourceInferrer.class).infer(RequestDescription.builder()
+                            .method("GET").routePattern("/documents").build(), false).getResource();
+                    assertEquals("folder", resource.getType());
+                    assertEquals("documents", resource.getId());
+                });
+    }
+
+    @Test
+    void refusesABlankOrPaddedCollectionType() {
+        for (String type : List.of(" ", "collection ", "folder\t")) {
+            runner.withPropertyValues("authzen.pdp.url=https://pdp.example.com")
+                    .withInitializer(context -> context.getEnvironment().getPropertySources().addFirst(
+                            new MapPropertySource("padded", Map.of("authzen.enforcer.resource.collection-type", type))))
+                    .run(context -> {
+                        assertNotNull(context.getStartupFailure(), type);
+                        assertTrue(rootMessage(context.getStartupFailure()).contains("collection-type"),
+                                rootMessage(context.getStartupFailure()));
+                    });
+        }
     }
 
     @Test

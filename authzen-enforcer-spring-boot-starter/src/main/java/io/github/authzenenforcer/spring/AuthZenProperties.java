@@ -530,6 +530,12 @@ public class AuthZenProperties {
         private Map<String, String> typeNames = new LinkedHashMap<>();
 
         /**
+         * Resource type of a collection route, such as GET /documents; the id is the type of its
+         * resources. Use a type that no single resource has.
+         */
+        private String collectionType = ResourceInferrer.Builder.DEFAULT_COLLECTION_TYPE;
+
+        /**
          * Returns whether route segments are singularized.
          *
          * @return {@code true} if they are
@@ -563,6 +569,24 @@ public class AuthZenProperties {
          */
         public void setMaxIdLength(int maxIdLength) {
             this.maxIdLength = maxIdLength;
+        }
+
+        /**
+         * Returns the resource type of collection routes.
+         *
+         * @return the type
+         */
+        public String getCollectionType() {
+            return collectionType;
+        }
+
+        /**
+         * Sets the resource type of collection routes.
+         *
+         * @param collectionType the type
+         */
+        public void setCollectionType(String collectionType) {
+            this.collectionType = collectionType;
         }
 
         /**
