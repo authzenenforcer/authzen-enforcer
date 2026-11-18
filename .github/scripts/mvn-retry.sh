@@ -20,7 +20,8 @@ for attempt in $(seq 1 "$attempts"); do
   if [ "$status" -eq 0 ]; then
     exit 0
   fi
-  if ! grep -qE 'Could not (find|transfer) artifact|Non-resolvable (import|parent) POM|Could not resolve dependencies|PluginResolutionException' "$log"; then
+  # Only Maven's own error lines, so that output of a test cannot cause a retry
+  if ! grep -qE '^\[ERROR\] .*(Could not (find|transfer) artifact|Non-resolvable (import|parent) POM|Could not resolve dependencies|PluginResolutionException)' "$log"; then
     exit "$status"
   fi
   if [ "$attempt" -lt "$attempts" ]; then
