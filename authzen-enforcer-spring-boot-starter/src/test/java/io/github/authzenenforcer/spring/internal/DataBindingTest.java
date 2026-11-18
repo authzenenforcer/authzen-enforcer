@@ -19,36 +19,80 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DataBindingTest {
 
     private static boolean binds(String name) {
-        Method method = Arrays.stream(Handlers.class.getDeclaredMethods())
-                .filter(candidate -> candidate.getName().equals(name))
-                .findFirst()
-                .orElseThrow();
-        return DataBinding.binds(method);
+        return DataBinding.binds(method(name));
     }
 
     @Test
     void findsArgumentsThatDataBindingFills() {
-        for (String name : List.of("implicit", "modelAttribute", "optional", "asynchronous", "custom")) {
+        for (String name : List.of("implicit", "modelAttribute", "optional", "asynchronous", "custom", "unbound")) {
             assertTrue(binds(name), name);
         }
     }
 
     @Test
     void leavesArgumentsThatOtherResolversTake() {
-        for (String name : List.of("none", "annotated", "simple", "framework", "unbound")) {
+        for (String name : List.of("none", "annotated", "simple", "framework")) {
             assertFalse(binds(name), name);
         }
     }
 
+    @Test
+    void namesTheBoundArgumentsAsSpringNamesModelAttributes() throws Exception {
+        assertEquals(Set.of("form"), DataBinding.boundArguments(Handlers.class, method("implicit"), List.of()));
+        assertEquals(Set.of("named", "form"),
+                DataBinding.boundArguments(Handlers.class, method("named"), List.of()));
+        assertEquals(Set.of(), DataBinding.boundArguments(Handlers.class, method("none"), List.of()));
+    }
+
+    @Test
+    void includesTheModelAttributeMethodsOfTheControllerAndItsAdvice() throws Exception {
+        assertEquals(Set.of("form"), DataBinding.boundArguments(Prepared.class, Prepared.class.getMethod("none"),
+                List.of()));
+        assertEquals(Set.of("form"), DataBinding.boundArguments(Handlers.class, method("none"),
+                List.of(Advice.class)));
+    }
+
+    // A handler method without arguments, of a controller whose model attribute method binds data
+    static class Prepared {
+
+        @ModelAttribute("loaded")
+        public String load(Form form) {
+            return form.getId();
+        }
+
+        public void none() {
+        }
+    }
+
+    static class Advice {
+
+        @ModelAttribute
+        public void prepare(Form form) {
+        }
+    }
+
+    private static Method method(String name) {
+        return Arrays.stream(Handlers.class.getDeclaredMethods())
+                .filter(candidate -> candidate.getName().equals(name))
+                .findFirst()
+                .orElseThrow();
+    }
+
     @SuppressWarnings("unused")
     static class Handlers {
+
+        void named(@ModelAttribute("named") Form form) {
+        }
+
 
         void implicit(Form form) {
         }

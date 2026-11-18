@@ -1,15 +1,23 @@
 package io.github.authzenenforcer.spring.internal;
 
 import org.springframework.beans.BeanUtils;
+import org.springframework.core.Conventions;
+import org.springframework.core.MethodIntrospector;
 import org.springframework.core.MethodParameter;
+import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.util.ClassUtils;
+import org.springframework.util.ReflectionUtils;
 import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.RequestMapping;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Deque;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -24,8 +32,12 @@ import java.util.Set;
  * in that order of precedence, and also from names that only resemble a property's name: another
  * case, a {@code !} or {@code _} prefix, or an index or nested path. So
  * {@code PUT /documents/{id}?id=other} binds {@code other} to the property {@code id}, while the
- * PDP was asked about the path's id. For handlers that bind data, every value the PDP sees, from
- * a path variable, a parameter or a header, must have no other source of the same name.
+ * PDP was asked about the path's id. Spring MVC also creates such an argument from a parameter
+ * named like the argument, by type conversion. Constructor binding ignores
+ * {@code @ModelAttribute(binding = false)}, and the {@code @ModelAttribute} methods of the
+ * controller and of its controller advice bind their arguments for the same request. For handlers
+ * that bind data, every value the PDP sees, from a path variable, a parameter or a header, must
+ * have no other source of the same name, and no value may be named like a bound argument.
  */
 final class DataBinding {
 
@@ -76,18 +88,71 @@ final class DataBinding {
      * @return {@code true} if an argument may be bound
      */
     static boolean binds(Method method) {
-        for (int i = 0; i < method.getParameterCount(); i++) {
-            if (binds(new MethodParameter(method, i))) {
-                return true;
+        return !arguments(List.of(method)).isEmpty();
+    }
+
+    /**
+     * Returns the names of the arguments that data binding may fill for a request to a handler
+     * method: its own and those of the {@code @ModelAttribute} methods of its controller and of
+     * the controller advice that applies to it.
+     *
+     * @param beanType the controller type
+     * @param method   the handler method
+     * @param advice   the types of the controller advice that applies to the controller
+     * @return the names, as Spring names model attributes; empty if nothing is bound
+     */
+    static Set<String> boundArguments(Class<?> beanType, Method method, List<Class<?>> advice) {
+        List<Method> methods = new ArrayList<>();
+        methods.add(method);
+        methods.addAll(modelAttributeMethods(beanType));
+        advice.forEach(type -> methods.addAll(modelAttributeMethods(type)));
+        return arguments(methods);
+    }
+
+    private static Set<Method> modelAttributeMethods(Class<?> type) {
+        return MethodIntrospector.selectMethods(type, (ReflectionUtils.MethodFilter) candidate ->
+                AnnotatedElementUtils.hasAnnotation(candidate, ModelAttribute.class)
+                        && !AnnotatedElementUtils.hasAnnotation(candidate, RequestMapping.class));
+    }
+
+    private static Set<String> arguments(List<Method> methods) {
+        Set<String> names = new LinkedHashSet<>();
+        for (Method method : methods) {
+            for (int i = 0; i < method.getParameterCount(); i++) {
+                MethodParameter parameter = new MethodParameter(method, i);
+                if (binds(parameter)) {
+                    names.addAll(names(parameter));
+                }
             }
         }
-        return false;
+        return names;
+    }
+
+    // As Spring names the model attribute of the argument, and the name of its element type, in
+    // case a wrapper changes it
+    private static Set<String> names(MethodParameter parameter) {
+        Set<String> names = new LinkedHashSet<>();
+        ModelAttribute modelAttribute = parameter.getParameterAnnotation(ModelAttribute.class);
+        if (modelAttribute != null) {
+            // name and value are aliases, which only a synthesized annotation resolves
+            String name = modelAttribute.name().isEmpty() ? modelAttribute.value() : modelAttribute.name();
+            if (!name.isEmpty()) {
+                names.add(name);
+            }
+        }
+        try {
+            names.add(Conventions.getVariableNameForParameter(parameter));
+        } catch (IllegalArgumentException e) {
+            // Such as an empty collection type, which cannot be named
+        }
+        names.add(ClassUtils.getShortNameAsProperty(parameter.nested().getNestedParameterType()));
+        return names;
     }
 
     private static boolean binds(MethodParameter parameter) {
-        ModelAttribute modelAttribute = parameter.getParameterAnnotation(ModelAttribute.class);
-        if (modelAttribute != null) {
-            return modelAttribute.binding();
+        // Constructor binding ignores binding = false
+        if (parameter.hasParameterAnnotation(ModelAttribute.class)) {
+            return true;
         }
         for (Annotation annotation : parameter.getParameterAnnotations()) {
             if (RESOLVED_ANNOTATIONS.contains(annotation.annotationType().getName())) {
@@ -134,6 +199,13 @@ final class DataBinding {
     static String conflict(HandlerPermission permission, Map<String, String> pathVariables,
             Collection<String> valueNames, Collection<String> headerNames) {
         String handler = permission.getHandler();
+        // Spring MVC creates the argument from a parameter of its name, before data binding
+        for (String argument : permission.getBoundArguments()) {
+            if (valueNames.stream().anyMatch(name -> resembles(name, argument))) {
+                return "A request to " + handler + " has a parameter or part named like the argument " + argument
+                        + ", which Spring would create the argument from";
+            }
+        }
         // Data binding prefers parameters and parts to URI variables, and URI variables to headers
         for (String variable : pathVariables.keySet()) {
             if (valueNames.stream().anyMatch(name -> resembles(name, variable))) {

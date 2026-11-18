@@ -43,11 +43,13 @@ public final class HandlerPermission {
     private final int maxIdLength;
     private final boolean readsParameters;
     private final boolean bindsData;
+    private final Set<String> boundArguments;
     private final Set<String> readParameters;
     private final Set<String> readHeaders;
 
     HandlerPermission(String handler, Source source, PermissionSpec literals, Expression resourceId,
-            Map<String, Expression> context, Predicate<String> excluded, int maxIdLength, boolean bindsData) {
+            Map<String, Expression> context, Predicate<String> excluded, int maxIdLength,
+            Set<String> boundArguments) {
         this.handler = handler;
         this.source = source;
         this.literals = literals;
@@ -57,7 +59,8 @@ public final class HandlerPermission {
         this.maxIdLength = maxIdLength;
         this.readsParameters = (resourceId != null && Expressions.readsParameters(resourceId))
                 || context.values().stream().anyMatch(Expressions::readsParameters);
-        this.bindsData = bindsData;
+        this.boundArguments = Set.copyOf(boundArguments);
+        this.bindsData = !boundArguments.isEmpty();
         this.readParameters = readNames(resourceId, context, "parameter");
         this.readHeaders = readNames(resourceId, context, "header");
     }
@@ -147,6 +150,15 @@ public final class HandlerPermission {
      */
     public boolean bindsData() {
         return bindsData;
+    }
+
+    /**
+     * Returns the names of the arguments that data binding may fill for a request to the handler.
+     *
+     * @return the names
+     */
+    Set<String> getBoundArguments() {
+        return boundArguments;
     }
 
     /**

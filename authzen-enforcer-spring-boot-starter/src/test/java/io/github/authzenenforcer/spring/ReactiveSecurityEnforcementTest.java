@@ -204,6 +204,19 @@ class ReactiveSecurityEnforcementTest {
     }
 
     @Test
+    void refusesValuesThatSpringCreatesArgumentsFrom() {
+        // Constructor binding ignores binding = false; a model attribute method binds its own arguments
+        client.mutateWith(alice()).put().uri("/sealed/7?id=8").exchange().expectStatus().isForbidden();
+        client.mutateWith(alice()).put().uri("/loaded/7?id=8").exchange().expectStatus().isForbidden();
+        client.mutateWith(alice()).put().uri("/advised/7?id=8").exchange().expectStatus().isForbidden();
+        assertTrue(PDP.requests().isEmpty());
+
+        client.mutateWith(alice()).put().uri("/loaded/7").exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class).isEqualTo("loaded 7");
+    }
+
+    @Test
     void letsAValueNamedLikeAPathVariableThroughToAHandlerWithoutDataBinding() {
         client.mutateWith(alice()).put().uri("/letters/7?id=8").exchange()
                 .expectStatus().isOk()
@@ -232,6 +245,15 @@ class ReactiveSecurityEnforcementTest {
                 .expectStatus().isForbidden();
         // The parameter wins over the header that the expression read
         client.mutateWith(alice()).put().uri("/memos/7?level=low&tenant=t2").header("Tenant", "t1").exchange()
+                .expectStatus().isForbidden();
+
+        assertTrue(PDP.requests().isEmpty());
+    }
+
+    @Test
+    void refusesARepeatedHeaderThatAnExpressionReadsWithoutAskingThePdp() {
+        // @RequestHeader and data binding give the handler both values, the expression only one
+        client.mutateWith(alice()).post().uri("/orders/7/cancel").header("User-Agent", "a", "b").exchange()
                 .expectStatus().isForbidden();
 
         assertTrue(PDP.requests().isEmpty());

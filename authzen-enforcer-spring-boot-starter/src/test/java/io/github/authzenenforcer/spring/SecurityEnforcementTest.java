@@ -169,6 +169,21 @@ class SecurityEnforcementTest {
     }
 
     @Test
+    void refusesValuesThatSpringCreatesArgumentsFrom() throws Exception {
+        // A parameter named like the argument creates it; constructor binding ignores binding = false;
+        // a model attribute method binds its own arguments
+        mvc.perform(put("/refs/7").param("ref", "8").with(alice())).andExpect(status().isForbidden());
+        mvc.perform(put("/sealed/7").param("id", "8").with(alice())).andExpect(status().isForbidden());
+        mvc.perform(put("/loaded/7").param("id", "8").with(alice())).andExpect(status().isForbidden());
+        mvc.perform(put("/advised/7").param("id", "8").with(alice())).andExpect(status().isForbidden());
+        assertTrue(PDP.requests().isEmpty());
+
+        mvc.perform(put("/loaded/7").with(alice()))
+                .andExpect(status().isOk())
+                .andExpect(content().string("loaded 7"));
+    }
+
+    @Test
     void letsAValueNamedLikeAPathVariableThroughToAHandlerWithoutDataBinding() throws Exception {
         mvc.perform(put("/letters/7").param("id", "8").with(alice()))
                 .andExpect(status().isOk())
@@ -197,6 +212,15 @@ class SecurityEnforcementTest {
         // The parameter wins over the header that the expression read
         mvc.perform(put("/memos/7").param("level", "low").param("tenant", "t2").header("Tenant", "t1")
                         .with(alice()))
+                .andExpect(status().isForbidden());
+
+        assertTrue(PDP.requests().isEmpty());
+    }
+
+    @Test
+    void refusesARepeatedHeaderThatAnExpressionReadsWithoutAskingThePdp() throws Exception {
+        // @RequestHeader and data binding give the handler both values, the expression only one
+        mvc.perform(post("/orders/7/cancel").with(alice()).header("User-Agent", "a", "b"))
                 .andExpect(status().isForbidden());
 
         assertTrue(PDP.requests().isEmpty());

@@ -10,6 +10,7 @@ import org.springframework.web.util.WebUtils;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Enumeration;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -38,8 +39,9 @@ final class ServletRequestView extends RequestView {
     }
 
     @Override
-    String headerValue(String name) {
-        return request.getHeader(name);
+    List<String> headerValues(String name) {
+        Enumeration<String> values = request.getHeaders(name);
+        return values == null ? List.of() : Collections.list(values);
     }
 
     @Override

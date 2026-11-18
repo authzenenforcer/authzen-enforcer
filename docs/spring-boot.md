@@ -176,20 +176,27 @@ void cancel(@PathVariable String id) { ... }
   `#request.parameter` reads with those of the query. Spring WebFlux reads such a form before the
   decision only for handlers whose expressions read parameters, and keeps it for the handler.
   A parameter with more than one value, repeated or both in the query and in the form, refuses the
-  request: handlers read such parameters differently, so the value the PDP is asked about would not
+  request, and so does a header that an expression reads and the request repeats: handlers read
+  such values differently, so the value the PDP is asked about would not
   be the one the handler acts on. Spring WebFlux's `@RequestParam` reads only the query, while its
   form data and data binding prefer the body; Spring MVC joins the values for a `String` argument.
   An expression that reads a parameter of a multipart request refuses it too: a part that carries
   a file name is no parameter, yet a handler can read it by name, as with `@RequestPart`. A value that the application chooses itself, such as a custom API key header, is not
   recognized as a credential: do not put such values into the context.
-- Handlers that use data binding, with a `@ModelAttribute` argument or an object argument that no
-  other resolver takes, get their values from more sources than the PDP sees: data binding prefers
+- Handlers that use data binding, with a `@ModelAttribute` argument, also with `binding = false`
+  since constructor binding ignores it, or an object argument that no other resolver takes, get
+  their values from more sources than the PDP sees. The same goes for every handler of a
+  controller whose `@ModelAttribute` methods, or those of a `@ControllerAdvice` that applies to it,
+  bind such an argument. Data binding prefers
   parameters and multipart parts to path variables, and path variables to headers, and also binds
   names that only resemble a property, in another case of its first letter, with a `!` or `_`
   prefix, or as the head of an indexed or nested path such as `id[0]` or `id.value`. So that the
   handler acts on the values the PDP was asked about, a request to such a handler is refused when
   - a parameter or part resembles a path variable of its route, as `PUT /documents/{id}?id=8`
     would bind `8`;
+  - a parameter or part is named like a bound argument: Spring MVC creates an argument
+    `DocumentRef documentRef` from a parameter `documentRef` by type conversion, such as through a
+    constructor that takes a string;
   - a parameter that an expression reads is resembled by another parameter, or is absent while a
     path variable or a header of the same name could fill it, as a header `Level` fills `level`
     (headers are bound under their name and under it without dashes);
@@ -200,7 +207,9 @@ void cancel(@PathVariable String id) { ... }
   `@RequestBody` are not affected. Arguments that a resolver of the application takes without one
   of these annotations count as bound, so such a handler is refused on these names as well. Spring
   WebFlux reads the form and the multipart parts of a request to a handler that binds data before
-  the decision, as data binding would, and keeps them for the handler.
+  the decision, as data binding would, and keeps them for the handler. It does so for callers that
+  will be denied too, so limit multipart bodies with `spring.webflux.multipart.max-parts` and
+  `spring.webflux.multipart.max-disk-usage-per-part`, which Spring Boot leaves unlimited.
 - On a class, the annotation applies to all its handler methods. An annotation on the method wins
   attribute by attribute, and its context entries by name.
 - It works as a meta-annotation, for example `@CheckPermission(action = "approve")` on an

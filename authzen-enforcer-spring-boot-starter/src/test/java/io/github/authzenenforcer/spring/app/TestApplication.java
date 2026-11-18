@@ -4,6 +4,8 @@ import io.github.authzenenforcer.spring.CheckPermission;
 import io.github.authzenenforcer.spring.SkipPermissionCheck;
 
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -135,6 +137,63 @@ public class TestApplication {
         public String letter(@PathVariable String id, @RequestParam(required = false) String note) {
             return "letter " + id;
         }
+    }
+
+    /** Handlers whose arguments Spring creates from a request value or a model attribute method. */
+    @RestController
+    public static class Created {
+
+        @ModelAttribute("loaded")
+        public String load(Draft draft) {
+            return draft.getId();
+        }
+
+        @CheckPermission
+        @PutMapping("/refs/{id}")
+        public String ref(Ref ref) {
+            return "ref " + ref.id();
+        }
+
+        @CheckPermission
+        @PutMapping("/sealed/{id}")
+        public String sealed(@ModelAttribute(binding = false) Memo memo) {
+            return "sealed " + memo.id();
+        }
+
+        @CheckPermission
+        @PutMapping("/loaded/{id}")
+        public String loaded(Model model) {
+            return "loaded " + model.getAttribute("loaded");
+        }
+    }
+
+    /** A handler whose controller advice binds data. */
+    @RestController
+    public static class Advised {
+
+        @CheckPermission
+        @PutMapping("/advised/{id}")
+        public String advised() {
+            return "advised";
+        }
+    }
+
+    /** Advice that applies only to {@link Advised}. */
+    @ControllerAdvice(assignableTypes = Advised.class)
+    public static class AdvisedAdvice {
+
+        @ModelAttribute
+        public void prepare(Draft draft) {
+            // Bound for every request to the advised controller
+        }
+    }
+
+    /**
+     * Converted from a string by its constructor.
+     *
+     * @param id the id
+     */
+    public record Ref(String id) {
     }
 
     /** Bound through its setters. */

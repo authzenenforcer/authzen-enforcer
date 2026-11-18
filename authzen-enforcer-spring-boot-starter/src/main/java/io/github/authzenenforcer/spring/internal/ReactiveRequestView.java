@@ -54,8 +54,9 @@ final class ReactiveRequestView extends RequestView {
     }
 
     @Override
-    String headerValue(String name) {
-        return request.getHeaders().getFirst(name);
+    List<String> headerValues(String name) {
+        List<String> values = request.getHeaders().get(name);
+        return values == null ? List.of() : values;
     }
 
     @Override
