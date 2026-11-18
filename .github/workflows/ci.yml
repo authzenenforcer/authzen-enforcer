@@ -14,6 +14,8 @@ permissions:
   contents: read
 
 jobs:
+  # Maven runs through mvn-retry.sh, which tries again with -U when a download failed, such as on a
+  # short-lived 404 from Maven Central; a failing test is not retried.
   build:
     name: Build (JDK ${{ matrix.java }})
     runs-on: ubuntu-latest
@@ -29,7 +31,7 @@ jobs:
           java-version: ${{ matrix.java }}
           cache: maven
       - name: Build and test
-        run: mvn -B -ntp verify
+        run: .github/scripts/mvn-retry.sh -B -ntp verify
 
   # The latest-release jobs read Maven Central's metadata with curl. Central sometimes answers 429 or
   # a short-lived 404, so curl retries every error for up to two minutes before the job fails. It
@@ -56,7 +58,7 @@ jobs:
           echo "Micrometer $version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Test with the latest Micrometer
-        run: mvn -B -ntp -pl authzen-enforcer-micrometer -am verify -Dmicrometer.version=${{ steps.micrometer.outputs.version }}
+        run: .github/scripts/mvn-retry.sh -B -ntp -pl authzen-enforcer-micrometer -am verify -Dmicrometer.version=${{ steps.micrometer.outputs.version }}
 
   opentelemetry-latest:
     # The module compiles against the oldest supported OpenTelemetry; this checks the newest release
@@ -80,7 +82,7 @@ jobs:
           echo "OpenTelemetry $version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Test with the latest OpenTelemetry
-        run: mvn -B -ntp -pl authzen-enforcer-opentelemetry -am verify -Dopentelemetry.version=${{ steps.opentelemetry.outputs.version }}
+        run: .github/scripts/mvn-retry.sh -B -ntp -pl authzen-enforcer-opentelemetry -am verify -Dopentelemetry.version=${{ steps.opentelemetry.outputs.version }}
 
   spring-boot-latest:
     # The starter compiles against the oldest supported Spring Boot; this checks the newest release
@@ -104,7 +106,7 @@ jobs:
           echo "Spring Boot $version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Test with the latest Spring Boot
-        run: mvn -B -ntp -pl authzen-enforcer-spring-boot-starter -am verify -Dspring-boot.version=${{ steps.spring-boot.outputs.version }}
+        run: .github/scripts/mvn-retry.sh -B -ntp -pl authzen-enforcer-spring-boot-starter -am verify -Dspring-boot.version=${{ steps.spring-boot.outputs.version }}
 
   interop:
     name: Interop (Keycloak)
@@ -117,7 +119,7 @@ jobs:
           java-version: 17
           cache: maven
       - name: Run interop tests
-        run: mvn -B -ntp -pl authzen-enforcer-interop-tests -am verify -Dinterop.skip=false
+        run: .github/scripts/mvn-retry.sh -B -ntp -pl authzen-enforcer-interop-tests -am verify -Dinterop.skip=false
 
   analysis:
     name: Analysis (SonarQube Cloud)
@@ -138,7 +140,7 @@ jobs:
       - name: Build, test with coverage and analyze
         if: env.SONAR_TOKEN != ''
         run: >
-          mvn -B -ntp verify sonar:sonar
+          .github/scripts/mvn-retry.sh -B -ntp verify sonar:sonar
           -Dinterop.skip=false
           -Dsonar.host.url=https://sonarcloud.io
           -Dsonar.organization=authzenenforcer
