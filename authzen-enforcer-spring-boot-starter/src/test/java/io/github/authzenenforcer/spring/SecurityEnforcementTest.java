@@ -176,6 +176,9 @@ class SecurityEnforcementTest {
         mvc.perform(put("/sealed/7").param("id", "8").with(alice())).andExpect(status().isForbidden());
         mvc.perform(put("/loaded/7").param("id", "8").with(alice())).andExpect(status().isForbidden());
         mvc.perform(put("/advised/7").param("id", "8").with(alice())).andExpect(status().isForbidden());
+        // Named as Spring names them: by the controller's type argument, and by an inherited annotation
+        mvc.perform(put("/generic/7").param("ref", "8").with(alice())).andExpect(status().isForbidden());
+        mvc.perform(put("/shelves/7").param("shelf", "8").with(alice())).andExpect(status().isForbidden());
         assertTrue(PDP.requests().isEmpty());
 
         mvc.perform(put("/loaded/7").with(alice()))

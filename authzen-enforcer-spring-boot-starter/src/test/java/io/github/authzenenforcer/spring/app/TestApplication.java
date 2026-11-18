@@ -167,6 +167,43 @@ public class TestApplication {
         }
     }
 
+    /**
+     * A base controller whose argument type the controller fixes.
+     *
+     * @param <T> the argument type
+     */
+    public abstract static class Crud<T> {
+
+        @CheckPermission
+        @PutMapping("/generic/{id}")
+        public String update(@PathVariable String id, T ref) {
+            return "generic " + ref;
+        }
+    }
+
+    /** Binds {@link Ref} through its base class. */
+    @RestController
+    public static class Refs extends Crud<Ref> {
+    }
+
+    /** Declares the mapping and the model attribute name for its implementation. */
+    public interface Shelves {
+
+        @PutMapping("/shelves/{id}")
+        String shelve(@PathVariable("id") String id, @ModelAttribute("shelf") Ref ref);
+    }
+
+    /** Implements {@link Shelves} without annotations on its parameters. */
+    @RestController
+    public static class ShelvesController implements Shelves {
+
+        @CheckPermission
+        @Override
+        public String shelve(String id, Ref ref) {
+            return "shelved " + ref.id();
+        }
+    }
+
     /** A handler whose controller advice binds data. */
     @RestController
     public static class Advised {

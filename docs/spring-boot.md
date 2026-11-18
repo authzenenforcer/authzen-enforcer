@@ -203,6 +203,13 @@ void cancel(@PathVariable String id) { ... }
   - a header that an expression reads could be replaced by a parameter, path variable or other
     header of the same name.
 
+  Arguments are named as Spring names them, also when a base controller declares the handler
+  method with a type variable, or an interface declares its `@ModelAttribute` name. Three sources
+  remain the application's to watch: an `@InitBinder` method that changes the binder's field marker
+  or default prefix (`_` and `!` are recognized), model attributes that `@SessionAttributes` or
+  redirect flash attributes supply, and a single value with commas, such as `?ids=1,2`, which the
+  PDP is asked about as written while a list or array argument receives it split.
+
   Handlers that take each value with `@PathVariable`, `@RequestParam`, `@RequestHeader` or
   `@RequestBody` are not affected. Arguments that a resolver of the application takes without one
   of these annotations count as bound, so such a handler is refused on these names as well. Spring

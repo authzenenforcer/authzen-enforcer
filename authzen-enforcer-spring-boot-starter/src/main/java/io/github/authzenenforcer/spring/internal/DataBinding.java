@@ -5,6 +5,7 @@ import org.springframework.core.Conventions;
 import org.springframework.core.MethodIntrospector;
 import org.springframework.core.MethodParameter;
 import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.core.annotation.AnnotatedMethod;
 import org.springframework.util.ClassUtils;
 import org.springframework.util.ReflectionUtils;
 import org.springframework.web.bind.annotation.ModelAttribute;
@@ -88,7 +89,7 @@ final class DataBinding {
      * @return {@code true} if an argument may be bound
      */
     static boolean binds(Method method) {
-        return !arguments(List.of(method)).isEmpty();
+        return !arguments(method.getDeclaringClass(), List.of(method)).isEmpty();
     }
 
     /**
@@ -105,8 +106,9 @@ final class DataBinding {
         List<Method> methods = new ArrayList<>();
         methods.add(method);
         methods.addAll(modelAttributeMethods(beanType));
-        advice.forEach(type -> methods.addAll(modelAttributeMethods(type)));
-        return arguments(methods);
+        Set<String> names = arguments(beanType, methods);
+        advice.forEach(type -> names.addAll(arguments(type, new ArrayList<>(modelAttributeMethods(type)))));
+        return names;
     }
 
     private static Set<Method> modelAttributeMethods(Class<?> type) {
@@ -115,11 +117,12 @@ final class DataBinding {
                         && !AnnotatedElementUtils.hasAnnotation(candidate, RequestMapping.class));
     }
 
-    private static Set<String> arguments(List<Method> methods) {
+    // The parameters as Spring sees them: with the annotations that overridden methods declare, and
+    // with the type variables of a base class resolved against the type the method runs in
+    private static Set<String> arguments(Class<?> containingClass, List<Method> methods) {
         Set<String> names = new LinkedHashSet<>();
         for (Method method : methods) {
-            for (int i = 0; i < method.getParameterCount(); i++) {
-                MethodParameter parameter = new MethodParameter(method, i);
+            for (MethodParameter parameter : new ContainedMethod(method, containingClass).getMethodParameters()) {
                 if (binds(parameter)) {
                     names.addAll(names(parameter));
                 }
@@ -258,5 +261,21 @@ final class DataBinding {
 
     private static String normalize(String header) {
         return header.replace("-", "").toLowerCase(Locale.ROOT);
+    }
+
+    // A method of the type it runs in, as Spring's HandlerMethod is of the bean type
+    private static final class ContainedMethod extends AnnotatedMethod {
+
+        private final Class<?> containingClass;
+
+        ContainedMethod(Method method, Class<?> containingClass) {
+            super(method);
+            this.containingClass = containingClass;
+        }
+
+        @Override
+        protected Class<?> getContainingClass() {
+            return containingClass;
+        }
     }
 }
