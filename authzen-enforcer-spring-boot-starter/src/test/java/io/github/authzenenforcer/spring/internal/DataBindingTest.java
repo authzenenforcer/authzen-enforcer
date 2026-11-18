@@ -28,12 +28,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class DataBindingTest {
 
     private static boolean binds(String name) {
-        return DataBinding.binds(method(name));
+        return !DataBinding.boundArguments(Handlers.class, method(name), List.of()).isEmpty();
     }
 
     @Test
     void findsArgumentsThatDataBindingFills() {
-        for (String name : List.of("implicit", "modelAttribute", "optional", "asynchronous", "custom", "unbound")) {
+        for (String name : List.of("implicit", "modelAttribute", "optional", "asynchronous", "custom", "unbound", "annotatedMap")) {
             assertTrue(binds(name), name);
         }
     }
@@ -125,6 +125,9 @@ class DataBindingTest {
         }
 
         void unbound(@ModelAttribute(binding = false) Form form) {
+        }
+
+        void annotatedMap(@Deprecated Map<String, String> values) {
         }
     }
 

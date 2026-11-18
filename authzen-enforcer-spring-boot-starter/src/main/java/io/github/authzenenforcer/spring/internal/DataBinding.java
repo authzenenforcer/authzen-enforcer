@@ -62,7 +62,7 @@ final class DataBinding {
             "jakarta.servlet.ServletRequest", "jakarta.servlet.ServletResponse", "jakarta.servlet.http.HttpSession",
             "jakarta.servlet.http.PushBuilder", "jakarta.servlet.http.Part",
             "java.security.Principal", "java.io.InputStream", "java.io.Reader", "java.io.OutputStream",
-            "java.io.Writer", "java.util.Locale", "java.util.TimeZone", "java.time.ZoneId", "java.util.Map",
+            "java.io.Writer", "java.util.Locale", "java.util.TimeZone", "java.time.ZoneId",
             "org.springframework.http.HttpMethod", "org.springframework.http.HttpEntity",
             "org.springframework.ui.Model", "org.springframework.validation.Errors",
             "org.springframework.web.bind.support.SessionStatus", "org.springframework.web.util.UriComponentsBuilder",
@@ -78,18 +78,6 @@ final class DataBinding {
             "java.util.concurrent.CompletionStage", "java.util.Optional");
 
     private DataBinding() {
-    }
-
-    /**
-     * Returns whether a handler method may have an argument that data binding fills. Arguments
-     * that a resolver of the application takes count as bound unless an annotation above names
-     * them, so that no bound argument is missed.
-     *
-     * @param method the handler method
-     * @return {@code true} if an argument may be bound
-     */
-    static boolean binds(Method method) {
-        return !arguments(method.getDeclaringClass(), List.of(method)).isEmpty();
     }
 
     /**
@@ -165,6 +153,10 @@ final class DataBinding {
         Class<?> type = parameter.getParameterType();
         if (isA(type, WRAPPERS)) {
             type = parameter.nested().getNestedParameterType();
+        }
+        // The model, but only without annotations: Spring MVC binds a Map with one, such as @Valid
+        if (Map.class.isAssignableFrom(type) && parameter.getParameterAnnotations().length == 0) {
+            return false;
         }
         // Simple types without an annotation are request parameters
         return !BeanUtils.isSimpleProperty(type) && !isA(type, RESOLVED_TYPES);
