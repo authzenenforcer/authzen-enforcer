@@ -2,7 +2,8 @@ name: Release
 
 # Push a tag such as v0.1.0 to publish that version to Maven Central.
 # The deployment is uploaded and validated, then waits for manual publishing in the Central Portal.
-# A draft GitHub Release with the aggregate SBOM is created for the tag, to be published afterwards.
+# A draft GitHub Release with the signed aggregate SBOM is created for the tag, to be published
+# afterwards.
 #
 # Run the workflow by hand, on any branch or tag, for a dry run: it builds the release artifacts
 # and SBOMs without signing, publishing or a GitHub Release, and keeps the SBOMs as workflow
@@ -50,6 +51,15 @@ jobs:
           .github/scripts/mvn-retry.sh -B -ntp org.cyclonedx:cyclonedx-maven-plugin:makeAggregateBom \
             -Dcyclonedx.skipAttach=true -DoutputReactorProjects=false \
             -DoutputDirectory="$RUNNER_TEMP/sbom" -DoutputName="authzen-enforcer-$version-cyclonedx"
+      - name: Sign the aggregate SBOM
+        if: github.event_name == 'push'
+        run: |
+          for file in "$RUNNER_TEMP"/sbom/*; do
+            printf '%s' "$MAVEN_GPG_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback \
+              --passphrase-fd 0 --armor --detach-sign "$file"
+          done
+        env:
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
       - name: Keep the aggregate SBOM
         uses: actions/upload-artifact@v7
         with:
@@ -81,7 +91,9 @@ jobs:
             --title "authzen-enforcer ${GITHUB_REF_NAME#v}" \
             --notes "Draft: add the notes, then publish once the deployment is published in the Central Portal." \
             "authzen-enforcer-${GITHUB_REF_NAME#v}-cyclonedx.json" \
-            "authzen-enforcer-${GITHUB_REF_NAME#v}-cyclonedx.xml"
+            "authzen-enforcer-${GITHUB_REF_NAME#v}-cyclonedx.json.asc" \
+            "authzen-enforcer-${GITHUB_REF_NAME#v}-cyclonedx.xml" \
+            "authzen-enforcer-${GITHUB_REF_NAME#v}-cyclonedx.xml.asc"
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

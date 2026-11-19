@@ -128,7 +128,8 @@ Group ID: `io.github.authzenenforcer`
 Each module is published with a CycloneDX SBOM beside its jar on Maven Central, from 0.3.0 on, as
 `<artifact>-<version>-cyclonedx.json` and `.xml`, signed like the other files. The SBOM of
 `authzen-enforcer-core` lists no components, since it has no runtime dependencies. The GitHub
-Release of each version carries an aggregate SBOM of all published modules.
+Release of each version carries an aggregate SBOM of all published modules, with a `.asc`
+signature by the same key.
 
 ## License
 
