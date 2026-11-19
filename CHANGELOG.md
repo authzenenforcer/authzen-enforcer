@@ -9,6 +9,9 @@ the API.
 
 ### Added
 
+- Every published module comes with a CycloneDX SBOM on Maven Central
+  (`<artifact>-<version>-cyclonedx.json` and `.xml`), and the GitHub Release carries an aggregate
+  SBOM of all published modules ([#61](https://github.com/authzenenforcer/authzen-enforcer/issues/61)).
 - `authzen.enforcer.resource.collection-type` sets the resource type of collection routes in the
   Spring Boot starter, `collection` by default, without replacing the `ResourceInferrer` bean; a
   blank value, surrounding whitespace or a control character fails the startup ([#58](https://github.com/authzenenforcer/authzen-enforcer/issues/58)).

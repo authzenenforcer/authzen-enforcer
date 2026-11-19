@@ -21,6 +21,8 @@
         <interop.skip>true</interop.skip>
         <maven.deploy.skip>true</maven.deploy.skip>
         <maven.install.skip>true</maven.install.skip>
+        <!-- Not published, so no SBOM either -->
+        <cyclonedx.skip>true</cyclonedx.skip>
     </properties>
 
     <dependencies>
