@@ -12,7 +12,7 @@ The artifacts are published to Maven Central:
 <dependency>
     <groupId>io.github.authzenenforcer</groupId>
     <artifactId>authzen-enforcer-core</artifactId>
-    <version>0.2.0</version>
+    <version>0.3.0</version>
 </dependency>
 ```
 
@@ -25,7 +25,7 @@ that their versions stay aligned, and leave the versions out of the dependencies
         <dependency>
             <groupId>io.github.authzenenforcer</groupId>
             <artifactId>authzen-enforcer-bom</artifactId>
-            <version>0.2.0</version>
+            <version>0.3.0</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>
@@ -34,7 +34,7 @@ that their versions stay aligned, and leave the versions out of the dependencies
 ```
 
 To try unreleased changes, run `mvn install` in this repository and depend on the version in its
-`pom.xml`, such as `0.2.0-SNAPSHOT`.
+`pom.xml`, such as `0.4.0-SNAPSHOT`.
 
 ## The first decision
 
