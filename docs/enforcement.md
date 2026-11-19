@@ -1,7 +1,7 @@
 # Enforcement
 
-The `io.github.authzenenforcer.core.enforce` package decides whether an HTTP request may proceed.
-It is the framework-independent part of the planned Spring Boot and Quarkus integrations: they
+The `io.github.authzenenforcer.core.enforce` package decides whether an HTTP request may proceed. It
+is the framework-independent part of the Spring Boot starter and the planned Quarkus extension: they
 describe the request, the package infers the subject, action and resource, asks the PDP and tells
 them how to answer. You can also use it directly.
 
