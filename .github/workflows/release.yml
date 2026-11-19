@@ -4,8 +4,9 @@ name: Release
 # The deployment is uploaded and validated, then waits for manual publishing in the Central Portal.
 # A draft GitHub Release with the aggregate SBOM is created for the tag, to be published afterwards.
 #
-# Run the workflow by hand for a dry run: it builds the release artifacts and SBOMs without
-# signing, publishing or a GitHub Release, and keeps the SBOMs as a workflow artifact.
+# Run the workflow by hand, on any branch or tag, for a dry run: it builds the release artifacts
+# and SBOMs without signing, publishing or a GitHub Release, and keeps the SBOMs as workflow
+# artifacts.
 on:
   push:
     tags: ['v*']
@@ -28,20 +29,20 @@ jobs:
           server-username: CENTRAL_TOKEN_USERNAME
           server-password: CENTRAL_TOKEN_PASSWORD
           # A dry run signs nothing, so it does not get the key
-          gpg-private-key: ${{ github.ref_type == 'tag' && secrets.GPG_PRIVATE_KEY || '' }}
+          gpg-private-key: ${{ github.event_name == 'push' && secrets.GPG_PRIVATE_KEY || '' }}
           gpg-passphrase: MAVEN_GPG_PASSPHRASE
       - name: Set version from tag
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'push'
         run: mvn -B -ntp versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false
       - name: Deploy to Maven Central
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'push'
         run: mvn -B -ntp -P release deploy
         env:
           CENTRAL_TOKEN_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
           CENTRAL_TOKEN_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
       - name: Build the release artifacts (dry run)
-        if: github.ref_type != 'tag'
+        if: github.event_name != 'push'
         run: .github/scripts/mvn-retry.sh -B -ntp -P release -Dgpg.skip verify
       - name: Aggregate SBOM of the published modules
         run: |
@@ -66,7 +67,7 @@ jobs:
 
   github-release:
     needs: release
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
