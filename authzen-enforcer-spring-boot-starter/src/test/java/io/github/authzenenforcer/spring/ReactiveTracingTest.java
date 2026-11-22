@@ -51,8 +51,6 @@ class ReactiveTracingTest {
             .setTracerProvider(SdkTracerProvider.builder().addSpanProcessor(SimpleSpanProcessor.create(spans)).build())
             .build();
 
-    // Spring Security stays on the class path: hiding it breaks the ServiceLoader registration of
-    // its ThreadLocalAccessor, which context-propagation reads
     private final ReactiveWebApplicationContextRunner runner = new ReactiveWebApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(WebFluxAutoConfiguration.class,
                     ErrorWebFluxAutoConfiguration.class, AuthZenAutoConfiguration.class,
@@ -95,8 +93,8 @@ class ReactiveTracingTest {
     }
 
     @Test
-    void enforcesWithoutContextPropagationOnTheClassPath() {
-        runner.withClassLoader(new FilteredClassLoader("io.micrometer.context"))
+    void enforcesWithoutMicrometerObservationOnTheClassPath() {
+        runner.withClassLoader(new FilteredClassLoader("io.micrometer.observation"))
                 .run(context -> {
                     WebTestClient.bindToApplicationContext(context).build()
                             .get().uri("/things/1").exchange().expectStatus().isOk();

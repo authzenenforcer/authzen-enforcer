@@ -36,9 +36,9 @@ import java.util.concurrent.CompletionStage;
  * interceptor does: after the handler is mapped, so that it decides about the very handler that
  * runs, and before arguments are resolved and the body is read.
  *
- * <p>With {@code io.micrometer:context-propagation} on the class path, as with Spring Boot's
- * tracing, the observation of the request in the Reactor Context is on the thread while the call
- * to the PDP starts, so that the call's span joins the trace of the request.
+ * <p>With {@code micrometer-observation} on the class path, as with Spring Boot's tracing, the
+ * observation of the request in the Reactor Context is in scope on the thread while the call to the
+ * PDP starts, so that the call's span joins the trace of the request.
  */
 public final class PermissionHandlerAdapter implements HandlerAdapter, Ordered {
 
@@ -71,10 +71,9 @@ public final class PermissionHandlerAdapter implements HandlerAdapter, Ordered {
      * @param handlerMethods  the adapter that runs handler methods
      * @param scheduler       starts every decision, so that what the application plugs into it,
      *                        such as a credential provider, cannot block the thread of the request
-     * @param restoreObservations whether the observation of the request in the Reactor Context is put
-     *                        on the thread while a call starts; only with
-     *                        {@code io.micrometer:context-propagation} and {@code micrometer-observation}
-     *                        on the class path
+     * @param restoreObservations whether the observation of the request in the Reactor Context is in
+     *                        scope on the thread while a call starts; only with
+     *                        {@code micrometer-observation} on the class path
      */
     public PermissionHandlerAdapter(Enforcer enforcer, HandlerPermissions permissions,
             ReactiveClaimsExtractor claimsExtractor, ReactiveEnforcementResultHandler resultHandler,

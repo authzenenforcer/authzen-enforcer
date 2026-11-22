@@ -48,6 +48,8 @@ import reactor.core.scheduler.Schedulers;
 @ConditionalOnClass({HandlerAdapter.class, Mono.class})
 public class AuthZenWebFluxAutoConfiguration {
 
+    private static final String OBSERVATION = "io.micrometer.observation.Observation";
+
     /**
      * Creates the auto-configuration.
      */
@@ -138,10 +140,9 @@ public class AuthZenWebFluxAutoConfiguration {
             HandlerPermissions permissions, ReactiveClaimsExtractor claimsExtractor,
             ReactiveEnforcementResultHandler resultHandler, RequestMappingHandlerAdapter handlerMethods,
             ApplicationContext context) {
-        ClassLoader classLoader = context.getClassLoader();
-        boolean restoreObservations = ClassUtils.isPresent("io.micrometer.context.ContextSnapshotFactory", classLoader)
-                && ClassUtils.isPresent("io.micrometer.observation.contextpropagation.ObservationThreadLocalAccessor",
-                        classLoader);
+        // Visible to the application and to the starter, which links against it
+        boolean restoreObservations = ClassUtils.isPresent(OBSERVATION, context.getClassLoader())
+                && ClassUtils.isPresent(OBSERVATION, PermissionHandlerAdapter.class.getClassLoader());
         return new PermissionHandlerAdapter(enforcer, permissions, claimsExtractor, resultHandler, handlerMethods,
                 Schedulers.boundedElastic(), restoreObservations);
     }
