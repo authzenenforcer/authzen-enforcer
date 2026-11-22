@@ -89,6 +89,33 @@ class ReactorObservationsTest {
     }
 
     @Test
+    void forgetsTheScopeWhenAHandlerAlsoFailsToResetIt() {
+        ObservationHandler<Observation.Context> failing = failing(true, false, new IllegalStateException("open"));
+        registry.observationConfig().observationHandler(new ObservationHandler<>() {
+            @Override
+            public void onScopeOpened(Observation.Context context) {
+                failing.onScopeOpened(context);
+            }
+
+            @Override
+            public void onScopeReset(Observation.Context context) {
+                throw new IllegalStateException("reset");
+            }
+
+            @Override
+            public boolean supportsContext(Observation.Context context) {
+                return true;
+            }
+        });
+        Observation observation = Observation.start("request", registry);
+
+        ReactorObservations.call(contextOf(observation), currentTraceId());
+
+        assertEquals(1, calls.get());
+        assertNull(registry.getCurrentObservationScope());
+    }
+
+    @Test
     void rethrowsAVirtualMachineErrorWithoutRunningTheCall() {
         registry.observationConfig().observationHandler(failing(true, false, new StackOverflowError()));
         Observation observation = Observation.start("request", registry);

@@ -95,6 +95,8 @@ final class ReactorObservations {
             rethrowIfFatal(e);
             LOGGER.log(System.Logger.Level.DEBUG, () -> "Resetting the observation scope of the request failed with "
                     + e.getClass().getName());
+            // A handler that failed again stopped the reset half-way: at least the registry forgets the scope
+            registry.setCurrentObservationScope(previous);
         }
     }
 
