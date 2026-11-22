@@ -87,8 +87,8 @@ class ReactiveTracingTest {
             assertEquals(request.getTraceId(), call.getTraceId());
             assertEquals(request.getSpanId(), call.getParentSpanId());
             assertEquals(call.getSpanId(), exchange.getParentSpanId());
-            assertEquals("00-" + request.getTraceId() + "-" + exchange.getSpanId() + "-01",
-                    PDP.traceparents().get(0));
+            assertEquals("00-" + request.getTraceId() + "-" + exchange.getSpanId() + "-"
+                    + exchange.getSpanContext().getTraceFlags().asHex(), PDP.traceparents().get(0));
         });
     }
 

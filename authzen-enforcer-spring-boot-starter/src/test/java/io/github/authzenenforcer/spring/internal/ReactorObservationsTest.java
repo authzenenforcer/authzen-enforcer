@@ -10,7 +10,9 @@ import io.micrometer.tracing.otel.bridge.OtelCurrentTraceContext;
 import io.micrometer.tracing.otel.bridge.OtelTracer;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
+import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
 import io.opentelemetry.sdk.trace.SdkTracerProvider;
+import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -29,7 +31,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class ReactorObservationsTest {
 
     private final OpenTelemetrySdk openTelemetry = OpenTelemetrySdk.builder()
-            .setTracerProvider(SdkTracerProvider.builder().build()).build();
+            // OpenTelemetry 1.68 and later create invalid spans without a span processor
+            .setTracerProvider(SdkTracerProvider.builder()
+                    .addSpanProcessor(SimpleSpanProcessor.create(InMemorySpanExporter.create())).build())
+            .build();
     private final ObservationRegistry registry = ObservationRegistry.create();
     private final AtomicInteger calls = new AtomicInteger();
 
@@ -51,6 +56,7 @@ class ReactorObservationsTest {
 
         TracingObservationHandler.TracingContext tracing = observation.getContext()
                 .get(TracingObservationHandler.TracingContext.class);
+        assertNotEquals(Span.getInvalid().getSpanContext().getTraceId(), traceId);
         assertEquals(tracing.getSpan().context().traceId(), traceId);
         assertTheThreadIsClean();
         observation.stop();
@@ -85,7 +91,9 @@ class ReactorObservationsTest {
 
         assertEquals(1, calls.get());
         assertNotEquals(Span.getInvalid().getSpanContext().getTraceId(), traceId);
-        assertTheThreadIsClean();
+        // From Micrometer 1.18, the failing handler, which runs first on close, keeps the tracing
+        // handler from ending its trace context; the observation scope is left either way
+        assertNull(registry.getCurrentObservationScope());
     }
 
     @Test
@@ -122,7 +130,9 @@ class ReactorObservationsTest {
 
         assertThrows(StackOverflowError.class, () -> ReactorObservations.call(contextOf(observation), currentTraceId()));
         assertEquals(0, calls.get());
-        registry.getCurrentObservationScope().reset();
+        // The failing handler does not fail on close: closing ends the trace context too
+        registry.getCurrentObservationScope().close();
+        assertTheThreadIsClean();
     }
 
     private static Context contextOf(Observation observation) {

@@ -6,6 +6,7 @@ import io.micrometer.observation.contextpropagation.ObservationThreadLocalAccess
 
 import reactor.util.context.ContextView;
 
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -14,8 +15,11 @@ import java.util.function.Supplier;
  * <p>Spring WebFlux keeps the observation of a request in the Reactor Context, under
  * {@link ObservationThreadLocalAccessor#KEY}, not on a thread, so a tracer that starts its span
  * from the thread's current context would start a new trace. The observation's scope is opened for
- * the duration of the given call only, on the calling thread, and the thread is left as it was
- * found, also when opening or closing the scope fails. Loaded only when
+ * the duration of the given call only, on the calling thread, and the thread is left with the
+ * observation scope it had, also when a handler fails while the scope opens or closes. Which
+ * handlers are told that the scope ended then depends on Micrometer: from 1.18, a handler that
+ * fails while the scope closes keeps the handlers registered before it from hearing of it. Loaded
+ * only when
  * {@code micrometer-observation} is on the class path.
  */
 final class ReactorObservations {
@@ -81,22 +85,27 @@ final class ReactorObservations {
         if (registry == null) {
             return;
         }
+        // Up to Micrometer 1.17, reset notifies every handler and forgets every scope of the thread
+        if (previous == null) {
+            attempt(registry, previous, Observation.Scope::reset, "Resetting");
+        }
+        // From Micrometer 1.18, reset does nothing: closing the scope that was left notifies the handlers
+        attempt(registry, previous, Observation.Scope::close, "Closing");
+        // A handler that failed again stopped both half-way: at least the registry forgets the scope
+        attempt(registry, previous, current -> registry.setCurrentObservationScope(previous), "Forgetting");
+    }
+
+    private static void attempt(ObservationRegistry registry, Observation.Scope previous,
+            Consumer<Observation.Scope> action, String name) {
         try {
             Observation.Scope current = registry.getCurrentObservationScope();
-            if (current == null || current == previous) {
-                return;
-            }
-            if (previous == null) {
-                current.reset();
-            } else {
-                registry.setCurrentObservationScope(previous);
+            if (current != null && current != previous) {
+                action.accept(current);
             }
         } catch (Throwable e) { // NOSONAR: as above
             rethrowIfFatal(e);
-            LOGGER.log(System.Logger.Level.DEBUG, () -> "Resetting the observation scope of the request failed with "
+            LOGGER.log(System.Logger.Level.DEBUG, () -> name + " the observation scope of the request failed with "
                     + e.getClass().getName());
-            // A handler that failed again stopped the reset half-way: at least the registry forgets the scope
-            registry.setCurrentObservationScope(previous);
         }
     }
 
