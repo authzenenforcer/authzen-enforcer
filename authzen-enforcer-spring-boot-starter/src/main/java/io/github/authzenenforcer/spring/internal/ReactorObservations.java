@@ -85,12 +85,14 @@ final class ReactorObservations {
         if (registry == null) {
             return;
         }
+        // Lambdas, not method references: a method reference links where it is written, outside
+        // the try of attempt, and Micrometer 1.18 announces that reset will be removed
         // Up to Micrometer 1.17, reset notifies every handler and forgets every scope of the thread
         if (previous == null) {
-            attempt(registry, previous, Observation.Scope::reset, "Resetting");
+            attempt(registry, previous, current -> current.reset(), "Resetting"); // NOSONAR: see above
         }
         // From Micrometer 1.18, reset does nothing: closing the scope that was left notifies the handlers
-        attempt(registry, previous, Observation.Scope::close, "Closing");
+        attempt(registry, previous, current -> current.close(), "Closing"); // NOSONAR: see above
         // A handler that failed again stopped both half-way: at least the registry forgets the scope
         attempt(registry, previous, current -> registry.setCurrentObservationScope(previous), "Forgetting");
     }
