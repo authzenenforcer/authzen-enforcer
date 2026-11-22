@@ -20,10 +20,12 @@ import org.springframework.web.util.pattern.PathPattern;
 
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Scheduler;
+import reactor.util.context.ContextView;
 
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletionStage;
 
 /**
  * Asks the {@link Enforcer} before an enforced handler method runs, and lets the
@@ -33,6 +35,10 @@ import java.util.Set;
  * then hands the request to the adapter that runs them. It runs where a Spring MVC handler
  * interceptor does: after the handler is mapped, so that it decides about the very handler that
  * runs, and before arguments are resolved and the body is read.
+ *
+ * <p>With {@code micrometer-observation} on the class path, as with Spring Boot's tracing, the
+ * observation of the request in the Reactor Context is in scope on the thread while the call to the
+ * PDP starts, so that the call's span joins the trace of the request.
  */
 public final class PermissionHandlerAdapter implements HandlerAdapter, Ordered {
 
@@ -52,6 +58,7 @@ public final class PermissionHandlerAdapter implements HandlerAdapter, Ordered {
     private final ReactiveEnforcementResultHandler resultHandler;
     private final HandlerAdapter handlerMethods;
     private final Scheduler scheduler;
+    private final boolean restoreObservations;
     private final PermissionRequests requests = new PermissionRequests(LOGGER);
 
     /**
@@ -64,16 +71,20 @@ public final class PermissionHandlerAdapter implements HandlerAdapter, Ordered {
      * @param handlerMethods  the adapter that runs handler methods
      * @param scheduler       starts every decision, so that what the application plugs into it,
      *                        such as a credential provider, cannot block the thread of the request
+     * @param restoreObservations whether the observation of the request in the Reactor Context is in
+     *                        scope on the thread while a call starts; only with
+     *                        {@code micrometer-observation} on the class path
      */
     public PermissionHandlerAdapter(Enforcer enforcer, HandlerPermissions permissions,
             ReactiveClaimsExtractor claimsExtractor, ReactiveEnforcementResultHandler resultHandler,
-            HandlerAdapter handlerMethods, Scheduler scheduler) {
+            HandlerAdapter handlerMethods, Scheduler scheduler, boolean restoreObservations) {
         this.enforcer = enforcer;
         this.permissions = permissions;
         this.claimsExtractor = claimsExtractor;
         this.resultHandler = resultHandler;
         this.handlerMethods = handlerMethods;
         this.scheduler = scheduler;
+        this.restoreObservations = restoreObservations;
     }
 
     @Override
@@ -134,7 +145,7 @@ public final class PermissionHandlerAdapter implements HandlerAdapter, Ordered {
 
     private Mono<EnforcementResult> ask(ServerWebExchange exchange, HandlerPermission permission,
             String routePattern, Optional<Map<String, Object>> claims, Body body) {
-        return Mono.defer(() -> {
+        return Mono.deferContextual(context -> {
             PermissionRequests.Prepared prepared = requests.prepare(permission,
                     exchange.getRequest().getMethod().name(), routePattern, pathVariables(exchange),
                     new ReactiveRequestView(exchange.getRequest(), body.form(), body.partNames()), claims);
@@ -142,8 +153,16 @@ public final class PermissionHandlerAdapter implements HandlerAdapter, Ordered {
                 return Mono.just(prepared.refusal());
             }
             // Cancelling the subscription, as when the client goes away, cancels the call to the PDP
-            return Mono.fromCompletionStage(enforcer.enforceAsync(prepared.description(), prepared.spec()));
+            return Mono.fromCompletionStage(enforce(context, prepared));
         }).subscribeOn(scheduler);
+    }
+
+    private CompletionStage<EnforcementResult> enforce(ContextView context, PermissionRequests.Prepared prepared) {
+        if (!restoreObservations) {
+            return enforcer.enforceAsync(prepared.description(), prepared.spec());
+        }
+        // The call's span starts on this thread, from the observation of the request
+        return ReactorObservations.call(context, () -> enforcer.enforceAsync(prepared.description(), prepared.spec()));
     }
 
     private Mono<HandlerResult> denied(ServerWebExchange exchange, EnforcementResult result) {

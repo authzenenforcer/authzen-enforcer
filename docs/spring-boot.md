@@ -356,7 +356,11 @@ them along.
 - **Traces:** a `PepTracer` bean, the `OpenTelemetryTracing` of the `OpenTelemetry` bean, such as
   the one of `spring-boot-starter-opentelemetry`, traces the calls and sends their trace context
   to the PDP; see [Observability](observability.md#tracing-with-opentelemetry). A `PepTracer` bean
-  of the application replaces it.
+  of the application replaces it. In Spring WebFlux, where the observation of a request lives in
+  the Reactor Context, the starter puts it on the thread while a call starts, so that the call
+  joins the trace of the request without `spring.reactor.context-propagation=auto`. The call then
+  carries the trace of the request to the PDP, including a trace id and `tracestate` the caller
+  sent, as in Spring MVC.
 - **Health:** the indicator reads the client's state without contacting the PDP, so a probe never
   causes a call. It is `DOWN` while calls deny at once: while the breaker of the authorization API
   is open, or after the last metadata refresh failed. A half-open breaker and stale metadata are

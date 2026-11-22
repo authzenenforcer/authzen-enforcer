@@ -93,6 +93,13 @@
             <artifactId>opentelemetry-api</artifactId>
             <optional>true</optional>
         </dependency>
+        <!-- Opens the scope of a WebFlux request's observation, which lives in the Reactor Context,
+             while the call to the PDP starts, so that its span joins the request's trace -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-observation</artifactId>
+            <optional>true</optional>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-health</artifactId>
@@ -143,6 +150,20 @@
             <groupId>io.opentelemetry</groupId>
             <artifactId>opentelemetry-sdk-testing</artifactId>
             <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+            <scope>test</scope>
+            <!-- Kept off the test class path, as on main: tests that hide Spring Security with a
+                 FilteredClassLoader would break the ServiceLoader registry of context-propagation
+                 for every later test in the JVM. The starter does not use it -->
+            <exclusions>
+                <exclusion>
+                    <groupId>io.micrometer</groupId>
+                    <artifactId>context-propagation</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
     </dependencies>
 

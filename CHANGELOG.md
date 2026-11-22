@@ -7,6 +7,15 @@ the API.
 
 ## [Unreleased]
 
+### Fixed
+
+- In Spring WebFlux, the span of a call to the PDP joins the trace of the request, and the
+  `traceparent` sent to the PDP carries that trace. The call started from the thread, which has no
+  observation in WebFlux, so it became the root of a new trace unless
+  `spring.reactor.context-propagation=auto` was set. The starter now opens the scope of the
+  request's observation from the Reactor Context while the call starts, with
+  `micrometer-observation` on the class path ([#87](https://github.com/authzenenforcer/authzen-enforcer/issues/87)).
+
 ## [0.3.0] - 2026-11-19
 
 ### Added

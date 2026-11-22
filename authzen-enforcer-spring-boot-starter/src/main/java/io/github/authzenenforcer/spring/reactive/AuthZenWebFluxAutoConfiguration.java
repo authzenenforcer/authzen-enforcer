@@ -22,6 +22,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.util.ClassUtils;
 import org.springframework.web.reactive.HandlerAdapter;
 import org.springframework.web.reactive.result.method.annotation.RequestMappingHandlerAdapter;
 
@@ -46,6 +47,8 @@ import reactor.core.scheduler.Schedulers;
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.REACTIVE)
 @ConditionalOnClass({HandlerAdapter.class, Mono.class})
 public class AuthZenWebFluxAutoConfiguration {
+
+    private static final String OBSERVATION = "io.micrometer.observation.Observation";
 
     /**
      * Creates the auto-configuration.
@@ -135,9 +138,13 @@ public class AuthZenWebFluxAutoConfiguration {
     @Bean
     public PermissionHandlerAdapter authZenPermissionHandlerAdapter(Enforcer enforcer,
             HandlerPermissions permissions, ReactiveClaimsExtractor claimsExtractor,
-            ReactiveEnforcementResultHandler resultHandler, RequestMappingHandlerAdapter handlerMethods) {
+            ReactiveEnforcementResultHandler resultHandler, RequestMappingHandlerAdapter handlerMethods,
+            ApplicationContext context) {
+        // Visible to the application and to the starter, which links against it
+        boolean restoreObservations = ClassUtils.isPresent(OBSERVATION, context.getClassLoader())
+                && ClassUtils.isPresent(OBSERVATION, PermissionHandlerAdapter.class.getClassLoader());
         return new PermissionHandlerAdapter(enforcer, permissions, claimsExtractor, resultHandler, handlerMethods,
-                Schedulers.boundedElastic());
+                Schedulers.boundedElastic(), restoreObservations);
     }
 
     // Member classes are processed before the bean methods above, so their beans come first
