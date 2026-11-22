@@ -22,6 +22,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.util.ClassUtils;
 import org.springframework.web.reactive.HandlerAdapter;
 import org.springframework.web.reactive.result.method.annotation.RequestMappingHandlerAdapter;
 
@@ -135,9 +136,14 @@ public class AuthZenWebFluxAutoConfiguration {
     @Bean
     public PermissionHandlerAdapter authZenPermissionHandlerAdapter(Enforcer enforcer,
             HandlerPermissions permissions, ReactiveClaimsExtractor claimsExtractor,
-            ReactiveEnforcementResultHandler resultHandler, RequestMappingHandlerAdapter handlerMethods) {
+            ReactiveEnforcementResultHandler resultHandler, RequestMappingHandlerAdapter handlerMethods,
+            ApplicationContext context) {
+        ClassLoader classLoader = context.getClassLoader();
+        boolean restoreObservations = ClassUtils.isPresent("io.micrometer.context.ContextSnapshotFactory", classLoader)
+                && ClassUtils.isPresent("io.micrometer.observation.contextpropagation.ObservationThreadLocalAccessor",
+                        classLoader);
         return new PermissionHandlerAdapter(enforcer, permissions, claimsExtractor, resultHandler, handlerMethods,
-                Schedulers.boundedElastic());
+                Schedulers.boundedElastic(), restoreObservations);
     }
 
     // Member classes are processed before the bean methods above, so their beans come first

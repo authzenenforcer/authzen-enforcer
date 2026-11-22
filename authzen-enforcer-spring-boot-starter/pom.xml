@@ -93,6 +93,18 @@
             <artifactId>opentelemetry-api</artifactId>
             <optional>true</optional>
         </dependency>
+        <!-- Carries the observation of a WebFlux request from the Reactor Context to the thread that
+             starts the call to the PDP, so that its span joins the request's trace -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>context-propagation</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-observation</artifactId>
+            <optional>true</optional>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-health</artifactId>
@@ -142,6 +154,11 @@
         <dependency>
             <groupId>io.opentelemetry</groupId>
             <artifactId>opentelemetry-sdk-testing</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
