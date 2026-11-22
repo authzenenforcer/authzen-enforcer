@@ -151,10 +151,14 @@ class ReactiveOAuth2ClientCredentialsTest {
     void cancelsATokenRequestThatHangsAndLetsTheNextCallerStartAnother() throws Exception {
         AtomicInteger requests = new AtomicInteger();
         AtomicInteger cancelled = new AtomicInteger();
+        CountDownLatch cancellation = new CountDownLatch(1);
         // A token client without a response timeout, against an endpoint that never answers
         ReactiveOAuth2AuthorizedClientManager hanging = request -> Mono.<OAuth2AuthorizedClient>never()
                 .doOnSubscribe(subscription -> requests.incrementAndGet())
-                .doOnCancel(cancelled::incrementAndGet);
+                .doOnCancel(() -> {
+                    cancelled.incrementAndGet();
+                    cancellation.countDown();
+                });
         ReactiveOAuth2ClientCredentials hung = new ReactiveOAuth2ClientCredentials("pdp", hanging, clients,
                 Duration.ofMillis(200));
 
@@ -162,10 +166,14 @@ class ReactiveOAuth2ClientCredentialsTest {
         ExecutionException failure = assertThrows(ExecutionException.class, () -> first.get(5, TimeUnit.SECONDS));
         assertInstanceOf(IllegalStateException.class, failure.getCause());
         assertTrue(failure.getCause().getMessage().contains("did not complete within"));
+        // The waiting callers are released first, the request is cancelled after that
+        assertTrue(cancellation.await(5, TimeUnit.SECONDS));
         assertEquals(1, cancelled.get());
 
-        hung.getCredentialAsync();
+        CompletableFuture<AccessCredential> second = hung.getCredentialAsync();
         assertEquals(2, requests.get());
+        // The second request hangs too: let its deadline cancel it before the test ends
+        assertThrows(ExecutionException.class, () -> second.get(5, TimeUnit.SECONDS));
     }
 
     @Test
