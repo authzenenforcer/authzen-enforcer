@@ -155,6 +155,15 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-tracing-bridge-otel</artifactId>
             <scope>test</scope>
+            <!-- Kept off the test class path, as on main: tests that hide Spring Security with a
+                 FilteredClassLoader would break the ServiceLoader registry of context-propagation
+                 for every later test in the JVM. The starter does not use it -->
+            <exclusions>
+                <exclusion>
+                    <groupId>io.micrometer</groupId>
+                    <artifactId>context-propagation</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
     </dependencies>
 
