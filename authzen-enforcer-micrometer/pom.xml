@@ -13,8 +13,8 @@
     <artifactId>authzen-enforcer-micrometer</artifactId>
     <packaging>jar</packaging>
 
-    <name>AuthZEN Enforcer Micrometer</name>
-    <description>Micrometer metrics for the AuthZEN Enforcer client: calls, HTTP attempts, circuit breakers, metadata refreshes and listener drops.</description>
+    <name>authzen-enforcer-micrometer</name>
+    <description>Micrometer metrics for the authzen-enforcer client: calls, HTTP attempts, circuit breakers, metadata refreshes and listener drops.</description>
 
     <dependencies>
         <dependency>

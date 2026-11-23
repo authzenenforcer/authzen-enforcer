@@ -13,7 +13,7 @@
     <artifactId>authzen-enforcer-interop-tests</artifactId>
     <packaging>jar</packaging>
 
-    <name>AuthZEN Enforcer Interop Tests</name>
+    <name>authzen-enforcer-interop-tests</name>
     <description>Tests of the SDK against real PDPs. Not published.</description>
 
     <properties>

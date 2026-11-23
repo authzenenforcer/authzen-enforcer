@@ -14,8 +14,8 @@
     <artifactId>authzen-enforcer-bom</artifactId>
     <packaging>pom</packaging>
 
-    <name>AuthZEN Enforcer BOM</name>
-    <description>Bill of materials for aligning AuthZEN Enforcer module versions.</description>
+    <name>authzen-enforcer-bom</name>
+    <description>Bill of materials for aligning the versions of the authzen-enforcer modules.</description>
 
     <dependencyManagement>
         <dependencies>
