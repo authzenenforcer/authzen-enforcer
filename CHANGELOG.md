@@ -7,6 +7,22 @@ the API.
 
 ## [Unreleased]
 
+### Added
+
+- In Spring WebFlux applications, the `ReactiveAuthZenClient` bean calls the PDP from the
+  application's own code, such as a handler that filters a list, with `Mono` and `Flux` instead of
+  `CompletionStage` and `Flow.Publisher`. A call starts on subscription, on Reactor's bounded
+  elastic scheduler, and cancelling the subscription cancels it
+  ([#93](https://github.com/authzenenforcer/authzen-enforcer/issues/93)).
+
+### Fixed
+
+- In Spring WebFlux, the application's own calls to the PDP can join the trace of the request:
+  those made with `ReactiveAuthZenClient` start with the request's observation in scope, as the
+  starter's enforcement does since 0.3.1. Calls with the `AuthZenClient` bean's asynchronous
+  methods still start a trace of their own unless `spring.reactor.context-propagation=auto` is
+  set, which the documentation now says ([#93](https://github.com/authzenenforcer/authzen-enforcer/issues/93)).
+
 ## [0.3.1] - 2026-11-23
 
 ### Fixed

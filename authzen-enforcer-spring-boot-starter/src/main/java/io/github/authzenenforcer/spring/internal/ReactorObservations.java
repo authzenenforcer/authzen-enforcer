@@ -22,7 +22,7 @@ import java.util.function.Supplier;
  * only when
  * {@code micrometer-observation} is on the class path.
  */
-final class ReactorObservations {
+public final class ReactorObservations {
 
     private static final System.Logger LOGGER = System.getLogger(ReactorObservations.class.getName());
 
@@ -41,7 +41,7 @@ final class ReactorObservations {
      * @param <T>     the type of the result
      * @return the result of the call
      */
-    static <T> T call(ContextView context, Supplier<T> call) {
+    public static <T> T call(ContextView context, Supplier<T> call) {
         Object value = context.getOrDefault(ObservationThreadLocalAccessor.KEY, null);
         if (!(value instanceof Observation observation) || observation.isNoop()) {
             return call.get();
