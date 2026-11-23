@@ -15,6 +15,17 @@ the API.
   elastic scheduler, and cancelling the subscription cancels it
   ([#93](https://github.com/authzenenforcer/authzen-enforcer/issues/93)).
 
+### Changed
+
+- The starter's package `io.github.authzenenforcer.spring.internal` is documented as internal, as
+  the core's are: its types are not part of the public API and may change between releases. The
+  Javadoc of `AccessCredential` says that more kinds of credentials, such as DPoP, will be added
+  ([#99](https://github.com/authzenenforcer/authzen-enforcer/issues/99)).
+- The documentation says that some PDPs, such as Cerbos with its query plan, can filter a list
+  with a condition for the application's query, on their native API next to the starter, and why
+  the AuthZEN Search APIs do not replace it
+  ([#95](https://github.com/authzenenforcer/authzen-enforcer/issues/95)).
+
 ### Fixed
 
 - In Spring WebFlux, the application's own calls to the PDP can join the trace of the request:

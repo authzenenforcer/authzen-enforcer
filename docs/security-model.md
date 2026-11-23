@@ -87,3 +87,14 @@ belongs in the `properties` of the subject, resource or action, or in the contex
   one that gets the attributes its policy needs in the request. The
   [spring-boot-mvc example](https://github.com/authzenenforcer/authzen-enforcer-examples/tree/main/spring-boot-mvc)
   filters its list this way.
+  Some PDPs can answer "which documents may this caller see" with a condition instead of a
+  decision per document, so that the database returns only the allowed rows and pages and totals
+  come out right without loading the candidates first. Cerbos, for example, offers a query plan on
+  its native API (`/api/plan/resources`, `plan(...)` in its Java SDK): a filter that is always
+  allowed, always denied, or a condition that the application turns into a filter of its query. At
+  the time of writing, this is not part of the AuthZEN Authorization API, so it does not go through
+  authzen-enforcer; call it with the PDP's own client next to the starter, and keep it fail-closed
+  yourself: an error, an unreachable PDP, or a filter kind or condition the application does not
+  understand returns no rows, never the unfiltered query. The AuthZEN
+  [Search APIs](search.md) are no replacement for it: a resource search returns the identifiers of
+  resources the PDP permits, not a condition for the application's query.
