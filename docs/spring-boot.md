@@ -322,6 +322,35 @@ adapter is logged as a warning at startup.
 When the subscription is cancelled, for example because the client went away, the call to the PDP
 is cancelled too, and listeners see a cancelled enforcement.
 
+For decisions that an annotation cannot express, such as filtering a list or deciding about several
+resources at once, call the PDP through the `ReactiveAuthZenClient` bean rather than the
+`AuthZenClient` bean:
+
+```java
+@GetMapping("/documents")
+Mono<List<String>> list(@AuthenticationPrincipal Jwt caller) {
+    List<String> ids = store.ids();
+    // One Access Evaluations item per document, with the subject, action and context of reading one
+    return pdp.evaluations(readEach(caller, ids))
+            .map(decisions -> IntStream.range(0, ids.size())
+                    .filter(decisions::isPermitted)
+                    .mapToObj(ids::get)
+                    .toList())
+            // No decisions from the PDP: list nothing
+            .onErrorReturn(AuthZenException.class, List.of());
+}
+```
+
+Its methods mirror the client's asynchronous ones and return a `Mono`, or a `Flux` for the
+searches over all pages. A call starts when the publisher is subscribed to, on Reactor's bounded
+elastic scheduler as the enforcement's do, and cancelling the subscription cancels it. Failures
+arrive as `AuthZenException`s, so turning them into a deny is up to the handler. Each call starts
+with the request's observation in scope, so that it joins the trace of the request; see
+[Observability](#observability). The client's own asynchronous methods, such as
+`evaluationsAsync`, start a trace of their own in Spring WebFlux unless
+`spring.reactor.context-propagation=auto` is set. A `ReactiveAuthZenClient` bean of the application
+replaces the default.
+
 ## Observability
 
 The starter configures metrics and traces when their module of authzen-enforcer and their library
@@ -357,10 +386,12 @@ them along.
   the one of `spring-boot-starter-opentelemetry`, traces the calls and sends their trace context
   to the PDP; see [Observability](observability.md#tracing-with-opentelemetry). A `PepTracer` bean
   of the application replaces it. In Spring WebFlux, where the observation of a request lives in
-  the Reactor Context, the starter puts it on the thread while a call starts, so that the call
-  joins the trace of the request without `spring.reactor.context-propagation=auto`. The call then
-  carries the trace of the request to the PDP, including a trace id and `tracestate` the caller
-  sent, as in Spring MVC.
+  the Reactor Context, the enforcement and the `ReactiveAuthZenClient` bean put it on the thread
+  while a call starts, so that the call joins the trace of the request without
+  `spring.reactor.context-propagation=auto`; calls with the `AuthZenClient` bean's asynchronous
+  methods need `auto` for that (see [Spring WebFlux](#spring-webflux)). The call then carries the
+  trace of the request to the PDP, including a trace id and `tracestate` the caller sent, as in
+  Spring MVC.
 - **Health:** the indicator reads the client's state without contacting the PDP, so a probe never
   causes a call. It is `DOWN` while calls deny at once: while the breaker of the authorization API
   is open, or after the last metadata refresh failed. A half-open breaker and stale metadata are

@@ -1,7 +1,13 @@
 package io.github.authzenenforcer.spring;
 
+import io.github.authzenenforcer.core.model.Action;
+import io.github.authzenenforcer.core.model.EvaluationRequest;
+import io.github.authzenenforcer.core.model.EvaluationResponse;
+import io.github.authzenenforcer.core.model.Resource;
+import io.github.authzenenforcer.core.model.Subject;
 import io.github.authzenenforcer.spring.observability.AuthZenTracingAutoConfiguration;
 import io.github.authzenenforcer.spring.reactive.AuthZenWebFluxAutoConfiguration;
+import io.github.authzenenforcer.spring.reactive.ReactiveAuthZenClient;
 
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
@@ -28,13 +34,19 @@ import org.springframework.boot.webflux.autoconfigure.error.ErrorWebFluxAutoConf
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.WebFilter;
+
+import reactor.core.publisher.Mono;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -56,7 +68,7 @@ class ReactiveTracingTest {
                     ErrorWebFluxAutoConfiguration.class, AuthZenAutoConfiguration.class,
                     AuthZenWebFluxAutoConfiguration.class, AuthZenTracingAutoConfiguration.class))
             .withUserConfiguration(ReactivePlainEnforcementTest.Things.class, ReactivePlainEnforcementTest.Callers.class,
-                    ObservedRequests.class)
+                    ObservedRequests.class, OwnDecisions.class)
             .withBean(OpenTelemetry.class, () -> openTelemetry)
             .withPropertyValues("authzen.pdp.url=" + PDP.url(), "authzen.enforcer.enforce-all=true");
 
@@ -93,6 +105,36 @@ class ReactiveTracingTest {
     }
 
     @Test
+    void tracesTheApplicationsOwnCallInTheTraceOfTheRequest() {
+        runner.run(context -> {
+            WebTestClient.bindToApplicationContext(context).build()
+                    .get().uri("/own/1").exchange().expectStatus().isOk().expectBody(String.class).isEqualTo("permit");
+
+            SpanData request = await("request");
+            SpanData call = await("authzen evaluation");
+            SpanData exchange = await("POST");
+            assertEquals(request.getTraceId(), call.getTraceId());
+            assertEquals(request.getSpanId(), call.getParentSpanId());
+            assertEquals(call.getSpanId(), exchange.getParentSpanId());
+            assertEquals("00-" + request.getTraceId() + "-" + exchange.getSpanId() + "-"
+                    + exchange.getSpanContext().getTraceFlags().asHex(), PDP.traceparents().get(0));
+        });
+    }
+
+    @Test
+    void callsWithoutAnObservationInTheReactorContext() {
+        runner.run(context -> {
+            EvaluationResponse response = context.getBean(ReactiveAuthZenClient.class)
+                    .evaluate(OwnDecisions.request("1"))
+                    .block();
+
+            assertTrue(response.getDecision());
+            SpanData call = await("authzen evaluation");
+            assertFalse(call.getParentSpanContext().isValid(), "A call outside a request starts a trace");
+        });
+    }
+
+    @Test
     void enforcesWithoutMicrometerObservationOnTheClassPath() {
         runner.withClassLoader(new FilteredClassLoader("io.micrometer.observation"))
                 .run(context -> {
@@ -115,6 +157,27 @@ class ReactiveTracingTest {
             }
             assertTrue(System.nanoTime() < deadline, "No span " + name + " in " + finished);
             Thread.sleep(10);
+        }
+    }
+
+    /** A handler that decides by itself, with the reactive client, instead of with enforcement. */
+    @RestController
+    static class OwnDecisions {
+
+        private final ReactiveAuthZenClient pdp;
+
+        OwnDecisions(ReactiveAuthZenClient pdp) {
+            this.pdp = pdp;
+        }
+
+        @SkipPermissionCheck
+        @GetMapping("/own/{id}")
+        Mono<String> own(@PathVariable String id) {
+            return pdp.evaluate(request(id)).map(response -> response.getDecision() ? "permit" : "deny");
+        }
+
+        static EvaluationRequest request(String id) {
+            return EvaluationRequest.of(Subject.of("user", "bob"), Action.of("read"), Resource.of("thing", id));
         }
     }
 

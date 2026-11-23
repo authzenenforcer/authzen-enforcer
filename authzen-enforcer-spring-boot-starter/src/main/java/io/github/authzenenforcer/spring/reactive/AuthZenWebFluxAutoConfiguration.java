@@ -1,5 +1,6 @@
 package io.github.authzenenforcer.spring.reactive;
 
+import io.github.authzenenforcer.core.client.AuthZenClient;
 import io.github.authzenenforcer.core.enforce.Enforcer;
 import io.github.authzenenforcer.core.enforce.ResourceInferrer;
 import io.github.authzenenforcer.spring.AuthZenAutoConfiguration;
@@ -42,6 +43,9 @@ import reactor.core.scheduler.Schedulers;
  *
  * <p>Once the application context is ready, every enforced route is checked: invalid annotations
  * fail the startup, and routes whose requests would be refused are logged as warnings.
+ *
+ * <p>The application's own calls to the PDP, such as a handler's decisions about several resources,
+ * go through the {@link ReactiveAuthZenClient} bean, which starts them in the trace of the request.
  */
 @AutoConfiguration(after = AuthZenAutoConfiguration.class)
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.REACTIVE)
@@ -79,6 +83,19 @@ public class AuthZenWebFluxAutoConfiguration {
     @ConditionalOnMissingBean
     public ReactiveEnforcementResultHandler authZenReactiveEnforcementResultHandler() {
         return new ReactiveStatusResultHandler();
+    }
+
+    /**
+     * Creates the reactive client with which the application's own code calls the PDP in the trace
+     * of the request.
+     *
+     * @param client the client
+     * @return the reactive client
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public ReactiveAuthZenClient authZenReactiveClient(AuthZenClient client) {
+        return new ReactiveAuthZenClient(client);
     }
 
     /**
