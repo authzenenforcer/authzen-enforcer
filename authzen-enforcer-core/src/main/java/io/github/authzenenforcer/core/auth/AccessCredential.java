@@ -8,6 +8,10 @@ import java.util.regex.Pattern;
  *
  * <p>Credentials are obtained from a {@link CredentialProvider} before every request. Their
  * {@code toString()} never reveals the secret.
+ *
+ * <p>More kinds of credentials will be added, such as DPoP-bound tokens (RFC 9449). Code that
+ * handles every kind, for example a {@code switch} over the permitted subclasses, should not rely
+ * on {@link Bearer} being the only one.
  */
 public sealed interface AccessCredential permits AccessCredential.Bearer {
 
