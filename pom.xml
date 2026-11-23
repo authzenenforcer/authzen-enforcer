@@ -96,11 +96,8 @@
         <!-- Code analysis: mvn verify sonar:sonar (server and token come from SONAR_HOST_URL / SONAR_TOKEN) -->
         <sonar.projectKey>authzenenforcer_authzen-enforcer</sonar.projectKey>
         <sonar.projectName>authzen-enforcer</sonar.projectName>
-        <!-- Per-module reports, plus the aggregate that adds the interop tests' coverage of core -->
-        <sonar.coverage.jacoco.xmlReportPaths>
-            target/site/jacoco/jacoco.xml,
-            ${maven.multiModuleProjectDirectory}/authzen-enforcer-interop-tests/target/site/jacoco-aggregate/jacoco.xml
-        </sonar.coverage.jacoco.xmlReportPaths>
+        <!-- Each module's own report; core adds the aggregate of the interop tests, which covers core only -->
+        <sonar.coverage.jacoco.xmlReportPaths>target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
         <!-- Model types share their shape (Subject/Resource; the evaluation request types), so their
              accessors and builders repeat. A common base class would tie together types that the spec
              may evolve separately; duplicated logic belongs outside this package. -->

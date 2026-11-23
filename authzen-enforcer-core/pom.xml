@@ -16,6 +16,15 @@
     <name>AuthZEN Enforcer Core</name>
     <description>Zero-dependency AuthZEN PDP client for Java 17+, with Bearer and DPoP support.</description>
 
+    <properties>
+        <!-- The interop tests run against core: their aggregate report adds to core's own coverage.
+             Only this module gets it, so that no module reports coverage that matches none of its files -->
+        <sonar.coverage.jacoco.xmlReportPaths>
+            target/site/jacoco/jacoco.xml,
+            ${maven.multiModuleProjectDirectory}/authzen-enforcer-interop-tests/target/site/jacoco-aggregate/jacoco.xml
+        </sonar.coverage.jacoco.xmlReportPaths>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
