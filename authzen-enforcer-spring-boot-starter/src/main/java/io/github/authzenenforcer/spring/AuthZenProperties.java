@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Configuration properties of the AuthZEN Enforcer, under the prefix {@code authzen}.
+ * Configuration properties of authzen-enforcer, under the prefix {@code authzen}.
  *
  * <p>Only {@code authzen.pdp.url} is required. A bean of the corresponding type replaces the
  * properties that configure it, for example a {@link SubjectResolver} bean the

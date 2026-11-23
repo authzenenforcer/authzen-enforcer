@@ -1,5 +1,5 @@
 /**
- * Micrometer metrics for the AuthZEN Enforcer client: {@link
+ * Micrometer metrics for the authzen-enforcer client: {@link
  * io.github.authzenenforcer.micrometer.MicrometerPepListener} records calls, HTTP attempts, circuit
  * breaker transitions, metadata refreshes and enforcements, and {@link
  * io.github.authzenenforcer.micrometer.AuthZenClientMetrics} and {@link

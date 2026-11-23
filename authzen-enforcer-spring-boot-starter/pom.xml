@@ -13,8 +13,8 @@
     <artifactId>authzen-enforcer-spring-boot-starter</artifactId>
     <packaging>jar</packaging>
 
-    <name>AuthZEN Enforcer Spring Boot Starter</name>
-    <description>Spring Boot auto-configuration for the AuthZEN Enforcer: a PDP client, and enforcement of @CheckPermission handlers in Spring MVC.</description>
+    <name>authzen-enforcer-spring-boot-starter</name>
+    <description>Spring Boot auto-configuration for authzen-enforcer: a PDP client, and enforcement of @CheckPermission handlers in Spring MVC and Spring WebFlux.</description>
 
     <!-- Versions of Spring come from Spring Boot. Kept in this module, so that they do not leak into
          the BOM or the other modules -->

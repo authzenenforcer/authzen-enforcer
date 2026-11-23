@@ -9,7 +9,7 @@
     <version>0.4.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
-    <name>AuthZEN Enforcer Parent</name>
+    <name>authzen-enforcer</name>
     <description>Java SDK acting as a Policy Enforcement Point (PEP) for the OpenID AuthZEN Authorization API.</description>
     <url>https://github.com/authzenenforcer/authzen-enforcer</url>
     <inceptionYear>2026</inceptionYear>

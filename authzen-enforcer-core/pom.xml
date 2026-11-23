@@ -13,8 +13,8 @@
     <artifactId>authzen-enforcer-core</artifactId>
     <packaging>jar</packaging>
 
-    <name>AuthZEN Enforcer Core</name>
-    <description>Zero-dependency AuthZEN PDP client for Java 17+, with Bearer and DPoP support.</description>
+    <name>authzen-enforcer-core</name>
+    <description>Zero-dependency AuthZEN PDP client for Java 17+, with Bearer authentication; DPoP is planned.</description>
 
     <properties>
         <!-- The interop tests run against core: their aggregate report adds to core's own coverage.

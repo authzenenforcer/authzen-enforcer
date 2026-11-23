@@ -79,7 +79,7 @@ Treat it as a deny.
 - [Observability](docs/observability.md): listeners, Micrometer and OpenTelemetry
 - [Security model](docs/security-model.md)
 - [Enforcement](docs/enforcement.md): from an HTTP request to a decision
-- [Spring Boot](docs/spring-boot.md): the starter and `@CheckPermission` in Spring MVC
+- [Spring Boot](docs/spring-boot.md): the starter and `@CheckPermission` in Spring MVC and WebFlux
 - PDP notes: [Keycloak](docs/pdps/keycloak.md)
 
 ## Spring Boot

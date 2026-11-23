@@ -13,8 +13,8 @@
     <artifactId>authzen-enforcer-opentelemetry</artifactId>
     <packaging>jar</packaging>
 
-    <name>AuthZEN Enforcer OpenTelemetry</name>
-    <description>OpenTelemetry tracing for the AuthZEN Enforcer client: call and HTTP exchange spans, with W3C trace context propagation to the PDP.</description>
+    <name>authzen-enforcer-opentelemetry</name>
+    <description>OpenTelemetry tracing for the authzen-enforcer client: call and HTTP exchange spans, with W3C trace context propagation to the PDP.</description>
 
     <dependencies>
         <dependency>
