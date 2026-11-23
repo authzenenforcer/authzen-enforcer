@@ -147,6 +147,20 @@ class ReactiveTracingTest {
                 });
     }
 
+    @Test
+    void callsWithoutMicrometerObservationVisibleToTheApplication() {
+        runner.withClassLoader(new FilteredClassLoader("io.micrometer.observation"))
+                .run(context -> {
+                    WebTestClient.bindToApplicationContext(context).build()
+                            .get().uri("/own/1").exchange().expectStatus().isOk();
+
+                    SpanData request = await("request");
+                    SpanData call = await("authzen evaluation");
+                    // As for the enforcement: the call starts as it is, without the request's observation
+                    assertNotEquals(request.getTraceId(), call.getTraceId());
+                });
+    }
+
     private SpanData await(String name) throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
         while (true) {

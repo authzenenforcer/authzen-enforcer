@@ -89,13 +89,14 @@ public class AuthZenWebFluxAutoConfiguration {
      * Creates the reactive client with which the application's own code calls the PDP in the trace
      * of the request.
      *
-     * @param client the client
+     * @param client  the client
+     * @param context the application context, for its class loader
      * @return the reactive client
      */
     @Bean
     @ConditionalOnMissingBean
-    public ReactiveAuthZenClient authZenReactiveClient(AuthZenClient client) {
-        return new ReactiveAuthZenClient(client);
+    public ReactiveAuthZenClient authZenReactiveClient(AuthZenClient client, ApplicationContext context) {
+        return new ReactiveAuthZenClient(client, observationsVisible(context));
     }
 
     /**
@@ -157,11 +158,14 @@ public class AuthZenWebFluxAutoConfiguration {
             HandlerPermissions permissions, ReactiveClaimsExtractor claimsExtractor,
             ReactiveEnforcementResultHandler resultHandler, RequestMappingHandlerAdapter handlerMethods,
             ApplicationContext context) {
-        // Visible to the application and to the starter, which links against it
-        boolean restoreObservations = ClassUtils.isPresent(OBSERVATION, context.getClassLoader())
-                && ClassUtils.isPresent(OBSERVATION, PermissionHandlerAdapter.class.getClassLoader());
         return new PermissionHandlerAdapter(enforcer, permissions, claimsExtractor, resultHandler, handlerMethods,
-                Schedulers.boundedElastic(), restoreObservations);
+                Schedulers.boundedElastic(), observationsVisible(context));
+    }
+
+    // Visible to the application and to the starter, which links against it
+    private static boolean observationsVisible(ApplicationContext context) {
+        return ClassUtils.isPresent(OBSERVATION, context.getClassLoader())
+                && ClassUtils.isPresent(OBSERVATION, PermissionHandlerAdapter.class.getClassLoader());
     }
 
     // Member classes are processed before the bean methods above, so their beans come first

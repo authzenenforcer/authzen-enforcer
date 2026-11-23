@@ -53,11 +53,10 @@ import java.util.function.Supplier;
  */
 public final class ReactiveAuthZenClient {
 
-    // Visible to the starter, which links against it, as for the enforcement
-    private static final boolean OBSERVATIONS = ClassUtils.isPresent("io.micrometer.observation.Observation",
-            ReactiveAuthZenClient.class.getClassLoader());
+    private static final String OBSERVATION = "io.micrometer.observation.Observation";
 
     private final AuthZenClient client;
+    private final boolean observations;
 
     /**
      * Creates a reactive client that calls the PDP with the given client.
@@ -65,7 +64,18 @@ public final class ReactiveAuthZenClient {
      * @param client the client
      */
     public ReactiveAuthZenClient(AuthZenClient client) {
+        // Visible to the starter, which links against it
+        this(client, ClassUtils.isPresent(OBSERVATION, ReactiveAuthZenClient.class.getClassLoader()));
+    }
+
+    /**
+     * Creates a reactive client that puts the request's observation in scope only if
+     * {@code observations} is true: the auto-configuration passes whether the application and the
+     * starter both see {@code micrometer-observation}, as for the enforcement.
+     */
+    ReactiveAuthZenClient(AuthZenClient client, boolean observations) {
         this.client = Objects.requireNonNull(client, "client must not be null");
+        this.observations = observations && ClassUtils.isPresent(OBSERVATION, ReactiveAuthZenClient.class.getClassLoader());
     }
 
     /**
@@ -222,19 +232,19 @@ public final class ReactiveAuthZenClient {
 
     // Cancelling the subscription cancels the stage, and with it the call. The Reactor Context
     // reaches the scheduler's thread with the subscription
-    private static <T> Mono<T> call(Supplier<CompletionStage<T>> call) {
+    private <T> Mono<T> call(Supplier<CompletionStage<T>> call) {
         return Mono.deferContextual(context -> Mono.fromCompletionStage(start(context, call)))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
     // The search starts, and takes the span of its pages from the thread, when it is subscribed to
-    private static <T> Flux<T> all(Supplier<Flow.Publisher<T>> search) {
+    private <T> Flux<T> all(Supplier<Flow.Publisher<T>> search) {
         return Flux.deferContextual(context -> JdkFlowAdapter.flowPublisherToFlux(start(context, search)))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
-    private static <T> T start(ContextView context, Supplier<T> call) {
-        if (!OBSERVATIONS) {
+    private <T> T start(ContextView context, Supplier<T> call) {
+        if (!observations) {
             return call.get();
         }
         return ReactorObservations.call(context, call);
