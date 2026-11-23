@@ -19,7 +19,9 @@ import org.junit.jupiter.api.Test;
 
 import reactor.util.context.Context;
 
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -43,9 +45,14 @@ class ReactorObservationsTest {
         registry.observationConfig().observationHandler(new DefaultTracingObservationHandler(tracer));
     }
 
+    // Every test leaves the test thread as it found it, whatever the order of the tests
     @AfterEach
-    void closeOpenTelemetry() {
-        openTelemetry.close();
+    void leavesTheTestThreadCleanAndClosesOpenTelemetry() {
+        try {
+            assertTheThreadIsClean();
+        } finally {
+            openTelemetry.close();
+        }
     }
 
     @Test
@@ -83,17 +90,21 @@ class ReactorObservationsTest {
     }
 
     @Test
-    void keepsTheResultAndCleansTheThreadWhenAHandlerFailsToCloseTheScope() {
+    void keepsTheResultAndCleansTheThreadWhenAHandlerFailsToCloseTheScope() throws Exception {
         registry.observationConfig().observationHandler(failing(false, true, new AssertionError("close")));
         Observation observation = Observation.start("request", registry);
 
-        String traceId = ReactorObservations.call(contextOf(observation), currentTraceId());
-
-        assertEquals(1, calls.get());
-        assertNotEquals(Span.getInvalid().getSpanContext().getTraceId(), traceId);
         // From Micrometer 1.18, the failing handler, which runs first on close, keeps the tracing
-        // handler from ending its trace context; the observation scope is left either way
-        assertNull(registry.getCurrentObservationScope());
+        // handler from ending its trace context, which stays on the thread. A thread of its own
+        // keeps it away from the tests that run after this one
+        onAThreadOfItsOwn(() -> {
+            String traceId = ReactorObservations.call(contextOf(observation), currentTraceId());
+
+            assertEquals(1, calls.get());
+            assertNotEquals(Span.getInvalid().getSpanContext().getTraceId(), traceId);
+            // The observation scope is left either way
+            assertNull(registry.getCurrentObservationScope());
+        });
     }
 
     @Test
@@ -149,6 +160,32 @@ class ReactorObservationsTest {
     private void assertTheThreadIsClean() {
         assertNull(registry.getCurrentObservationScope());
         assertFalse(Span.current().getSpanContext().isValid());
+    }
+
+    private static void onAThreadOfItsOwn(Runnable test) throws Exception {
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread thread = new Thread(() -> {
+            try {
+                test.run();
+            } catch (Throwable e) {
+                failure.set(e);
+            }
+        });
+        // A scenario that hangs must not keep the test JVM alive
+        thread.setDaemon(true);
+        thread.start();
+        thread.join(TimeUnit.SECONDS.toMillis(5));
+        assertFalse(thread.isAlive(), "The test did not end");
+        Throwable thrown = failure.get();
+        if (thrown instanceof Error error) {
+            throw error;
+        }
+        if (thrown instanceof Exception exception) {
+            throw exception;
+        }
+        if (thrown != null) {
+            throw new AssertionError(thrown);
+        }
     }
 
     private static ObservationHandler<Observation.Context> failing(boolean onOpen, boolean onClose, Throwable error) {
