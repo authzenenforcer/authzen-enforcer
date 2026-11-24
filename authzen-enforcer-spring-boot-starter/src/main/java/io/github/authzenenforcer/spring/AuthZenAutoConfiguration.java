@@ -13,6 +13,7 @@ import io.github.authzenenforcer.core.model.Subject;
 import io.github.authzenenforcer.core.spi.JsonCodec;
 import io.github.authzenenforcer.core.spi.PepListener;
 import io.github.authzenenforcer.core.spi.PepTracer;
+import io.github.authzenenforcer.spring.internal.CallerAuthorities;
 import io.github.authzenenforcer.spring.internal.EnforcedHandlerTypes;
 import io.github.authzenenforcer.spring.internal.AbstractOAuth2ClientCredentials;
 import io.github.authzenenforcer.spring.internal.OAuth2ClientCredentials;
@@ -235,7 +236,7 @@ public class AuthZenAutoConfiguration {
         RequestInferrer.Builder builder = RequestInferrer.builder()
                 .actionMapper(actionMapper)
                 .resourceInferrer(resourceInferrer)
-                .subjectResolver(subjectResolver)
+                .subjectResolver(withAuthorities(properties, subjectResolver))
                 .overrides(overrides);
         AuthZenProperties.Anonymous anonymous = properties.getEnforcer().getAnonymous();
         if (anonymous.isEnabled()) {
@@ -304,6 +305,13 @@ public class AuthZenAutoConfiguration {
                 + " spring.security.oauth2.client.registration");
     }
 
+    // The granted authorities, if mapped, go into the subject whichever resolver infers it from the claims
+    private static SubjectResolver withAuthorities(AuthZenProperties properties, SubjectResolver resolver) {
+        return CallerAuthorities.mapping(properties)
+                .map(mapping -> CallerAuthorities.resolver(resolver, mapping))
+                .orElse(resolver);
+    }
+
     private static String[] claimPath(String name, String path) {
         String[] members = path.split("\\.", -1);
         for (String member : members) {
@@ -313,6 +321,19 @@ public class AuthZenAutoConfiguration {
             }
         }
         return members;
+    }
+
+    /** The subject of a caller for the application's own calls to the PDP. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "org.springframework.security.core.Authentication")
+    static class CallerSubjectsConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean
+        CallerSubjects authZenCallerSubjects(AuthZenProperties properties, SubjectResolver subjectResolver) {
+            return new CallerSubjects(withAuthorities(properties, subjectResolver),
+                    CallerAuthorities.mapping(properties).isPresent());
+        }
     }
 
     /** The PEP's token from Spring Security's OAuth 2.0 client. */

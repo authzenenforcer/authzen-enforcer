@@ -7,6 +7,17 @@ the API.
 
 ## [Unreleased]
 
+### Added
+
+- The Spring Boot starter sends the caller's granted authorities as roles in a subject property,
+  for PDPs that evaluate the roles a request carries, such as Cerbos:
+  `authzen.enforcer.subject.authorities.property` names the property and
+  `authzen.enforcer.subject.authorities.prefix`, such as `ROLE_`, selects the authorities and is
+  removed. The `CallerSubjects` bean gives handlers that call the PDP themselves the same subject as
+  `@CheckPermission`, roles included. In the core, `RoleMapping` does the mapping for any framework.
+  `docs/pdps/cerbos.md` describes Cerbos as the PDP, checked against Cerbos 0.58.0
+  ([#94](https://github.com/authzenenforcer/authzen-enforcer/issues/94)).
+
 ### Changed
 
 - The spans of `authzen-enforcer-opentelemetry` name the version of the module in their

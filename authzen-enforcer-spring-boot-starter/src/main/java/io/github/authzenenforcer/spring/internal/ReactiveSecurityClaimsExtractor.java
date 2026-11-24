@@ -17,22 +17,33 @@ import java.util.Map;
  */
 public final class ReactiveSecurityClaimsExtractor implements ReactiveClaimsExtractor {
 
+    private final boolean authorities;
+
     /**
      * Creates the extractor.
      */
     public ReactiveSecurityClaimsExtractor() {
-        // Holds no state
+        this(false);
+    }
+
+    /**
+     * Creates the extractor.
+     *
+     * @param authorities whether the caller's granted authorities travel with the claims
+     */
+    public ReactiveSecurityClaimsExtractor(boolean authorities) {
+        this.authorities = authorities;
     }
 
     @Override
     public Mono<Map<String, Object>> extract(ServerWebExchange exchange) {
         return ReactiveSecurityContextHolder.getContext()
                 .mapNotNull(SecurityContext::getAuthentication)
-                .mapNotNull(authentication -> SecurityClaims.of(authentication).orElse(null));
+                .mapNotNull(authentication -> SecurityClaims.of(authentication, authorities).orElse(null));
     }
 
     @Override
     public String toString() {
-        return "ReactiveSecurityClaimsExtractor";
+        return "ReactiveSecurityClaimsExtractor{authorities=" + authorities + "}";
     }
 }

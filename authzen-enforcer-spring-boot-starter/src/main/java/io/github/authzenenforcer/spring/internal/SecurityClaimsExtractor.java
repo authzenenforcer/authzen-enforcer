@@ -16,16 +16,27 @@ import java.util.Optional;
  */
 public final class SecurityClaimsExtractor implements ClaimsExtractor {
 
+    private final boolean authorities;
+
     /**
      * Creates the extractor.
      */
     public SecurityClaimsExtractor() {
-        // Holds no state
+        this(false);
+    }
+
+    /**
+     * Creates the extractor.
+     *
+     * @param authorities whether the caller's granted authorities travel with the claims
+     */
+    public SecurityClaimsExtractor(boolean authorities) {
+        this.authorities = authorities;
     }
 
     @Override
     public Optional<Map<String, Object>> extract(HttpServletRequest request) {
-        return SecurityClaims.of(authentication());
+        return SecurityClaims.of(authentication(), authorities);
     }
 
     private static Authentication authentication() {
@@ -34,6 +45,6 @@ public final class SecurityClaimsExtractor implements ClaimsExtractor {
 
     @Override
     public String toString() {
-        return "SecurityClaimsExtractor";
+        return "SecurityClaimsExtractor{authorities=" + authorities + "}";
     }
 }

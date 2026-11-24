@@ -80,7 +80,7 @@ Treat it as a deny.
 - [Security model](docs/security-model.md)
 - [Enforcement](docs/enforcement.md): from an HTTP request to a decision
 - [Spring Boot](docs/spring-boot.md): the starter and `@CheckPermission` in Spring MVC and WebFlux
-- PDP notes: [Keycloak](docs/pdps/keycloak.md)
+- PDP notes: [Keycloak](docs/pdps/keycloak.md), [Cerbos](docs/pdps/cerbos.md)
 - [Examples](https://github.com/authzenenforcer/authzen-enforcer-examples): plain Java, Spring MVC and Spring WebFlux against Keycloak
 
 ## Spring Boot

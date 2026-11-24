@@ -100,7 +100,7 @@ final class PermissionRequests {
         PermissionSpec spec;
         try {
             spec = permission.spec(Expressions.context(pathVariables, view,
-                    claims.map(Collections::unmodifiableMap).orElse(null)));
+                    claims.map(CallerAuthorities::detach).map(Collections::unmodifiableMap).orElse(null)));
         } catch (HandlerPermission.ExpressionFailure e) {
             return new Prepared(null, null, refused(e.getMessage()));
         }

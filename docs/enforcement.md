@@ -256,6 +256,26 @@ SubjectResolver.keycloak()
 A caller without claims is denied without asking the PDP, unless
 `RequestInferrer.Builder.anonymousSubject(...)` names a subject to ask about.
 
+Some PDPs evaluate the roles that a request carries instead of looking them up, and an application
+often has its roles from its framework rather than from a claim: the granted authorities of Spring
+Security, or the roles of a Quarkus `SecurityIdentity`. `RoleMapping` writes them into a subject
+property. With a prefix, only the names that start with it count, without it; without a prefix,
+every name counts as it is. The roles keep their order without repeats and are left out when
+there are none. The mapping owns its property: a property of the same name, for example from a
+claim, is replaced by the roles or, without roles, removed, so that the PDP never takes other
+values for them:
+
+```java
+RoleMapping mapping = RoleMapping.toProperty("roles").prefix("ROLE_").build();
+Subject subject = mapping.apply(resolver.resolve(claims), List.of("ROLE_admin", "SCOPE_read"));
+// properties: {"roles": ["admin"]}
+```
+
+A property name is used as it is, here and in `SubjectResolver.Builder.property(...)`: a name with a
+dot, such as `cerbos.roles`, is one property, not a nested object. The Spring Boot starter applies
+a `RoleMapping` with `authzen.enforcer.subject.authorities`; see
+[Spring Boot](spring-boot.md#the-callers-roles).
+
 ## Context
 
 Nothing is added to the context by default, so neither personal data such as the client IP nor

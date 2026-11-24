@@ -2,17 +2,22 @@ package io.github.authzenenforcer.spring.internal;
 
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.oauth2.core.OAuth2AuthenticatedPrincipal;
 import org.springframework.security.oauth2.server.resource.authentication.AbstractOAuth2TokenAuthenticationToken;
 import org.springframework.util.ClassUtils;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 /**
  * Gets the claims of a Spring Security {@link Authentication}, for Spring MVC and Spring WebFlux:
  * the claims of a JWT, the attributes of an opaque token or of an OAuth 2.0 login, and otherwise
- * only {@code sub}, set to the name of the authenticated principal.
+ * only {@code sub}, set to the name of the authenticated principal. On request, the names of the
+ * caller's granted authorities travel with them; see {@link CallerAuthorities}.
  */
 final class SecurityClaims {
 
@@ -35,6 +40,36 @@ final class SecurityClaims {
      * @return the claims, or empty if the caller is anonymous
      */
     static Optional<Map<String, Object>> of(Authentication authentication) {
+        return of(authentication, false);
+    }
+
+    /**
+     * Gets the claims, with the names of the caller's granted authorities if asked to.
+     *
+     * @param authentication the authentication, or {@code null}
+     * @param authorities    whether the authorities travel with the claims
+     * @return the claims, or empty if the caller is anonymous
+     */
+    static Optional<Map<String, Object>> of(Authentication authentication, boolean authorities) {
+        Optional<Map<String, Object>> claims = claims(authentication);
+        return authorities ? claims.map(found -> CallerAuthorities.attach(found, names(authentication))) : claims;
+    }
+
+    private static List<String> names(Authentication authentication) {
+        Collection<? extends GrantedAuthority> authorities = authentication.getAuthorities();
+        List<String> names = new ArrayList<>();
+        if (authorities != null) {
+            for (GrantedAuthority authority : authorities) {
+                String name = authority == null ? null : authority.getAuthority();
+                if (name != null) {
+                    names.add(name);
+                }
+            }
+        }
+        return names;
+    }
+
+    private static Optional<Map<String, Object>> claims(Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated()
                 || authentication instanceof AnonymousAuthenticationToken) {
             return Optional.empty();
