@@ -27,11 +27,11 @@ jobs:
           java-version: 17
           cache: maven
           server-id: central
-          server-username: CENTRAL_TOKEN_USERNAME
-          server-password: CENTRAL_TOKEN_PASSWORD
+          server-username-env-var: CENTRAL_TOKEN_USERNAME
+          server-password-env-var: CENTRAL_TOKEN_PASSWORD
           # A dry run signs nothing, so it does not get the key
           gpg-private-key: ${{ github.event_name == 'push' && secrets.GPG_PRIVATE_KEY || '' }}
-          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+          gpg-passphrase-env-var: MAVEN_GPG_PASSPHRASE
       - name: Set version from tag
         if: github.event_name == 'push'
         run: mvn -B -ntp versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false
