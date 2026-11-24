@@ -82,7 +82,13 @@ class ReactiveAuthZenClientTest {
         awaitCalls(1);
         subscription.dispose();
 
-        assertTrue(call.isCancelled());
+        // If that thread has not subscribed to the call yet, it cancels the call when it does,
+        // a moment after dispose() returned; a cancellation that never comes still fails
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (!call.isCancelled()) {
+            assertTrue(System.nanoTime() < deadline, "The call was not cancelled");
+            Thread.sleep(10);
+        }
     }
 
     @Test
