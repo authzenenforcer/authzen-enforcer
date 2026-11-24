@@ -1,11 +1,17 @@
-# Keycloak with the realm used by the interop tests, for manual testing:
+# The PDPs of the interop tests, for manual testing. Keycloak with the realm of the tests:
 #
 #   export AUTHZEN_PEP_CLIENT_SECRET=$(openssl rand -hex 24)
-#   docker compose -f authzen-enforcer-interop-tests/compose.yaml up
+#   docker compose -f authzen-enforcer-interop-tests/compose.yaml up keycloak
 #
-# Then run the interop tests against it:
+# Cerbos with the policies of the tests (Compose reads the whole file, so the variable has to be
+# set, to any value):
 #
-#   AUTHZEN_KEYCLOAK_URL=http://127.0.0.1:8080 mvn -pl authzen-enforcer-interop-tests -am verify -Dinterop.skip=false
+#   AUTHZEN_PEP_CLIENT_SECRET=unused docker compose -f authzen-enforcer-interop-tests/compose.yaml up cerbos
+#
+# Then run the interop tests against them:
+#
+#   AUTHZEN_KEYCLOAK_URL=http://127.0.0.1:8080 AUTHZEN_CERBOS_URL=http://127.0.0.1:3592 \
+#     mvn -pl authzen-enforcer-interop-tests -am verify -Dinterop.skip=false
 #
 # The realm file contains no secrets; Keycloak reads the PEP client secret from the environment
 # when it imports the realm.
@@ -20,3 +26,11 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - ./src/test/resources/keycloak:/opt/keycloak/data/import:ro
+  cerbos:
+    # The interop tests (CerbosPdp) start this image too; Dependabot keeps it current. Cerbos reads
+    # the policies in /policies; its AuthZEN API needs no setting
+    image: ghcr.io/cerbos/cerbos:0.58.0
+    ports:
+      - "127.0.0.1:3592:3592"
+    volumes:
+      - ./src/test/resources/cerbos:/policies:ro

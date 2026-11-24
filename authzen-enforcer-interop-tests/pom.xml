@@ -74,6 +74,11 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <skipTests>${interop.skip}</skipTests>
+                    <!-- CI selects the tests of one PDP with -Dtest and needs
+                         -Dsurefire.failIfNoSpecifiedTests=false for the modules that -am builds; this
+                         module still fails when the filter matches none of its tests, so that a job
+                         cannot pass without running them -->
+                    <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                 </configuration>
             </plugin>
             <!-- Coverage of core by the interop tests, merged with core's own report -->

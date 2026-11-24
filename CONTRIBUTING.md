@@ -37,15 +37,18 @@ installed.
 
 ### Interop tests
 
-`authzen-enforcer-interop-tests` runs the SDK against real PDPs, currently Keycloak with its
-AuthZEN feature. The tests need Docker and are skipped by default:
+`authzen-enforcer-interop-tests` runs the SDK against real PDPs: Keycloak with its AuthZEN
+feature, and Cerbos. The tests need Docker and are skipped by default:
 
 ```bash
 mvn -pl authzen-enforcer-interop-tests -am verify -Dinterop.skip=false
+# the tests of one PDP only
+mvn -pl authzen-enforcer-interop-tests -am verify -Dinterop.skip=false -Dtest='Cerbos*' -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
-Testcontainers starts Keycloak with the realm from `src/test/resources/keycloak`. To use a Keycloak
-that is already running instead, see `authzen-enforcer-interop-tests/compose.yaml`.
+Testcontainers starts Keycloak with the realm from `src/test/resources/keycloak` and Cerbos with the
+policies from `src/test/resources/cerbos`, in the versions that `compose.yaml` names. To use PDPs
+that are already running instead, see `authzen-enforcer-interop-tests/compose.yaml`.
 
 Never commit secrets, such as client secrets or passwords. Read them from environment variables;
 realm files use `${ENV_VAR}` placeholders that Keycloak resolves at import time.

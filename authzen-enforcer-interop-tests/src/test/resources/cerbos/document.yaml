@@ -1,0 +1,22 @@
+# Documents for the interop tests against Cerbos. Cerbos takes the roles of the principal from the
+# AuthZEN subject property "cerbos.roles", its other properties as principal attributes, and the
+# resource properties as resource attributes.
+---
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  resource: "document"
+  version: "default"
+  rules:
+    - actions: ["read"]
+      effect: EFFECT_ALLOW
+      roles: ["viewer", "editor", "admin"]
+    - actions: ["update", "delete"]
+      effect: EFFECT_ALLOW
+      roles: ["admin"]
+    # Editors update the documents of their own department only
+    - actions: ["update"]
+      effect: EFFECT_ALLOW
+      roles: ["editor"]
+      condition:
+        match:
+          expr: request.resource.attr.department == request.principal.attr.department
