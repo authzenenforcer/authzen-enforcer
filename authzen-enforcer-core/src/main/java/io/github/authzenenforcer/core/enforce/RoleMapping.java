@@ -23,7 +23,8 @@ import java.util.Set;
  * }</pre>
  *
  * <p>With a prefix, only the names that start with it count, without it, and a name that is the
- * prefix alone is left out; without a prefix, every name counts as it is. Names keep their order,
+ * prefix alone is left out; the comparison is case-sensitive, so {@code role_admin} does not start
+ * with {@code ROLE_}. Without a prefix, every name counts as it is. Names keep their order,
  * and a repeated one counts once. The property holds the roles as a JSON array of strings, and is
  * left out when there are none, as a claim that is missing is. The mapping owns the property: a
  * property of the same name that the subject already has, for example from a claim, is replaced by
@@ -155,8 +156,9 @@ public final class RoleMapping {
         }
 
         /**
-         * Counts only the names that start with the prefix as roles, without it, such as
-         * {@code ROLE_} for the roles of Spring Security. By default, every name counts.
+         * Counts only the names that start with the prefix, compared case-sensitively, as roles,
+         * without it, such as {@code ROLE_} for the roles of Spring Security. By default, every name
+         * counts.
          *
          * @param prefix the prefix, not empty
          * @return this builder

@@ -29,6 +29,13 @@ public class AuthZenProperties {
     private final Tracing tracing = new Tracing();
 
     /**
+     * Creates the properties.
+     */
+    public AuthZenProperties() {
+        // Bound by Spring Boot
+    }
+
+    /**
      * Returns the properties of the PDP connection.
      *
      * @return the properties
@@ -93,6 +100,13 @@ public class AuthZenProperties {
          * PEP's token for the PDP. A CredentialProvider bean of the application takes precedence.
          */
         private String clientRegistrationId;
+
+        /**
+         * Creates the properties with their defaults.
+         */
+        public Pdp() {
+            // Bound by Spring Boot
+        }
 
         /**
          * Returns the base URL of the PDP.
@@ -237,6 +251,13 @@ public class AuthZenProperties {
         private final Resource resource = new Resource();
 
         /**
+         * Creates the properties with their defaults.
+         */
+        public Enforcer() {
+            // Bound by Spring Boot
+        }
+
+        /**
          * Returns whether every handler is enforced.
          *
          * @return {@code true} if every handler is
@@ -354,6 +375,13 @@ public class AuthZenProperties {
         private String id = "anonymous";
 
         /**
+         * Creates the properties with their defaults.
+         */
+        public Anonymous() {
+            // Bound by Spring Boot
+        }
+
+        /**
          * Returns whether anonymous callers are evaluated.
          *
          * @return {@code true} if they are
@@ -444,6 +472,13 @@ public class AuthZenProperties {
 
         /** The caller's granted authorities as roles in a subject property. */
         private final Authorities authorities = new Authorities();
+
+        /**
+         * Creates the properties with their defaults.
+         */
+        public Subject() {
+            // Bound by Spring Boot
+        }
 
         /**
          * Returns the profile.
@@ -548,6 +583,13 @@ public class AuthZenProperties {
         private String prefix;
 
         /**
+         * Creates the properties with their defaults.
+         */
+        public Authorities() {
+            // Bound by Spring Boot
+        }
+
+        /**
          * Returns the subject property that holds the roles.
          *
          * @return the property name, or null if the authorities are not sent
@@ -603,6 +645,13 @@ public class AuthZenProperties {
          * resources. Use a type that no single resource has.
          */
         private String collectionType = ResourceInferrer.Builder.DEFAULT_COLLECTION_TYPE;
+
+        /**
+         * Creates the properties with their defaults.
+         */
+        public Resource() {
+            // Bound by Spring Boot
+        }
 
         /**
          * Returns whether route segments are singularized.
@@ -696,6 +745,13 @@ public class AuthZenProperties {
         private boolean actionNameTag;
 
         /**
+         * Creates the properties with their defaults.
+         */
+        public Metrics() {
+            // Bound by Spring Boot
+        }
+
+        /**
          * Returns whether metrics are recorded.
          *
          * @return {@code true} if they are
@@ -764,6 +820,13 @@ public class AuthZenProperties {
 
         /** Whether spans carry authzen.action.name. */
         private boolean actionNameAttribute = true;
+
+        /**
+         * Creates the properties with their defaults.
+         */
+        public Tracing() {
+            // Bound by Spring Boot
+        }
 
         /**
          * Returns whether calls are traced.
