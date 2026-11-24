@@ -14,8 +14,9 @@ permissions:
   contents: read
 
 jobs:
-  # Maven runs through mvn-retry.sh, which tries again with -U when a download failed, such as on a
-  # short-lived 404 from Maven Central; a failing test is not retried.
+  # Maven runs through mvn-retry.sh, which tries again when a download failed: with -U after a
+  # short-lived 404 from Maven Central, and after a longer wait when Central limited the rate of
+  # requests (429); a failing test is not retried.
   build:
     name: Build (JDK ${{ matrix.java }})
     runs-on: ubuntu-latest
