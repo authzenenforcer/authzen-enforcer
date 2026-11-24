@@ -81,6 +81,7 @@ Treat it as a deny.
 - [Enforcement](docs/enforcement.md): from an HTTP request to a decision
 - [Spring Boot](docs/spring-boot.md): the starter and `@CheckPermission` in Spring MVC and WebFlux
 - PDP notes: [Keycloak](docs/pdps/keycloak.md)
+- [Examples](https://github.com/authzenenforcer/authzen-enforcer-examples): plain Java, Spring MVC and Spring WebFlux against Keycloak
 
 ## Spring Boot
 
@@ -114,16 +115,20 @@ Security's OAuth 2.0 client, and configures metrics, traces and an opt-in health
 
 ## Modules
 
-| Artifact | Java | Status | Description |
-|---|---|---|---|
-| `authzen-enforcer-core` | 17+ | Available | PDP client, model, Bearer, enforcement of HTTP requests. No dependencies. DPoP is planned. |
-| `authzen-enforcer-spring-boot-starter` | 17+ | Preview | Spring Boot 4 auto-configuration and `@CheckPermission` for Spring MVC and Spring WebFlux |
-| `authzen-enforcer-quarkus` | 17+ | Planned | Quarkus 3 extension |
-| `authzen-enforcer-micrometer` | 17+ | Available | Micrometer metrics for the client |
-| `authzen-enforcer-opentelemetry` | 17+ | Available | OpenTelemetry tracing for the client |
-| `authzen-enforcer-bom` | – | Available | Version alignment |
+| Artifact | Java | Status | Description | Examples |
+|---|---|---|---|---|
+| `authzen-enforcer-core` | 17+ | Available | PDP client, model, Bearer, enforcement of HTTP requests. No dependencies. DPoP is planned. | [plain-java](https://github.com/authzenenforcer/authzen-enforcer-examples/tree/main/plain-java) |
+| `authzen-enforcer-spring-boot-starter` | 17+ | Preview | Spring Boot 4 auto-configuration and `@CheckPermission` for Spring MVC and Spring WebFlux | [spring-boot-mvc](https://github.com/authzenenforcer/authzen-enforcer-examples/tree/main/spring-boot-mvc), [spring-boot-webflux](https://github.com/authzenenforcer/authzen-enforcer-examples/tree/main/spring-boot-webflux) |
+| `authzen-enforcer-quarkus` | 17+ | Planned | Quarkus 3 extension | – |
+| `authzen-enforcer-micrometer` | 17+ | Available | Micrometer metrics for the client | [plain-java](https://github.com/authzenenforcer/authzen-enforcer-examples/blob/main/plain-java/README.md#metrics), [spring-boot-mvc](https://github.com/authzenenforcer/authzen-enforcer-examples/blob/main/spring-boot-mvc/README.md#metrics-and-health), [spring-boot-webflux](https://github.com/authzenenforcer/authzen-enforcer-examples/blob/main/spring-boot-webflux/README.md#metrics-and-health) |
+| `authzen-enforcer-opentelemetry` | 17+ | Available | OpenTelemetry tracing for the client | [plain-java](https://github.com/authzenenforcer/authzen-enforcer-examples/blob/main/plain-java/README.md#tracing), [spring-boot-mvc](https://github.com/authzenenforcer/authzen-enforcer-examples/blob/main/spring-boot-mvc/README.md#tracing), [spring-boot-webflux](https://github.com/authzenenforcer/authzen-enforcer-examples/blob/main/spring-boot-webflux/README.md#tracing) |
+| `authzen-enforcer-bom` | – | Available | Version alignment | – |
 
 Group ID: `io.github.authzenenforcer`
+
+The examples in [authzen-enforcer-examples](https://github.com/authzenenforcer/authzen-enforcer-examples) run against Keycloak as the PDP, in a container
+that their scripts start along with the application, and move to every release of
+authzen-enforcer.
 
 Each module is published with a CycloneDX SBOM beside its jar on Maven Central, from 0.3.0 on, as
 `<artifact>-<version>-cyclonedx.json` and `.xml`, signed like the other files. The SBOM of
@@ -133,4 +138,4 @@ signature by the same key.
 
 ## License
 
-Apache License 2.0
+[Apache License 2.0](LICENSE)

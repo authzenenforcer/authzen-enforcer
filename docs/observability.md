@@ -1,7 +1,9 @@
 # Observability
 
 The client reports what it does through listeners. Two optional modules build on them: one
-records Micrometer metrics, the other OpenTelemetry traces.
+records Micrometer metrics, the other OpenTelemetry traces. The
+[examples](https://github.com/authzenenforcer/authzen-enforcer-examples) use both, in plain Java
+and with the Spring Boot starter.
 
 ## Listening to events
 
