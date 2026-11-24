@@ -171,6 +171,32 @@ class OpenTelemetryTracingTest {
         assertEquals(200L, exchanges.get(1).getAttributes().get(AttributeKey.longKey("http.response.status_code")));
         assertEquals(1L, exchanges.get(1).getAttributes().get(AttributeKey.longKey("http.request.resend_count")));
         assertEquals(StatusCode.UNSET, exchanges.get(1).getStatus().getStatusCode());
+        for (SpanData span : List.of(call, exchanges.get(0), exchanges.get(1))) {
+            assertEquals(OpenTelemetryTracing.INSTRUMENTATION_NAME, span.getInstrumentationScopeInfo().getName());
+        }
+    }
+
+    @Test
+    void namesTheVersionOfTheModuleInTheScope() {
+        // The classes under test have no jar manifest, so the version is passed in
+        OpenTelemetryTracing.tracer(openTelemetry, "1.2.3").spanBuilder("call").startSpan().end();
+
+        SpanData span = exporter.getFinishedSpanItems().get(0);
+        assertEquals(OpenTelemetryTracing.INSTRUMENTATION_NAME, span.getInstrumentationScopeInfo().getName());
+        assertEquals("1.2.3", span.getInstrumentationScopeInfo().getVersion());
+    }
+
+    @Test
+    void leavesTheVersionOutWithoutOne() {
+        OpenTelemetryTracing.tracer(openTelemetry, null).spanBuilder("no version").startSpan().end();
+        OpenTelemetryTracing.tracer(openTelemetry, "").spanBuilder("empty version").startSpan().end();
+
+        List<SpanData> spans = exporter.getFinishedSpanItems();
+        assertEquals(2, spans.size());
+        for (SpanData span : spans) {
+            assertEquals(OpenTelemetryTracing.INSTRUMENTATION_NAME, span.getInstrumentationScopeInfo().getName());
+            assertNull(span.getInstrumentationScopeInfo().getVersion(), span::getName);
+        }
     }
 
     @Test

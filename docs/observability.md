@@ -151,4 +151,8 @@ GET /documents/42                    (your server span)
   `client.listenerDrops()` counts such drops.
 - `PepTracer` is the SPI behind it, for other tracing systems. Every listener can read the spans
   from `CallCompleted.getCallSpan()`, for example to put the trace id in an audit record.
+- The spans belong to the instrumentation scope `io.github.authzenenforcer`, with the version of
+  `authzen-enforcer-opentelemetry` from its jar, such as `0.5.0`, so that a tracing backend can
+  tell which release recorded them. Classes without the jar's manifest, such as those an IDE
+  compiles from source, record the spans without a version.
 - The module uses the `opentelemetry-api` of your application, 1.19 or newer.
