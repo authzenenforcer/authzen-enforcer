@@ -5,7 +5,10 @@ API. Its decisions come from resource policies, which grant actions to the roles
 Unlike a PDP that looks the subject up, Cerbos evaluates the roles that the request carries, so the
 PEP has to send them. This page describes Cerbos 0.58.0, the version it was checked against, with
 its default configuration; see the
-[Cerbos documentation](https://docs.cerbos.dev/cerbos/latest/api/index.html) for the API.
+[Cerbos documentation](https://docs.cerbos.dev/cerbos/latest/api/index.html) for the API. The
+interop tests of this project run against the Cerbos version in
+`authzen-enforcer-interop-tests/compose.yaml`, with the policies in that module, including the roles
+and attributes described below.
 
 ## Connecting
 
@@ -29,7 +32,7 @@ with TLS and network policies or a proxy in front of it.
 | API | Supported |
 |---|---|
 | Access Evaluation | Yes |
-| Access Evaluations | Yes |
+| Access Evaluations | Yes, with all three `evaluations_semantic` values |
 | Subject, Resource and Action Search | No (`404`) |
 
 To filter a list, Cerbos offers a query plan on its own API; see "Filtering lists" in
