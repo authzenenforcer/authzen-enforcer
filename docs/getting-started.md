@@ -83,3 +83,9 @@ made-up decision; call `toCompletableFuture()` for `join()`.
 
 The client is thread-safe and holds the HTTP connections, the discovered metadata and the circuit
 breakers. Create one per PDP and share it.
+
+## A runnable example
+
+The [plain-java example](https://github.com/authzenenforcer/authzen-enforcer-examples/tree/main/plain-java) makes these calls and more against Keycloak as the PDP: metadata
+discovery, single and batch decisions, a credential provider, fail-closed decisions and the circuit
+breaker.

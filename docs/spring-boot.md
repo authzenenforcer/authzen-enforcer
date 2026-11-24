@@ -4,7 +4,10 @@ The `authzen-enforcer-spring-boot-starter` module configures an `AuthZenClient` 
 from properties, and enforces handler methods of Spring MVC and Spring WebFlux annotated with
 `@CheckPermission`. It requires Spring Boot 4.0 or later and Java 17 or later.
 
-The starter is a preview, available since 0.2.0.
+The starter is a preview, available since 0.2.0. The
+[spring-boot-mvc](https://github.com/authzenenforcer/authzen-enforcer-examples/tree/main/spring-boot-mvc) and
+[spring-boot-webflux](https://github.com/authzenenforcer/authzen-enforcer-examples/tree/main/spring-boot-webflux) examples
+run it against Keycloak as the PDP.
 
 ```xml
 <dependency>
