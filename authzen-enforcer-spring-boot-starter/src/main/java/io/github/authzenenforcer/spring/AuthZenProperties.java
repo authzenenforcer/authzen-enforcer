@@ -442,6 +442,9 @@ public class AuthZenProperties {
          */
         private Map<String, String> properties = new LinkedHashMap<>();
 
+        /** The caller's granted authorities as roles in a subject property. */
+        private final Authorities authorities = new Authorities();
+
         /**
          * Returns the profile.
          *
@@ -512,6 +515,72 @@ public class AuthZenProperties {
          */
         public void setProperties(Map<String, String> properties) {
             this.properties = properties;
+        }
+
+        /**
+         * Returns the mapping of the caller's granted authorities.
+         *
+         * @return the mapping
+         */
+        public Authorities getAuthorities() {
+            return authorities;
+        }
+    }
+
+    /**
+     * The caller's granted authorities as roles in a subject property, under
+     * {@code authzen.enforcer.subject.authorities}, for PDPs that evaluate the roles a request
+     * carries.
+     */
+    public static class Authorities {
+
+        /**
+         * Subject property that holds the roles, such as roles. Its name is used as it is: a dot
+         * makes no nested object. Unset, the authorities are not sent.
+         */
+        private String property;
+
+        /**
+         * Prefix of the authorities that count as roles, such as ROLE_, which is removed. Unset,
+         * every authority counts, scopes such as SCOPE_read and factors such as FACTOR_BEARER
+         * included.
+         */
+        private String prefix;
+
+        /**
+         * Returns the subject property that holds the roles.
+         *
+         * @return the property name, or null if the authorities are not sent
+         */
+        public String getProperty() {
+            return property;
+        }
+
+        /**
+         * Sets the subject property that holds the roles.
+         *
+         * @param property the property name
+         */
+        public void setProperty(String property) {
+            this.property = property;
+        }
+
+        /**
+         * Returns the prefix of the authorities that count as roles.
+         *
+         * @return the prefix, or null if every authority counts
+         */
+        public String getPrefix() {
+            return prefix;
+        }
+
+        /**
+         * Sets the prefix of the authorities that count as roles.
+         *
+         * @param prefix the prefix
+         */
+        public void setPrefix(String prefix) {
+            this.prefix = prefix;
         }
     }
 

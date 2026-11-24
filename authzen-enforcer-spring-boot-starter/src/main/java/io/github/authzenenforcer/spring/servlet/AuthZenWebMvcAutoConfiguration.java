@@ -4,6 +4,7 @@ import io.github.authzenenforcer.core.enforce.Enforcer;
 import io.github.authzenenforcer.core.enforce.ResourceInferrer;
 import io.github.authzenenforcer.spring.AuthZenAutoConfiguration;
 import io.github.authzenenforcer.spring.AuthZenProperties;
+import io.github.authzenenforcer.spring.internal.CallerAuthorities;
 import io.github.authzenenforcer.spring.internal.HandlerPermissions;
 import io.github.authzenenforcer.spring.internal.PermissionInterceptor;
 import io.github.authzenenforcer.spring.internal.ProtectedRoutesCheck;
@@ -130,8 +131,8 @@ public class AuthZenWebMvcAutoConfiguration {
 
         @Bean
         @ConditionalOnMissingBean
-        ClaimsExtractor authZenSecurityClaimsExtractor() {
-            return new SecurityClaimsExtractor();
+        ClaimsExtractor authZenSecurityClaimsExtractor(AuthZenProperties properties) {
+            return new SecurityClaimsExtractor(CallerAuthorities.mapping(properties).isPresent());
         }
     }
 

@@ -48,7 +48,9 @@ authzen:
 | `authzen.enforcer.subject.profile` | `default` | `keycloak` adds roles, client roles and groups, and type `client` for service accounts, for Keycloak as the identity provider and another PDP. With Keycloak as the PDP, keep `default`; see [Keycloak](pdps/keycloak.md#subject). |
 | `authzen.enforcer.subject.id-claim` | `sub` | Claim that holds the subject id. |
 | `authzen.enforcer.subject.type` | `user` | Subject type. |
-| `authzen.enforcer.subject.properties.<name>` | – | Claim copied into a subject property, as a dotted path such as `realm_access.roles`. |
+| `authzen.enforcer.subject.properties.<name>` | – | Claim copied into a subject property, as a dotted path such as `realm_access.roles`. The name is used as it is: `cerbos.roles` is one property, not a nested object. |
+| `authzen.enforcer.subject.authorities.property` | – | Subject property that holds the caller's granted authorities as roles; see [The caller's roles](#the-callers-roles). |
+| `authzen.enforcer.subject.authorities.prefix` | – | Prefix of the authorities that count as roles, such as `ROLE_`, which is removed. Unset, every authority counts, `SCOPE_` and `FACTOR_` ones included. |
 | `authzen.enforcer.resource.singularize` | `false` | Turn plural route segments into singular resource types. |
 | `authzen.enforcer.resource.max-id-length` | `1024` | Longer resource ids from path variables or expressions are denied. |
 | `authzen.enforcer.resource.type-names.<segment>` | – | Resource type of a route segment, such as `analyses: analysis`. |
@@ -300,6 +302,63 @@ authentications have no claims. Without Spring Security, every caller is anonymo
 application defines a `ClaimsExtractor` bean (Spring WebFlux: `ReactiveClaimsExtractor`). Expressions see the same claims as
 `#claims`, never the token itself.
 
+## The caller's roles
+
+Some PDPs evaluate the roles that a request carries instead of looking them up. When the roles are
+in a claim of the token, map the claim with `authzen.enforcer.subject.properties`. When the
+application has them as Spring Security's granted authorities, for example from a
+`JwtAuthenticationConverter`, a `UserDetailsService` or a login, send those:
+
+```yaml
+authzen:
+  enforcer:
+    subject:
+      authorities:
+        property: roles    # the subject property the PDP reads the roles from
+        prefix: ROLE_      # only these authorities count, without the prefix
+```
+
+A caller with the authorities `ROLE_admin`, `ROLE_auditor` and `SCOPE_read` is then asked about as
+`{"type": "user", "id": "...", "properties": {"roles": ["admin", "auditor"]}}`. The property
+name is the PDP's: nothing PDP-specific is built in, and a name with a dot, such as `cerbos.roles`,
+is one property, not a nested object. Without a prefix, every authority counts as it is, the
+`SCOPE_` authorities of a JWT and the `FACTOR_` authorities of Spring Security's multi-factor
+authentication included. Without any role, the property is left out, as a claim that is missing
+is, and the PDP decides without it.
+
+The roles are added whichever `SubjectResolver` infers the subject from the claims, the starter's
+or the application's, and own their property: a property of the same name that the resolver set,
+such as `roles` of the Keycloak profile, is replaced or, without roles, removed. A name that
+`authzen.enforcer.subject.properties` maps as well fails at startup. Expressions do not see the
+authorities in `#claims`.
+
+The authorities come from the `Authentication` that the starter's claims extractors read, and the
+starter's `RequestInferrer` adds the roles. A `ClaimsExtractor` or `ReactiveClaimsExtractor` bean
+of the application passes no authorities, so the enforcement sends no roles. A `RequestInferrer`
+bean of the application adds none either, and its resolver gets the authorities among the claims,
+under a name that no token claim has; keep the starter's inferrer, and plug a `SubjectResolver`
+bean into it instead.
+
+### The subject in the application's own calls
+
+A handler that calls the PDP itself, for example to filter a list, should ask about the same
+subject as `@CheckPermission`. The `CallerSubjects` bean infers it from the caller's
+`Authentication`, with the same claims, resolver and roles:
+
+```java
+@GetMapping("/documents")
+List<String> readableDocuments(Authentication caller) {
+    Subject subject = subjects.of(caller).orElseThrow();   // empty for an anonymous caller
+    ...
+}
+```
+
+Resolving the claims of the token directly, such as `Jwt.getClaims()`, would leave out the roles
+from the authorities, and the claims of an opaque token or a login would not be read the way the
+starter reads them. `CallerSubjects` reads the `Authentication` as the starter's claims extractors
+do: with a `ClaimsExtractor`, `ReactiveClaimsExtractor` or `RequestInferrer` bean of the
+application, its subject can differ from that of `@CheckPermission`.
+
 ## Spring WebFlux
 
 In a reactive web application, the starter registers a handler adapter that the dispatcher picks
@@ -331,10 +390,11 @@ resources at once, call the PDP through the `ReactiveAuthZenClient` bean rather 
 
 ```java
 @GetMapping("/documents")
-Mono<List<String>> list(@AuthenticationPrincipal Jwt caller) {
+Mono<List<String>> list(Authentication caller) {
     List<String> ids = store.ids();
-    // One Access Evaluations item per document, with the subject, action and context of reading one
-    return pdp.evaluations(readEach(caller, ids))
+    // One Access Evaluations item per document, with the subject (from CallerSubjects), action and
+    // context of reading one
+    return Mono.defer(() -> pdp.evaluations(readEach(caller, ids)))
             .map(decisions -> IntStream.range(0, ids.size())
                     .filter(decisions::isPermitted)
                     .mapToObj(ids::get)
@@ -347,7 +407,10 @@ Mono<List<String>> list(@AuthenticationPrincipal Jwt caller) {
 Its methods mirror the client's asynchronous ones and return a `Mono`, or a `Flux` for the
 searches over all pages. A call starts when the publisher is subscribed to, on Reactor's bounded
 elastic scheduler as the enforcement's do, and cancelling the subscription cancels it. Failures
-arrive as `AuthZenException`s, so turning them into a deny is up to the handler. Each call starts
+arrive as `AuthZenException`s, so turning them into a deny is up to the handler. `Mono.defer` keeps
+building the request, which infers the subject, inside the subscription, so that a caller whose
+claims identify no subject (an `InferenceException`, also an `AuthZenException`) is denied the
+same way. Each call starts
 with the request's observation in scope, so that it joins the trace of the request; see
 [Observability](#observability). The client's own asynchronous methods, such as
 `evaluationsAsync`, start a trace of their own in Spring WebFlux unless

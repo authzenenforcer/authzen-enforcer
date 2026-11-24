@@ -20,6 +20,6 @@ the client behaves; the Javadoc describes each type and method.
   and how explicit values override what is inferred.
 - [Spring Boot](spring-boot.md): the starter, its properties and `@CheckPermission` in Spring MVC
   and Spring WebFlux.
-- PDPs: [Keycloak](pdps/keycloak.md).
+- PDPs: [Keycloak](pdps/keycloak.md), [Cerbos](pdps/cerbos.md).
 - [Examples](https://github.com/authzenenforcer/authzen-enforcer-examples): runnable applications in plain Java, Spring MVC and Spring WebFlux
   against Keycloak as the PDP, with metrics and traces.

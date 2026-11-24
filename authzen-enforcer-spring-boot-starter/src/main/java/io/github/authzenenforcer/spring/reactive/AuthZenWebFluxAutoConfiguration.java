@@ -5,6 +5,7 @@ import io.github.authzenenforcer.core.enforce.Enforcer;
 import io.github.authzenenforcer.core.enforce.ResourceInferrer;
 import io.github.authzenenforcer.spring.AuthZenAutoConfiguration;
 import io.github.authzenenforcer.spring.AuthZenProperties;
+import io.github.authzenenforcer.spring.internal.CallerAuthorities;
 import io.github.authzenenforcer.spring.internal.HandlerAdapterOrderCheck;
 import io.github.authzenenforcer.spring.internal.HandlerPermissions;
 import io.github.authzenenforcer.spring.internal.PermissionHandlerAdapter;
@@ -177,8 +178,8 @@ public class AuthZenWebFluxAutoConfiguration {
 
         @Bean
         @ConditionalOnMissingBean
-        ReactiveClaimsExtractor authZenReactiveSecurityClaimsExtractor() {
-            return new ReactiveSecurityClaimsExtractor();
+        ReactiveClaimsExtractor authZenReactiveSecurityClaimsExtractor(AuthZenProperties properties) {
+            return new ReactiveSecurityClaimsExtractor(CallerAuthorities.mapping(properties).isPresent());
         }
     }
 

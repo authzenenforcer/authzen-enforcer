@@ -9,6 +9,8 @@ import io.github.authzenenforcer.core.enforce.ResourceInferrer;
 import io.github.authzenenforcer.core.enforce.RequestDescription;
 import io.github.authzenenforcer.core.enforce.Enforcer;
 import io.github.authzenenforcer.core.enforce.SubjectResolver;
+import io.github.authzenenforcer.core.enforce.PermissionSpec;
+import io.github.authzenenforcer.core.enforce.RequestInferrer;
 import io.github.authzenenforcer.core.model.Subject;
 import io.github.authzenenforcer.spring.internal.HandlerAdapterOrderCheck;
 import io.github.authzenenforcer.spring.internal.ProtectedRoutesCheck;
@@ -18,12 +20,17 @@ import io.github.authzenenforcer.spring.servlet.AuthZenWebMvcAutoConfiguration;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.context.runner.ReactiveWebApplicationContextRunner;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.boot.webflux.autoconfigure.WebFluxAutoConfiguration;
 import org.springframework.boot.webmvc.autoconfigure.WebMvcAutoConfiguration;
 import org.springframework.core.PriorityOrdered;
+import org.springframework.security.authentication.TestingAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -98,6 +105,92 @@ class AutoConfigurationTest {
                     assertEquals("person", subject.getType());
                     assertEquals("o-1", subject.getId());
                     assertEquals(Map.of("roles", List.of("admin")), subject.getProperties());
+                });
+    }
+
+    @Test
+    void keepsADottedPropertyNameFlat() {
+        runner.withPropertyValues("authzen.pdp.url=https://pdp.example.com",
+                        "authzen.enforcer.subject.properties.cerbos.roles=realm_access.roles")
+                .run(context -> {
+                    Subject subject = context.getBean(SubjectResolver.class).resolve(Map.of("sub", "s-1",
+                            "realm_access", Map.of("roles", List.of("employee"))));
+                    // One property named cerbos.roles, as Cerbos reads it, not an object cerbos
+                    assertEquals(Map.of("cerbos.roles", List.of("employee")), subject.getProperties());
+                });
+    }
+
+    @Test
+    void addsTheRolesAmongTheAuthoritiesToTheSubjectOfACustomResolver() {
+        runner.withPropertyValues("authzen.pdp.url=https://pdp.example.com",
+                        "authzen.enforcer.subject.authorities.property=roles",
+                        "authzen.enforcer.subject.authorities.prefix=ROLE_")
+                .withBean(SubjectResolver.class, () -> claims -> Subject.of("employee", (String) claims.get("sub")))
+                .run(context -> {
+                    Subject subject = context.getBean(CallerSubjects.class)
+                            .of(new TestingAuthenticationToken("alice", null, "ROLE_admin", "SCOPE_read"))
+                            .orElseThrow();
+                    assertEquals("employee", subject.getType());
+                    assertEquals("alice", subject.getId());
+                    assertEquals(Map.of("roles", List.of("admin")), subject.getProperties());
+                    assertTrue(context.getBean(CallerSubjects.class).of(null).isEmpty());
+                });
+    }
+
+    @Test
+    void sendsOnlyTheAuthoritiesInTheirPropertyWithTheKeycloakProfile() {
+        runner.withPropertyValues("authzen.pdp.url=https://pdp.example.com",
+                        "authzen.enforcer.subject.profile=keycloak",
+                        "authzen.enforcer.subject.authorities.property=roles",
+                        "authzen.enforcer.subject.authorities.prefix=ROLE_")
+                .run(context -> {
+                    CallerSubjects subjects = context.getBean(CallerSubjects.class);
+                    Jwt token = Jwt.withTokenValue("t").header("alg", "none").subject("alice")
+                            .claim("realm_access", Map.of("roles", List.of("realm-admin"))).build();
+                    // The profile maps realm_access.roles to roles too; the authorities own the property
+                    assertEquals(Map.of("roles", List.of("auditor")), subjects.of(new JwtAuthenticationToken(token,
+                            List.of(new SimpleGrantedAuthority("ROLE_auditor")))).orElseThrow().getProperties());
+                    assertEquals(Map.of(), subjects.of(new JwtAuthenticationToken(token,
+                            List.of(new SimpleGrantedAuthority("SCOPE_read")))).orElseThrow().getProperties());
+                });
+    }
+
+    @Test
+    void rejectsAnAuthoritiesPrefixWithoutAProperty() {
+        runner.withPropertyValues("authzen.pdp.url=https://pdp.example.com",
+                        "authzen.enforcer.subject.authorities.prefix=ROLE_")
+                .run(context -> {
+                    assertNotNull(context.getStartupFailure());
+                    assertTrue(rootMessage(context.getStartupFailure())
+                            .contains("authzen.enforcer.subject.authorities.property"));
+                });
+    }
+
+    @Test
+    void rejectsAPropertyFromBothAClaimAndTheAuthorities() {
+        runner.withPropertyValues("authzen.pdp.url=https://pdp.example.com",
+                        "authzen.enforcer.subject.properties.roles=realm_access.roles",
+                        "authzen.enforcer.subject.authorities.property=roles")
+                .run(context -> {
+                    assertNotNull(context.getStartupFailure());
+                    assertTrue(rootMessage(context.getStartupFailure()).contains("choose one"));
+                });
+    }
+
+    @Test
+    void startsWithMappedAuthoritiesButWithoutSpringSecurity() {
+        runner.withPropertyValues("authzen.pdp.url=https://pdp.example.com",
+                        "authzen.enforcer.subject.authorities.property=roles")
+                .withClassLoader(new FilteredClassLoader("org.springframework.security."))
+                .run(context -> {
+                    assertNull(context.getStartupFailure());
+                    assertFalse(context.containsBean("authZenCallerSubjects"));
+                    // Claims without authorities, as a custom extractor gives them: no roles
+                    assertEquals(Subject.of("user", "s-1"),
+                            context.getBean(RequestInferrer.class).infer(RequestDescription.builder()
+                                    .method("GET").routePattern("/documents/{id}")
+                                    .pathVariables(Map.of("id", "1")).claims(Map.of("sub", "s-1")).build(),
+                                    PermissionSpec.none()).getRequest().orElseThrow().getSubject());
                 });
     }
 
