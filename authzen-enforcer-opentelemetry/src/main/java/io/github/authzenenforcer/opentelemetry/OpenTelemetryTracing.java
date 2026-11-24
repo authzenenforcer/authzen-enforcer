@@ -14,6 +14,7 @@ import io.opentelemetry.api.trace.SpanBuilder;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.api.trace.TracerBuilder;
 import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
 import io.opentelemetry.context.Context;
 
@@ -84,12 +85,20 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * never ended and do not reach the exporter; {@code AuthZenClient.listenerDrops()} counts such
  * drops.
  *
+ * <p>The spans belong to the instrumentation scope {@value #INSTRUMENTATION_NAME}, with the version
+ * of this module, such as {@code 0.5.0}, so that a tracing backend can tell which release recorded
+ * them. The version comes from the module's jar; a build without its manifest, such as classes
+ * compiled by an IDE, records the spans without a version.
+ *
  * <p>Instances are thread-safe; one instance can serve several clients.
  */
 public final class OpenTelemetryTracing implements PepTracer {
 
     /** The instrumentation scope name of the tracer. */
     public static final String INSTRUMENTATION_NAME = "io.github.authzenenforcer";
+
+    /** The version of this module from its jar's manifest, or null without one. */
+    private static final String VERSION = OpenTelemetryTracing.class.getPackage().getImplementationVersion();
 
     private static final W3CTraceContextPropagator W3C = W3CTraceContextPropagator.getInstance();
 
@@ -98,9 +107,18 @@ public final class OpenTelemetryTracing implements PepTracer {
     private final boolean actionNameAttribute;
 
     private OpenTelemetryTracing(Builder builder) {
-        this.tracer = builder.openTelemetry.getTracer(INSTRUMENTATION_NAME);
+        this.tracer = tracer(builder.openTelemetry, VERSION);
         this.resourceTypeAttribute = builder.resourceTypeAttribute;
         this.actionNameAttribute = builder.actionNameAttribute;
+    }
+
+    /** The tracer of the instrumentation scope, with the given version unless it is null or empty. */
+    static Tracer tracer(OpenTelemetry openTelemetry, String version) {
+        TracerBuilder builder = openTelemetry.tracerBuilder(INSTRUMENTATION_NAME);
+        if (version != null && !version.isEmpty()) {
+            builder.setInstrumentationVersion(version);
+        }
+        return builder.build();
     }
 
     /**

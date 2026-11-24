@@ -7,6 +7,13 @@ the API.
 
 ## [Unreleased]
 
+### Changed
+
+- The spans of `authzen-enforcer-opentelemetry` name the version of the module in their
+  instrumentation scope, such as `io.github.authzenenforcer` `0.5.0`, so that a tracing backend can
+  tell which release recorded them; before, the scope had no version
+  ([#109](https://github.com/authzenenforcer/authzen-enforcer/issues/109)).
+
 ## [0.4.0] - 2026-11-24
 
 ### Added
