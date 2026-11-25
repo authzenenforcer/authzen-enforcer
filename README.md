@@ -14,6 +14,14 @@ A Java SDK that acts as a **Policy Enforcement Point (PEP)** for the
 [OpenID AuthZEN Authorization API](https://openid.net/wg/authzen/). It sends AuthZEN-compliant
 requests to a Policy Decision Point (PDP) and returns the decision to your application.
 
+It implements the
+[Authorization API 1.0](https://openid.net/specs/authorization-api-1_0-final.html) Final
+Specification (January 2026): Access Evaluation, Access Evaluations, the Subject, Resource and
+Action Search APIs, and PDP metadata discovery. Every change is tested in CI against real PDPs,
+Keycloak and Cerbos, in [`authzen-enforcer-interop-tests`](authzen-enforcer-interop-tests): the
+Access Evaluation and Access Evaluations APIs and discovery. Neither PDP offers the Search APIs,
+which are tested against a fake PDP.
+
 > **Status:** early development. Releases before 1.0 may change the API; see the
 > [changelog](CHANGELOG.md).
 >

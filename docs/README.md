@@ -1,8 +1,9 @@
 # authzen-enforcer documentation
 
 authzen-enforcer is a Java SDK that acts as a Policy Enforcement Point (PEP) for the
-[OpenID AuthZEN Authorization API 1.0](https://openid.net/wg/authzen/). These pages describe how
-the client behaves; the Javadoc describes each type and method.
+[OpenID AuthZEN Authorization API 1.0](https://openid.net/specs/authorization-api-1_0-final.html)
+Final Specification. These pages describe how the client behaves; the Javadoc describes each type
+and method.
 
 - [Getting started](getting-started.md): adding the dependency, the first decision, errors and
   threading.
